@@ -153,10 +153,12 @@ async fn main() {
         match selection {
             Command::AddUser => {
                 let username = Text::new("Username:").prompt().unwrap();
+                let username = username.to_uppercase();
                 let password = Password::new("Password:")
                     .without_confirmation()
                     .prompt()
                     .unwrap();
+                let password = password.to_uppercase();
                 match add_user(&db, username.clone(), &password).await {
                     Ok(_) => {
                         println!("User {username} was successfully added!");
@@ -169,6 +171,7 @@ async fn main() {
             }
             Command::RemoveUser => {
                 let username = Text::new("Username:").prompt().unwrap();
+                let username = username.to_uppercase();
                 match remove_user(&db, username.clone()).await {
                     Ok(true) => {
                         println!("User {username} was successfully removed!");

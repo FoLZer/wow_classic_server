@@ -173,7 +173,7 @@ pub async fn handle_connection(
                     }
                 }
 
-                {
+                if unresolved_num_players.len() > 0 {
                     let queue = Arc::new(ConcurrentQueue::bounded(unresolved_num_players.len()));
                     // Otherwise
                     futures::stream::iter(unresolved_num_players)
