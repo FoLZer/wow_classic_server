@@ -1,0 +1,3 @@
+bind_to = "0.0.0.0:3724"
+database_path = "authserver.db"
+ipc_socket_name = "wow_server.sock"

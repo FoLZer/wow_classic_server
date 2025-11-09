@@ -1,0 +1,3 @@
+[workspace]
+members = ["authserver", "ipc_comms","macros","packets", "authserver/migration", "authserver/entity"]
+resolver = "2"
