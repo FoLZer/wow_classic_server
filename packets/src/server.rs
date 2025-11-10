@@ -1,10 +1,12 @@
 #![allow(non_camel_case_types)]
 
-use std::{sync::Mutex, io::Write};
+use std::{io::Write, sync::Mutex};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use lazy_static::lazy_static;
 use macros::create_server_packets;
+
+use crate::account_result::AccountResult;
 
 lazy_static! {
     static ref ENCRYPT_DATA: Mutex<(usize, u8)> = Mutex::new((0, 0));
@@ -14,6 +16,9 @@ lazy_static! {
 create_server_packets!(
 SMSG_AUTH_CHALLENGE 0x1EC {
     server_seed: u32: LittleEndian,
+},
+SMSG_AUTH_RESPONSE 0x1EE {
+    result: AccountResult: LittleEndian,
 },
 );
 

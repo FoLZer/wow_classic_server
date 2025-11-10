@@ -21,3 +21,6 @@ sea-orm = { version = "1.1.0", features = [
 ] }
 gameserver_entity = { path = "./gameserver_entity" }
 gameserver_migration = { path = "./gameserver_migration" }
+itertools = "0.14.0"
+sha1 = "0.10.6"
+hex = "0.4.3"

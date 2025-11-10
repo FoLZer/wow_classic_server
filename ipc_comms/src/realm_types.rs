@@ -1,7 +1,7 @@
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Decode, Encode, Clone, Deserialize, Serialize)]
+#[derive(Decode, Encode, Clone, Deserialize, Serialize, Debug)]
 pub enum RealmType {
     Normal,
     PvP,
@@ -34,7 +34,7 @@ impl TryFrom<u8> for RealmType {
     }
 }
 
-#[derive(Decode, Encode, Clone, Deserialize, Serialize)]
+#[derive(Decode, Encode, Clone, Deserialize, Serialize, Debug)]
 pub enum RealmCategory {
     Unkn,
 }

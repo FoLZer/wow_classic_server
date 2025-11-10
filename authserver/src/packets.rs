@@ -214,6 +214,7 @@ impl From<std::string::FromUtf8Error> for ParseError {
 
 #[allow(non_camel_case_types)]
 #[allow(unused)]
+#[derive(Debug)]
 pub enum ServerPacket {
     CMD_AUTH_LOGON_CHALLENGE {
         server_public_key: [u8; 32],
@@ -239,6 +240,7 @@ pub enum ServerPacket {
     CMD_XFER_DATA,
 }
 
+#[derive(Debug)]
 pub struct RealmInfo {
     pub realm_type: RealmType,
     pub flags: u8,
@@ -250,6 +252,7 @@ pub struct RealmInfo {
     pub realm_id: u8,
 }
 
+#[derive(Debug)]
 pub struct PinStruct {
     pin_grid_seed: u32,
     pin_salt: [u8; 16],
@@ -349,6 +352,7 @@ impl ServerPacket {
 
 #[allow(non_camel_case_types)]
 #[allow(unused)]
+#[derive(Debug)]
 pub enum LoginPacketErrors {
     FAIL_UNKNOWN0,
     FAIL_UNKNOWN1,

@@ -9,36 +9,36 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(User::Table)
+                    .table(Character::Table)
                     .if_not_exists()
                     .col(
-                        ColumnDef::new(User::Id)
+                        ColumnDef::new(Character::Id)
                             .integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(User::AccountName).string().not_null())
-                    .col(ColumnDef::new(User::PasswordVerifier).blob().not_null())
-                    .col(ColumnDef::new(User::Salt).binary_len(32).not_null())
+                    .col(ColumnDef::new(Character::AccountId).integer().not_null())
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(User::Table).to_owned())
-            .await
+            .drop_table(Table::drop().table(Character::Table).to_owned())
+            .await?;
+
+        Ok(())
     }
 }
 
 #[derive(DeriveIden)]
-enum User {
+enum Character {
     Table,
 
     Id,
-    AccountName,
-    PasswordVerifier,
-    Salt,
+    AccountId,
 }

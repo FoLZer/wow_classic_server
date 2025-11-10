@@ -83,9 +83,9 @@ async fn main() {
     let server_pipes: Arc<RwLock<HashMap<u8, Arc<Mutex<SendHalf>>>>> =
         Arc::new(RwLock::new(HashMap::new()));
     let active_realms: Arc<RwLock<HashMap<u8, RealmData>>> = Arc::new(RwLock::new(HashMap::new()));
-    let active_sessions: Arc<RwLock<HashMap<String, [u8; 40]>>> =
+    let active_sessions: Arc<RwLock<HashMap<String, (u32, [u8; 40])>>> =
         Arc::new(RwLock::new(HashMap::new()));
-    let num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<String, CacheData<u8, 60>>>>> =
+    let num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<u32, CacheData<u8, 60>>>>> =
         Arc::new(RwLock::new(HashMap::new()));
     let exiting = Arc::new(AtomicBool::new(false));
 

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
+    io::ErrorKind,
     net::SocketAddr,
     sync::{
         Arc,
@@ -8,13 +9,15 @@ use std::{
 };
 
 use interprocess::local_socket::{
-    GenericNamespaced, ListenerOptions, ToNsName, tokio::SendHalf, traits::tokio::{Listener, Stream}
+    GenericNamespaced, ListenerOptions, ToNsName,
+    tokio::SendHalf,
+    traits::tokio::{Listener, Stream},
 };
 use ipc_comms::{
-    AuthServerError, AuthServerIpcMessage, GameServerIpcMessage,
+    AuthServerError, AuthServerIpcMessage, GameServerIpcMessage, IpcError, SessionKeyResponse,
     realm_types::{RealmCategory, RealmType},
 };
-use log::error;
+use log::{error, warn};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::cache::CacheData;
@@ -31,9 +34,9 @@ pub struct RealmData {
 pub async fn start_ipc_task(
     ipc_socket_name: &str,
     //server_pipes: Arc<Mutex<Vec<Arc<Mutex<Stream>>>>>,
-    active_sessions: Arc<RwLock<HashMap<String, [u8; 40]>>>,
+    active_sessions: Arc<RwLock<HashMap<String, (u32, [u8; 40])>>>,
     active_realms: Arc<RwLock<HashMap<u8, RealmData>>>,
-    num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<String, CacheData<u8, 60>>>>>,
+    num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<u32, CacheData<u8, 60>>>>>,
     server_pipes: Arc<RwLock<HashMap<u8, Arc<Mutex<SendHalf>>>>>,
     exiting: Arc<AtomicBool>,
 ) {
@@ -78,6 +81,10 @@ pub async fn start_ipc_task(
                     while !exiting.load(Ordering::Relaxed) {
                         let packet = match AuthServerIpcMessage::read(&mut rx).await {
                             Ok(v) => v,
+                            Err(IpcError::Io(e)) if e.kind() == ErrorKind::UnexpectedEof => {
+                                warn!("Game server (id: {:?}) connection died", saved_realm_id);
+                                return;
+                            }
                             Err(e) => {
                                 error!("Failed to read an IPC message from a game server: {e:?}");
                                 continue;
@@ -148,7 +155,13 @@ pub async fn start_ipc_task(
 
                                 let response = GameServerIpcMessage::PlayerSessionKeyResponse {
                                     account_name,
-                                    session_key,
+                                    session_key: match session_key {
+                                        Some(v) => SessionKeyResponse::Authenticated {
+                                            account_id: v.0,
+                                            session_key: v.1
+                                        },
+                                        None => SessionKeyResponse::Unauthenticated,
+                                    },
                                 };
 
                                 let mut tx_lock = tx.lock().await;
@@ -164,7 +177,7 @@ pub async fn start_ipc_task(
                                 };
                             }
                             AuthServerIpcMessage::PlayerNumCharactersResponse {
-                                account_name,
+                                account_id,
                                 num_characters,
                             } => {
                                 let Some(realm_id) = saved_realm_id else {
@@ -175,7 +188,7 @@ pub async fn start_ipc_task(
                                 };
                                 let mut lock = num_player_characters_cache.write().await;
                                 let map = lock.entry(realm_id).or_default();
-                                match map.entry(account_name) {
+                                match map.entry(account_id) {
                                     Entry::Occupied(mut occupied_entry) => {
                                         occupied_entry.get_mut().update_data(num_characters);
                                     }

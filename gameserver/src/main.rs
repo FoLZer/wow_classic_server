@@ -1,7 +1,9 @@
 mod auth;
+mod character_screen_connection;
 mod ipc_connection;
 
 use std::{
+    collections::HashMap,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     path::PathBuf,
     str::FromStr,
@@ -9,13 +11,22 @@ use std::{
 };
 
 use gameserver_migration::{Migrator, MigratorTrait};
-use ipc_comms::realm_types::{RealmCategory, RealmType};
+use interprocess::local_socket::tokio::SendHalf;
+use ipc_comms::{
+    SessionKeyResponse,
+    realm_types::{RealmCategory, RealmType},
+};
 use log::{error, info};
 use sea_orm::{Database, DatabaseConnection};
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, RwLock},
+};
 
-use crate::ipc_connection::start_ipc_task;
+use crate::{
+    character_screen_connection::CharacterScreenConnection, ipc_connection::start_ipc_task,
+};
 
 #[derive(Deserialize, Serialize)]
 struct AppSettings {
@@ -65,10 +76,17 @@ async fn main() {
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
 
+    let server_pipe: Arc<Mutex<Option<SendHalf>>> = Arc::new(Mutex::new(None));
+    // Once connection is established, the key gets removed from here
+    let player_session_keys: Arc<Mutex<HashMap<String, SessionKeyResponse>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let exiting = Arc::new(AtomicBool::new(false));
     start_ipc_task(
         config.ipc_socket_name,
+        db.clone(),
         exiting.clone(),
+        server_pipe.clone(),
+        player_session_keys.clone(),
         config.server_id,
         config.server_type,
         0, //TODO: real flags values
@@ -92,7 +110,19 @@ async fn main() {
             };
             info!("New connection from: {}", ip);
 
+            let player_session_keys = player_session_keys.clone();
+            let server_pipe = server_pipe.clone();
             tokio::spawn(async move {
+                let conn = CharacterScreenConnection::authenticate(
+                    stream,
+                    player_session_keys,
+                    server_pipe,
+                )
+                .await
+                .unwrap();
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                }
                 //let player = PlayerConnection::handle_auth(stream, db).await.unwrap();
                 //player.connection_loop().await;
             });

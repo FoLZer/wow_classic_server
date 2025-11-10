@@ -20,10 +20,10 @@ pub enum AuthServerIpcMessage {
         realm_category: RealmCategory,
     },
     PlayerSessionKeyRequest {
-        account_name: String
+        account_name: String // Game server can only access account name at first
     },
     PlayerNumCharactersResponse {
-        account_name: String,
+        account_id: u32,
         num_characters: u8
     },
     // UpdateNumCharactersCache?
@@ -63,15 +63,24 @@ impl AuthServerIpcMessage {
     }
 }
 
+#[derive(Decode, Encode)]
+pub enum SessionKeyResponse {
+    Authenticated {
+        account_id: u32, // lets the server know the account id of the player
+        session_key: [u8; 40]
+    }, 
+    Unauthenticated
+}
+
 // Auth server -> Game server
 #[derive(Decode, Encode)]
 pub enum GameServerIpcMessage {
     PlayerSessionKeyResponse {
         account_name: String,
-        session_key: Option<[u8; 40]> // if None -> user is not authenticated
+        session_key: SessionKeyResponse // if None -> user is not authenticated
     },
     PlayerNumCharactersRequest {
-        account_name: String,
+        account_id: u32,
     },
     AuthServerError(AuthServerError),
     AuthServerClosed

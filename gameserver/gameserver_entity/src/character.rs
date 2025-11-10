@@ -3,15 +3,11 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "user")]
+#[sea_orm(table_name = "character")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub account_name: String,
-    #[sea_orm(column_type = "Blob")]
-    pub password_verifier: Vec<u8>,
-    #[sea_orm(column_type = "Binary(32)")]
-    pub salt: Vec<u8>,
+    pub account_id: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

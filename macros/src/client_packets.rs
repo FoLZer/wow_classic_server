@@ -68,7 +68,7 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
             let colon_token = &v.colon_token1;
             let ty = &v.ty;
 
-            quote!(#name #colon_token #ty)
+            quote!(pub #name #colon_token #ty)
         });
 
         let attrs_read = v.attrs.iter().map(|v| {
@@ -89,15 +89,13 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
                 ),*
             }
 
-            impl #name {
+            impl ReadablePacket for #name {
                 fn from_reader(cursor: &mut ::std::io::Cursor<&[u8]>) -> ::std::result::Result<Self, ::std::io::Error> {
                     Ok(Self {
                         #(#attrs_read),*
                     })
                 }
-            }
 
-            impl ReadablePacket for #name {
                 fn opcode() -> u32 {
                     #opcode
                 }

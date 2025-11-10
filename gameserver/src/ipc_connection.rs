@@ -1,19 +1,39 @@
 use std::{
-    io::ErrorKind, net::SocketAddr, sync::{
+    collections::HashMap,
+    io::ErrorKind,
+    net::SocketAddr,
+    sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-    }, time::Duration
+    },
+    time::Duration,
 };
 
 use interprocess::local_socket::{
     GenericNamespaced,
-    tokio::{Stream, prelude::*},
+    tokio::{SendHalf, Stream, prelude::*},
 };
-use ipc_comms::{AuthServerIpcMessage, GameServerIpcMessage, realm_types::{RealmCategory, RealmType}};
-use log::{error, info};
+use ipc_comms::{
+    AuthServerIpcMessage, GameServerIpcMessage, IpcError, SessionKeyResponse,
+    realm_types::{RealmCategory, RealmType},
+};
+use log::{error, info, warn};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
 use tokio::sync::Mutex;
 
-pub fn start_ipc_task(ipc_socket_name: String, exiting: Arc<AtomicBool>, realm_id: u8, realm_type: RealmType, flags: u8, realm_name: String, address_port: SocketAddr, realm_category: RealmCategory) {
+pub fn start_ipc_task(
+    ipc_socket_name: String,
+    db: DatabaseConnection,
+    exiting: Arc<AtomicBool>,
+    server_pipe: Arc<Mutex<Option<SendHalf>>>,
+    player_session_keys: Arc<Mutex<HashMap<String, SessionKeyResponse>>>,
+    realm_id: u8,
+    realm_type: RealmType,
+    flags: u8,
+    realm_name: String,
+    address_port: SocketAddr,
+    realm_category: RealmCategory,
+) {
     tokio::spawn(async move {
         let conn;
         loop {
@@ -27,7 +47,7 @@ pub fn start_ipc_task(ipc_socket_name: String, exiting: Arc<AtomicBool>, realm_i
             {
                 Ok(v) => v,
                 Err(e) if e.kind() == ErrorKind::ConnectionRefused => {
-                    info!(
+                    warn!(
                         "Failed to start an IPC stream, check if authserver is running. Retrying in 3 seconds"
                     );
                     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -59,11 +79,31 @@ pub fn start_ipc_task(ipc_socket_name: String, exiting: Arc<AtomicBool>, realm_i
             }
         };
 
-        let tx = Arc::new(Mutex::new(tx));
+        {
+            let mut lock = server_pipe.lock().await;
+            lock.replace(tx);
+        }
 
         while !exiting.load(Ordering::Relaxed) {
             let packet = match GameServerIpcMessage::read(&mut rx).await {
                 Ok(v) => v,
+                Err(IpcError::Io(e)) if e.kind() == ErrorKind::UnexpectedEof => {
+                    warn!("Auth server connection died, restarting the IPC task");
+                    start_ipc_task(
+                        ipc_socket_name,
+                        db,
+                        exiting,
+                        server_pipe,
+                        player_session_keys,
+                        realm_id,
+                        realm_type,
+                        flags,
+                        realm_name,
+                        address_port,
+                        realm_category,
+                    );
+                    return;
+                }
                 Err(e) => {
                     error!("Failed to read an IPC message from an auth server: {e:?}");
                     continue;
@@ -74,19 +114,57 @@ pub fn start_ipc_task(ipc_socket_name: String, exiting: Arc<AtomicBool>, realm_i
                 GameServerIpcMessage::PlayerSessionKeyResponse {
                     account_name,
                     session_key,
-                } => todo!(),
-                GameServerIpcMessage::PlayerNumCharactersRequest { account_name } => todo!(),
+                } => {
+                    let mut lock = player_session_keys.lock().await;
+                    lock.insert(account_name, session_key);
+                }
+                GameServerIpcMessage::PlayerNumCharactersRequest { account_id } => {
+                    let num_characters = gameserver_entity::character::Entity::find()
+                        .filter(gameserver_entity::character::Column::AccountId.eq(account_id))
+                        .count(&db)
+                        .await
+                        .unwrap();
+
+                    let Some(ref mut tx_lock) = *server_pipe.lock().await else {
+                        panic!("IPC tx pipe was removed from outside the responsible method"); // This should never happen
+                    };
+                    let packet = AuthServerIpcMessage::PlayerNumCharactersResponse {
+                        account_id,
+                        num_characters: num_characters.min(u8::MAX as u64) as u8,
+                    };
+                    match packet.write(&mut *tx_lock).await {
+                        Ok(()) => (),
+                        Err(e) => {
+                            error!("Failed to write an IPC message to an auth server: {e:?}");
+                        }
+                    };
+                }
                 GameServerIpcMessage::AuthServerError(auth_server_error) => todo!(),
                 GameServerIpcMessage::AuthServerClosed => {
+                    *server_pipe.lock().await = None;
                     //restart the IPC
-                    start_ipc_task(ipc_socket_name, exiting, realm_id, realm_type, flags, realm_name, address_port, realm_category);
+                    start_ipc_task(
+                        ipc_socket_name,
+                        db,
+                        exiting,
+                        server_pipe,
+                        player_session_keys,
+                        realm_id,
+                        realm_type,
+                        flags,
+                        realm_name,
+                        address_port,
+                        realm_category,
+                    );
                     return;
                 }
             }
         }
 
         {
-            let mut tx_lock = tx.lock().await;
+            let Some(ref mut tx_lock) = server_pipe.lock().await.take() else {
+                panic!("IPC tx pipe was removed from outside the responsible method"); // This should never happen
+            };
             let packet = AuthServerIpcMessage::GameServerClosed;
             match packet.write(&mut *tx_lock).await {
                 Ok(()) => (),

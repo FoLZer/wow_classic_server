@@ -106,6 +106,7 @@ pub enum ParseError {
 }
 
 pub trait ReadablePacket {
+    fn from_reader(cursor: &mut ::std::io::Cursor<&[u8]>) -> Result<Self, std::io::Error> where Self: Sized;
     fn opcode() -> u32;
 }
 
@@ -168,5 +169,5 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
         return Err(ParseError::UnexpectedOpcode);
     }
 
-    todo!()
+    T::from_reader(&mut cursor).map_err(ParseError::Io)
 }

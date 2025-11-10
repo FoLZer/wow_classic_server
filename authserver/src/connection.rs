@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::CString, sync::Arc, task::Poll};
+use std::{collections::HashMap, ffi::CString, sync::Arc};
 
 use concurrent_queue::ConcurrentQueue;
 use futures::StreamExt;
@@ -27,9 +27,9 @@ pub async fn handle_connection(
     mut stream: TcpStream,
     server_private_key: BigInt,
     db: DatabaseConnection,
-    active_sessions: Arc<RwLock<HashMap<String, [u8; 40]>>>,
+    active_sessions: Arc<RwLock<HashMap<String, (u32, [u8; 40])>>>,
     active_realms: Arc<RwLock<HashMap<u8, RealmData>>>,
-    num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<String, CacheData<u8, 60>>>>>,
+    num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<u32, CacheData<u8, 60>>>>>,
     server_pipes: Arc<RwLock<HashMap<u8, Arc<Mutex<SendHalf>>>>>,
 ) {
     let packet = match ClientPacket::from_reader(&mut stream, Some(CMD_AUTH_LOGON_CHALLENGE)).await
@@ -67,6 +67,7 @@ pub async fn handle_connection(
         .unwrap();
 
     let user = if let Some(user) = user { user } else { todo!() };
+    let account_id = user.id as u32;
     let salt: [u8; 32] = user.salt.try_into().unwrap();
 
     let password_verifier_bigint =
@@ -134,7 +135,7 @@ pub async fn handle_connection(
 
     {
         let mut lock = active_sessions.write().await;
-        lock.insert(account_name.clone(), session_key);
+        lock.insert(account_name.clone(), (account_id, session_key));
     }
 
     loop {
@@ -163,7 +164,7 @@ pub async fn handle_connection(
 
                     for realm in realms_lock.iter() {
                         if let Some(map) = num_chars_lock.get(&realm.0)
-                            && let Some(data) = map.get(&account_name)
+                            && let Some(data) = map.get(&account_id)
                             && data.is_valid()
                         {
                             resolved_num_players.insert(*realm.0, *data.get());
@@ -178,14 +179,12 @@ pub async fn handle_connection(
                     // Otherwise
                     futures::stream::iter(unresolved_num_players)
                         .for_each_concurrent(None, |realm_id| {
-                            let account_name = account_name.clone();
                             let num_player_characters_cache = num_player_characters_cache.clone();
                             let server_pipes = server_pipes.clone();
                             let queue = queue.clone();
                             async move {
-                                let request = GameServerIpcMessage::PlayerNumCharactersRequest {
-                                    account_name: account_name.clone(),
-                                };
+                                let request =
+                                    GameServerIpcMessage::PlayerNumCharactersRequest { account_id };
                                 let server_pipes_lock = server_pipes.read().await;
                                 let mut lock = server_pipes_lock
                                     .get(&realm_id)
@@ -195,12 +194,21 @@ pub async fn handle_connection(
                                 let result = request.write(&mut *lock).await;
                                 match result {
                                     Ok(_) => {
-                                        let v = NumCharsResolvedFuture::new(
-                                            *realm_id,
-                                            account_name.clone(),
-                                            num_player_characters_cache,
-                                        )
-                                        .await;
+                                        // TODO: Figure out a better solution instead of spin locking
+                                        // Futures is a solution but passing the waker around is way out of scope for now
+                                        let v;
+                                        loop {
+                                            let lock = num_player_characters_cache.read().await;
+                                            if let Some(map) = lock.get(&realm_id)
+                                                && let Some(data) = map.get(&account_id)
+                                                && data.is_valid()
+                                            {
+                                                v = (*realm_id, *data.get());
+                                                break;
+                                            }
+                                            drop(lock);
+                                        }
+
                                         queue.push(Ok(v)).unwrap();
                                     }
                                     Err(e) => {
@@ -249,48 +257,6 @@ pub async fn handle_connection(
                 stream.write_all(&send_packet.to_bytes()).await.unwrap();
             }
             _ => todo!(),
-        }
-    }
-}
-
-struct NumCharsResolvedFuture {
-    realm_id: u8,
-    account_name: String,
-    num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<String, CacheData<u8, 60>>>>>,
-}
-
-impl NumCharsResolvedFuture {
-    pub fn new(
-        realm_id: u8,
-        account_name: String,
-        num_player_characters_cache: Arc<RwLock<HashMap<u8, HashMap<String, CacheData<u8, 60>>>>>,
-    ) -> Self {
-        Self {
-            realm_id,
-            account_name,
-            num_player_characters_cache,
-        }
-    }
-}
-
-impl Future for NumCharsResolvedFuture {
-    type Output = (u8, u8);
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let Ok(lock) = self.num_player_characters_cache.try_read() else {
-            return Poll::Pending;
-        };
-
-        if let Some(map) = lock.get(&self.realm_id)
-            && let Some(data) = map.get(&self.account_name)
-            && data.is_valid()
-        {
-            Poll::Ready((self.realm_id, *data.get()))
-        } else {
-            Poll::Pending
         }
     }
 }
