@@ -2,11 +2,11 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Ident, LitInt, Token, braced, parse_macro_input, punctuated::Punctuated};
 
-struct ParsedInputPacket {
-    name: Ident,
-    id: LitInt,
-    brace_token: syn::token::Brace,
-    attrs: Punctuated<ParsedPacketAttribute, Token![,]>,
+pub(crate) struct ParsedInputPacket {
+    pub name: Ident,
+    pub id: LitInt,
+    pub _brace_token: syn::token::Brace,
+    pub attrs: Punctuated<ParsedPacketAttribute, Token![,]>,
 }
 
 impl syn::parse::Parse for ParsedInputPacket {
@@ -15,18 +15,18 @@ impl syn::parse::Parse for ParsedInputPacket {
         Ok(Self {
             name: input.parse()?,
             id: input.parse()?,
-            brace_token: braced!(content in input),
+            _brace_token: braced!(content in input),
             attrs: content.parse_terminated(ParsedPacketAttribute::parse, Token![,])?,
         })
     }
 }
 
-struct ParsedPacketAttribute {
-    name: Ident,
-    colon_token1: Token![:],
-    ty: syn::Type,
-    colon_token2: Token![:],
-    endianness: syn::Type,
+pub(crate) struct ParsedPacketAttribute {
+    pub name: Ident,
+    pub colon_token1: Token![:],
+    pub ty: syn::Type,
+    pub _colon_token2: Token![:],
+    pub endianness: syn::Type,
 }
 
 impl syn::parse::Parse for ParsedPacketAttribute {
@@ -35,13 +35,13 @@ impl syn::parse::Parse for ParsedPacketAttribute {
             name: input.parse()?,
             colon_token1: input.parse()?,
             ty: input.parse()?,
-            colon_token2: input.parse()?,
+            _colon_token2: input.parse()?,
             endianness: input.parse()?,
         })
     }
 }
 
-struct ParsedPacketsArray(Punctuated<ParsedInputPacket, Token![,]>);
+pub(crate) struct ParsedPacketsArray(pub Punctuated<ParsedInputPacket, Token![,]>);
 
 impl syn::parse::Parse for ParsedPacketsArray {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
@@ -60,6 +60,7 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
     });
 
     let structs = parsed.0.iter().map(|v| {
+        let opcode = &v.id;
         let name = &v.name;
 
         let attrs = v.attrs.iter().map(|v| {
@@ -93,6 +94,12 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
                     Ok(Self {
                         #(#attrs_read),*
                     })
+                }
+            }
+
+            impl ReadablePacket for #name {
+                fn opcode() -> u32 {
+                    #opcode
                 }
             }
         }

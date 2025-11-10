@@ -60,8 +60,8 @@ pub async fn handle_connection(
     else {
         unreachable!()
     };
-    let user = entity::user::Entity::find()
-        .filter(entity::user::Column::AccountName.eq(account_name.clone()))
+    let user = authserver_entity::user::Entity::find()
+        .filter(authserver_entity::user::Column::AccountName.eq(account_name.clone()))
         .one(&db)
         .await
         .unwrap();

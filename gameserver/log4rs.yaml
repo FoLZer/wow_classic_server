@@ -1,0 +1,9 @@
+refresh_rate: 10 seconds
+appenders:
+  requests:
+    kind: file
+    path: "log/log.log"
+root:
+  level: info
+  appenders:
+    - requests

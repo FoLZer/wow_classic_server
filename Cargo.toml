@@ -1,3 +1,13 @@
 [workspace]
-members = ["authserver", "ipc_comms","macros","packets", "authserver/migration", "authserver/entity"]
+members = [
+    "authserver",
+    "ipc_comms",
+    "macros",
+    "packets",
+    "authserver/authserver_migration",
+    "authserver/authserver_entity",
+    "gameserver",
+    "gameserver/gameserver_migration",
+    "gameserver/gameserver_entity",
+]
 resolver = "2"

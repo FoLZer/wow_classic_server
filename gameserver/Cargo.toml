@@ -1,0 +1,23 @@
+[package]
+name = "gameserver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+confy = "2.0.0"
+log = "0.4.28"
+log4rs = "1.4.0"
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["full"] }
+packets = { path = "../packets" }
+lazy_static = "1.5.0"
+rand = "0.9.2"
+interprocess = { version = "2.2.3", features = ["tokio"] }
+ipc_comms = { path = "../ipc_comms" }
+sea-orm = { version = "1.1.0", features = [
+    "sqlx-sqlite",
+    "runtime-tokio-rustls",
+    "macros",
+] }
+gameserver_entity = { path = "./gameserver_entity" }
+gameserver_migration = { path = "./gameserver_migration" }

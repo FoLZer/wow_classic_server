@@ -23,7 +23,7 @@ use inquire_derive::Selectable;
 use interprocess::local_socket::tokio::SendHalf;
 use lazy_static::lazy_static;
 use log::{error, info};
-use migration::{Migrator, MigratorTrait};
+use authserver_migration::{Migrator, MigratorTrait};
 use num_bigint::BigInt;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use sea_orm::{
@@ -196,6 +196,8 @@ async fn main() {
             }
         }
     }
+
+    //TODO: wait for running tasks to exit
 }
 
 #[derive(Clone, Copy, Debug, Selectable)]
@@ -223,7 +225,7 @@ async fn add_user(
     let mut salt = [0; 32];
     SECURE_RNG.lock().await.fill_bytes(&mut salt);
     let password_verifier = srp::calculate_password_verifier(&username, password, salt);
-    entity::user::ActiveModel {
+    authserver_entity::user::ActiveModel {
         id: ActiveValue::NotSet,
         account_name: ActiveValue::Set(username),
         password_verifier: ActiveValue::Set(password_verifier.to_vec()),
@@ -235,8 +237,8 @@ async fn add_user(
 }
 
 async fn remove_user(db: &DatabaseConnection, username: String) -> Result<bool, sea_orm::DbErr> {
-    let Some(ent) = entity::user::Entity::find()
-        .filter(entity::user::Column::AccountName.eq(username))
+    let Some(ent) = authserver_entity::user::Entity::find()
+        .filter(authserver_entity::user::Column::AccountName.eq(username))
         .one(db)
         .await?
     else {

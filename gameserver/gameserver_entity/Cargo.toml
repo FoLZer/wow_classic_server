@@ -1,11 +1,11 @@
 [package]
-name = "entity"
+name = "gameserver_entity"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-name = "entity"
+name = "gameserver_entity"
 path = "src/lib.rs"
 
 [dependencies]
