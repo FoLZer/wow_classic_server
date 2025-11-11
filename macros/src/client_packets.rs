@@ -83,6 +83,7 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
 
         quote! {
             #[allow(unused)]
+            #[derive(Debug)]
             pub struct #name {
                 #(
                     #attrs
@@ -114,6 +115,7 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
             #structs
         )*
 
+        #[derive(Debug)]
         pub enum ClientPacket {
             #(#generated_enum_values),*
         }

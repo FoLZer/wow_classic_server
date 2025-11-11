@@ -29,6 +29,11 @@ CMSG_CHAR_CREATE 0x036 {
     facialhair: u8: LittleEndian,
     outfit_id: u8: LittleEndian
 },
+CMSG_CHAR_ENUM 0x037 {},
+CMSG_PING 0x1DC {
+    sequence_id: u32: LittleEndian,
+    latency: u32: LittleEndian
+},
 CMSG_AUTH_SESSION 0x1ED {
     build: u32: LittleEndian,
     server_id: u32: LittleEndian,
@@ -78,6 +83,7 @@ impl<T: ByteOrder> OrderedRead<T> for CString {
     }
 }
 
+#[derive(Debug)]
 pub struct EndDataVec(pub Vec<u8>);
 
 impl<T: ByteOrder> OrderedRead<T> for EndDataVec {
@@ -106,7 +112,9 @@ pub enum ParseError {
 }
 
 pub trait ReadablePacket {
-    fn from_reader(cursor: &mut ::std::io::Cursor<&[u8]>) -> Result<Self, std::io::Error> where Self: Sized;
+    fn from_reader(cursor: &mut ::std::io::Cursor<&[u8]>) -> Result<Self, std::io::Error>
+    where
+        Self: Sized;
     fn opcode() -> u32;
 }
 
@@ -120,6 +128,8 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
 ) -> Result<T, ParseError> {
     use tokio::io::AsyncReadExt;
 
+    let mut lock = DECRYPT_DATA.lock().await;
+
     let buf = {
         let size = match session_key {
             Some(session_key) => {
@@ -128,7 +138,7 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
                     .read_exact(&mut inner_buf)
                     .await
                     .map_err(ParseError::Io)?;
-                let mut lock = DECRYPT_DATA.lock().await;
+
                 for b in &mut inner_buf {
                     let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
                     lock.0 = (lock.0 + 1) % session_key.len();
@@ -153,7 +163,7 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
                 .read_exact(&mut inner_buf)
                 .await
                 .map_err(ParseError::Io)?;
-            let mut lock = DECRYPT_DATA.lock().await;
+
             for b in &mut inner_buf {
                 let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
                 lock.0 = (lock.0 + 1) % session_key.len();
@@ -170,4 +180,49 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
     }
 
     T::from_reader(&mut cursor).map_err(ParseError::Io)
+}
+
+// There's never a need to decode a random packet without a session key
+pub async fn read_packet<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    session_key: [u8; 40],
+) -> Result<ClientPacket, ParseError> {
+    use tokio::io::AsyncReadExt;
+
+    let mut lock = DECRYPT_DATA.lock().await;
+
+    let packet_buf = {
+        let mut size_buf = [0; 2];
+        reader
+            .read_exact(&mut size_buf)
+            .await
+            .map_err(ParseError::Io)?;
+        for b in &mut size_buf {
+            let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
+            lock.0 = (lock.0 + 1) % session_key.len();
+            lock.1 = *b;
+            *b = dec;
+        }
+        let size = u16::from_be_bytes(size_buf);
+        let mut buf = vec![0; size as usize];
+        reader.read_exact(&mut buf).await.map_err(ParseError::Io)?;
+        buf
+    };
+
+    let mut cursor = Cursor::new(packet_buf.as_slice());
+
+    let mut opcode_buf = [0; 4];
+    cursor
+        .read_exact(&mut opcode_buf)
+        .await
+        .map_err(ParseError::Io)?;
+    for b in &mut opcode_buf {
+        let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
+        lock.0 = (lock.0 + 1) % session_key.len();
+        lock.1 = *b;
+        *b = dec;
+    }
+    let opcode = u32::from_le_bytes(opcode_buf);
+
+    decode_packet_inner(&mut cursor, opcode)
 }

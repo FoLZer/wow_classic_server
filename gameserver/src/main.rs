@@ -1,6 +1,7 @@
-mod auth;
 mod character_screen_connection;
+mod game_data;
 mod ipc_connection;
+mod character;
 
 use std::{
     collections::HashMap,
@@ -19,13 +20,12 @@ use ipc_comms::{
 use log::{error, info};
 use sea_orm::{Database, DatabaseConnection};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    net::TcpListener,
-    sync::{Mutex, RwLock},
-};
+use tokio::{net::TcpListener, sync::Mutex};
 
 use crate::{
-    character_screen_connection::CharacterScreenConnection, ipc_connection::start_ipc_task,
+    character_screen_connection::{CharacterScreenConnection, CharacterScreenResult},
+    game_data::GameDataAccessor,
+    ipc_connection::start_ipc_task,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -95,6 +95,8 @@ async fn main() {
         config.server_category,
     );
 
+    let game_data_accessor = GameDataAccessor::new(db.clone());
+
     tokio::spawn(async move {
         let socket = TcpListener::bind(config.bind_to)
             .await
@@ -112,16 +114,23 @@ async fn main() {
 
             let player_session_keys = player_session_keys.clone();
             let server_pipe = server_pipe.clone();
+            let game_data_accessor = game_data_accessor.clone();
+            let db = db.clone();
             tokio::spawn(async move {
-                let conn = CharacterScreenConnection::authenticate(
+                let mut conn = CharacterScreenConnection::authenticate(
                     stream,
                     player_session_keys,
                     server_pipe,
+                    db,
+                    game_data_accessor,
                 )
                 .await
                 .unwrap();
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                match conn.connection_loop().await {
+                    CharacterScreenResult::WorldTransition => todo!(),
+                    CharacterScreenResult::ClientDisconnect => {
+                        return;
+                    }
                 }
                 //let player = PlayerConnection::handle_auth(stream, db).await.unwrap();
                 //player.connection_loop().await;

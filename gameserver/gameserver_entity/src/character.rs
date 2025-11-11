@@ -2,12 +2,74 @@
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "character")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub account_id: i32,
+    #[sea_orm(column_type = "Text")]
+    pub name: String,
+    pub race: i8,
+    pub class: i8,
+    pub gender: i8,
+    pub skin: i8,
+    pub face: i8,
+    pub hair_style: i8,
+    pub hair_color: i8,
+    pub facial_hair: i8,
+    pub level: i8,
+    pub area: i32,
+    pub map: i32,
+    #[sea_orm(column_type = "Float")]
+    pub position_x: f32,
+    #[sea_orm(column_type = "Float")]
+    pub position_y: f32,
+    #[sea_orm(column_type = "Float")]
+    pub position_z: f32,
+    #[sea_orm(column_type = "Float")]
+    pub orientation: f32,
+    pub guild_id: i32,
+    pub flags: i32,
+    pub first_login: bool,
+    pub equipment_head_display_id: i32,
+    pub equipment_head_inventory_type: i32,
+    pub equipment_neck_display_id: i32,
+    pub equipment_neck_inventory_type: i32,
+    pub equipment_shoulders_display_id: i32,
+    pub equipment_shoulders_inventory_type: i32,
+    pub equipment_body_display_id: i32,
+    pub equipment_body_inventory_type: i32,
+    pub equipment_chest_display_id: i32,
+    pub equipment_chest_inventory_type: i32,
+    pub equipment_waist_display_id: i32,
+    pub equipment_waist_inventory_type: i32,
+    pub equipment_legs_display_id: i32,
+    pub equipment_legs_inventory_type: i32,
+    pub equipment_feet_display_id: i32,
+    pub equipment_feet_inventory_type: i32,
+    pub equipment_wrists_display_id: i32,
+    pub equipment_wrists_inventory_type: i32,
+    pub equipment_hands_display_id: i32,
+    pub equipment_hands_inventory_type: i32,
+    pub equipment_finger1_display_id: i32,
+    pub equipment_finger1_inventory_type: i32,
+    pub equipment_finger2_display_id: i32,
+    pub equipment_finger2_inventory_type: i32,
+    pub equipment_trinket1_display_id: i32,
+    pub equipment_trinket1_inventory_type: i32,
+    pub equipment_trinket2_display_id: i32,
+    pub equipment_trinket2_inventory_type: i32,
+    pub equipment_back_display_id: i32,
+    pub equipment_back_inventory_type: i32,
+    pub equipment_mainhand_display_id: i32,
+    pub equipment_mainhand_inventory_type: i32,
+    pub equipment_offhand_display_id: i32,
+    pub equipment_offhand_inventory_type: i32,
+    pub equipment_ranged_display_id: i32,
+    pub equipment_ranged_inventory_type: i32,
+    pub equipment_tabard_display_id: i32,
+    pub equipment_tabard_inventory_type: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

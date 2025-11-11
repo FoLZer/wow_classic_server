@@ -17,7 +17,7 @@ use ipc_comms::{
     AuthServerIpcMessage, GameServerIpcMessage, IpcError, SessionKeyResponse,
     realm_types::{RealmCategory, RealmType},
 };
-use log::{error, info, warn};
+use log::{error, warn};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
 use tokio::sync::Mutex;
 
