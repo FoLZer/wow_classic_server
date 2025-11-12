@@ -1,0 +1,422 @@
+use sea_orm_migration::{prelude::*, schema::*};
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(Race::Table)
+                    .if_not_exists()
+                    .col(pk_auto(Race::Id))
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_table(
+                Table::create()
+                    .table(Class::Table)
+                    .if_not_exists()
+                    .col(pk_auto(Class::Id))
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_table(
+                Table::create()
+                    .table(Gender::Table)
+                    .if_not_exists()
+                    .col(pk_auto(Gender::Id))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(PlayerStartData::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(PlayerStartData::Race)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::Class)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(PlayerStartData::AreaId).integer().not_null())
+                    .col(ColumnDef::new(PlayerStartData::MapId).integer().not_null())
+                    .col(
+                        ColumnDef::new(PlayerStartData::PositionX)
+                            .float()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::PositionY)
+                            .float()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::PositionZ)
+                            .float()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::Orientation)
+                            .float()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::Level)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentHeadDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentHeadInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentNeckDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentNeckInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentShouldersDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentShouldersInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentBodyDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentBodyInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentChestDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentChestInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentWaistDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentWaistInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentLegsDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentLegsInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentFeetDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentFeetInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentWristsDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentWristsInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentHandsDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentHandsInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentFinger1DisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentFinger1InventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentFinger2DisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentFinger2InventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentTrinket1DisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentTrinket1InventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentTrinket2DisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentTrinket2InventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentBackDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentBackInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentMainhandDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentMainhandInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentOffhandDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentOffhandInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentRangedDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentRangedInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentTabardDisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::EquipmentTabardInventoryType)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartData::OtherEquipmentTableId)
+                            .integer()
+                            .not_null(),
+                    )
+                    //TODO: PlayerStartData::OtherEquipmentTableId -> PlayerStartOtherEquipment::TableId (one to many)
+                    .primary_key(
+                        &mut IndexCreateStatement::new()
+                            .col(PlayerStartData::Race)
+                            .col(PlayerStartData::Class),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(PlayerStartOtherEquipment::Table)
+                    .if_not_exists()
+                    .col(pk_auto(PlayerStartOtherEquipment::Id))
+                    .col(
+                        ColumnDef::new(PlayerStartOtherEquipment::TableId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartOtherEquipment::DisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PlayerStartOtherEquipment::InventoryType)
+                            .integer()
+                            .not_null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(Race::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Class::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Gender::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(PlayerStartData::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(PlayerStartOtherEquipment::Table)
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(DeriveIden)]
+enum Race {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Class {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Gender {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum PlayerStartData {
+    Table,
+
+    Race,
+    Class,
+
+    AreaId,
+    MapId,
+    PositionX,
+    PositionY,
+    PositionZ,
+    Orientation,
+    Level,
+
+    EquipmentHeadDisplayId,
+    EquipmentHeadInventoryType,
+    EquipmentNeckDisplayId,
+    EquipmentNeckInventoryType,
+    EquipmentShouldersDisplayId,
+    EquipmentShouldersInventoryType,
+    EquipmentBodyDisplayId,
+    EquipmentBodyInventoryType,
+    EquipmentChestDisplayId,
+    EquipmentChestInventoryType,
+    EquipmentWaistDisplayId,
+    EquipmentWaistInventoryType,
+    EquipmentLegsDisplayId,
+    EquipmentLegsInventoryType,
+    EquipmentFeetDisplayId,
+    EquipmentFeetInventoryType,
+    EquipmentWristsDisplayId,
+    EquipmentWristsInventoryType,
+    EquipmentHandsDisplayId,
+    EquipmentHandsInventoryType,
+    EquipmentFinger1DisplayId,
+    EquipmentFinger1InventoryType,
+    EquipmentFinger2DisplayId,
+    EquipmentFinger2InventoryType,
+    EquipmentTrinket1DisplayId,
+    EquipmentTrinket1InventoryType,
+    EquipmentTrinket2DisplayId,
+    EquipmentTrinket2InventoryType,
+    EquipmentBackDisplayId,
+    EquipmentBackInventoryType,
+    EquipmentMainhandDisplayId,
+    EquipmentMainhandInventoryType,
+    EquipmentOffhandDisplayId,
+    EquipmentOffhandInventoryType,
+    EquipmentRangedDisplayId,
+    EquipmentRangedInventoryType,
+    EquipmentTabardDisplayId,
+    EquipmentTabardInventoryType,
+
+    OtherEquipmentTableId,
+}
+
+#[derive(DeriveIden)]
+enum PlayerStartOtherEquipment {
+    Table,
+
+    Id,
+
+    TableId,
+
+    DisplayId,
+    InventoryType,
+}

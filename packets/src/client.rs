@@ -30,6 +30,12 @@ CMSG_CHAR_CREATE 0x036 {
     outfit_id: u8: LittleEndian
 },
 CMSG_CHAR_ENUM 0x037 {},
+CMSG_CHAR_DELETE 0x038 {
+    character_guid: u64: LittleEndian
+},
+CMSG_PLAYER_LOGIN 0x03D {
+    character_guid: u64: LittleEndian
+},
 CMSG_PING 0x1DC {
     sequence_id: u32: LittleEndian,
     latency: u32: LittleEndian
@@ -60,6 +66,12 @@ impl<T: ByteOrder> OrderedRead<T> for u8 {
 impl<T: ByteOrder> OrderedRead<T> for u32 {
     fn from_reader(reader: &mut Cursor<&[u8]>) -> std::io::Result<Self> {
         reader.read_u32::<T>()
+    }
+}
+
+impl<T: ByteOrder> OrderedRead<T> for u64 {
+    fn from_reader(reader: &mut Cursor<&[u8]>) -> std::io::Result<Self> {
+        reader.read_u64::<T>()
     }
 }
 

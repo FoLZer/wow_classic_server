@@ -1,12 +1,12 @@
-use std::{ffi::CString, num::NonZeroU64, str::FromStr};
+use std::{ffi::CString, str::FromStr};
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 
-use crate::server::OrderedWrite;
+use crate::{guid::{self, Guid, GuidType}, server::OrderedWrite};
 
 #[derive(Clone)]
 pub struct CharacterInfo {
-    pub guid: Guid,
+    pub guid: Guid<guid::Player>,
     pub name: String,
     pub race: u8,
     pub class: u8,
@@ -32,9 +32,6 @@ pub struct CharacterInfo {
     pub first_bag_display_id: u32,
     pub first_bag_inventory_type: u8,
 }
-
-#[derive(Clone, Copy)]
-pub struct Guid(pub NonZeroU64);
 
 #[derive(Clone)]
 pub struct Equipment {
@@ -67,7 +64,7 @@ pub struct GearInfo {
 
 impl<T: ByteOrder> OrderedWrite<T> for CharacterInfo {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        <Guid as OrderedWrite<LittleEndian>>::write(&self.guid, writer)?;
+        <Guid<guid::Player> as OrderedWrite<LittleEndian>>::write(&self.guid, writer)?;
         <CString as OrderedWrite<LittleEndian>>::write(&CString::from_str(&self.name)?, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.race, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.class, writer)?;
@@ -97,9 +94,9 @@ impl<T: ByteOrder> OrderedWrite<T> for CharacterInfo {
     }
 }
 
-impl<T: ByteOrder> OrderedWrite<T> for Guid {
+impl<T: ByteOrder, Type: GuidType> OrderedWrite<T> for Guid<Type> {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        writer.write_u64::<T>(self.0.get())
+        writer.write_u64::<T>(self.get().get())
     }
 }
 

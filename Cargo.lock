@@ -1096,6 +1096,7 @@ name = "gameserver_migration"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "gameserver_entity",
  "sea-orm-migration",
 ]
 

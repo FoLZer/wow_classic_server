@@ -3,3 +3,8 @@
 pub mod prelude;
 
 pub mod character;
+pub mod class;
+pub mod gender;
+pub mod player_start_data;
+pub mod player_start_other_equipment;
+pub mod race;

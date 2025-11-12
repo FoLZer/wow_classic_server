@@ -21,8 +21,14 @@ create_server_packets!(
 SMSG_CHAR_CREATE 0x03A {
     result: AccountResult: LittleEndian,
 },
+SMSG_CHAR_DELETE 0x03C {
+    result: AccountResult: LittleEndian,
+},
 SMSG_CHAR_ENUM 0x03B {
     characters: Vec<CharacterInfo>: LittleEndian,
+},
+SMSG_CHAR_LOGIN_FAILED 0x041 {
+    result: AccountResult: LittleEndian,
 },
 SMSG_PONG 0x1DD {
     sequence_id: u32: LittleEndian,
