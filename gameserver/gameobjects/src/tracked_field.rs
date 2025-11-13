@@ -63,6 +63,12 @@ impl UpdateWritable for u32 {
     }
 }
 
+impl UpdateWritable for f32 {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.to_bits();
+    }
+}
+
 impl<const N: usize> UpdateWritable for [u32; N] {
     fn get_update_blocks_count() -> usize {
         N
@@ -75,21 +81,28 @@ impl<const N: usize> UpdateWritable for [u32; N] {
     }
 }
 
+impl<T: GuidType> UpdateWritable for Guid<T> {
+    fn get_update_blocks_count() -> usize {
+        2
+    }
+
+    fn write(&self, blocks: &mut [u32]) {
+        let b = self.get().get();
+        let b1 = (b & 0x0000_0000_FFFF_FFFFu64) as u32;
+        let b2 = (b >> 32) as u32;
+        blocks[0] = b1;
+        blocks[1] = b2;
+    }
+}
+
 impl<T: GuidType> UpdateWritable for Option<Guid<T>> {
     fn get_update_blocks_count() -> usize {
         2
     }
 
     fn write(&self, blocks: &mut [u32]) {
-        match self {
-            Some(v) => {
-                let b = v.get().get();
-                let b1 = (b & 0x0000_0000_FFFF_FFFFu64) as u32;
-                let b2 = (b >> 32) as u32;
-                blocks[0] = b1;
-                blocks[1] = b2;
-            }
-            None => (),
+        if let Some(v) = self {
+            v.write(blocks);
         }
     }
 }
