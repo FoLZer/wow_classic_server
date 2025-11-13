@@ -1,8 +1,9 @@
 use std::{ffi::CString, str::FromStr};
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
+use common::guid::{self, Guid, GuidType};
 
-use crate::{guid::{self, Guid, GuidType}, server::OrderedWrite};
+use crate::server::OrderedWrite;
 
 #[derive(Clone)]
 pub struct CharacterInfo {

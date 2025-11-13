@@ -1,9 +1,7 @@
 use std::num::NonZeroU32;
 
-use packets::{
-    character_info::{Equipment, GearInfo},
-    guid::{self, Guid},
-};
+use common::guid::{self, Guid};
+use packets::character_info::{Equipment, GearInfo};
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 
 use crate::game_data::{ValidClass, ValidGender, ValidRace};

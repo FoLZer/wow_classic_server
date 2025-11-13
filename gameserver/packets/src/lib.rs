@@ -1,7 +1,6 @@
 #![feature(cursor_split)]
 
-pub mod client;
-pub mod server;
 pub mod account_result;
 pub mod character_info;
-pub mod guid;
+pub mod client;
+pub mod server;

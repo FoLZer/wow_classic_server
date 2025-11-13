@@ -379,6 +379,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-vec"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
+
+[[package]]
+name = "bitfield-struct"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8769c4854c5ada2852ddf6fd09d15cf43d4c2aaeccb4de6432f5402f08a6003b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.109",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -563,6 +580,10 @@ name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
+
+[[package]]
+name = "common"
+version = "0.1.0"
 
 [[package]]
 name = "concurrent-queue"
@@ -1063,9 +1084,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gameobjects"
+version = "0.1.0"
+dependencies = [
+ "bit-vec",
+ "bitfield-struct",
+ "common",
+ "macros",
+]
+
+[[package]]
 name = "gameserver"
 version = "0.1.0"
 dependencies = [
+ "common",
  "confy",
  "gameserver_entity",
  "gameserver_migration",
@@ -1773,6 +1805,7 @@ name = "packets"
 version = "0.1.0"
 dependencies = [
  "byteorder",
+ "common",
  "lazy_static",
  "macros",
  "tokio",

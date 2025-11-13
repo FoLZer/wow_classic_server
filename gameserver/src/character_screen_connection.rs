@@ -1,5 +1,6 @@
 use std::{collections::HashMap, io::ErrorKind, sync::Arc};
 
+use common::guid::{self, Guid};
 use interprocess::local_socket::tokio::SendHalf;
 use ipc_comms::{AuthServerIpcMessage, SessionKeyResponse};
 use lazy_static::lazy_static;
@@ -7,7 +8,6 @@ use log::{error, info, warn};
 use packets::{
     account_result::AccountResult,
     client::{ClientPacket, ParseError},
-    guid::{self, Guid},
 };
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter};

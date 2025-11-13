@@ -1,0 +1,10 @@
+[package]
+name = "gameobjects"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bit-vec = "0.8.0"
+bitfield-struct = "0.12.1"
+common = { path = "../common" }
+macros = { path = "../../macros" }

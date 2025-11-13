@@ -9,7 +9,7 @@ log = "0.4.28"
 log4rs = "1.4.0"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.48.0", features = ["full"] }
-packets = { path = "../packets" }
+packets = { path = "./packets" }
 lazy_static = "1.5.0"
 rand = "0.9.2"
 interprocess = { version = "2.2.3", features = ["tokio"] }
@@ -24,3 +24,4 @@ gameserver_migration = { path = "./gameserver_migration" }
 itertools = "0.14.0"
 sha1 = "0.10.6"
 hex = "0.4.3"
+common = { path = "./common" }

@@ -4,7 +4,7 @@ use std::{
 };
 
 #[derive(Clone, Copy)]
-pub struct Guid<T>(NonZeroU32, PhantomData<T>);
+pub struct Guid<T: GuidType>(NonZeroU32, PhantomData<T>);
 
 impl<T: GuidType> Guid<T> {
     pub fn from_u32(v: NonZeroU32) -> Self {
@@ -40,5 +40,32 @@ pub struct Player;
 impl GuidType for Player {
     fn get_prefix() -> u16 {
         0x0000
+    }
+}
+
+#[derive(Clone)]
+pub struct Unit;
+
+impl GuidType for Unit {
+    fn get_prefix() -> u16 {
+        0xF130
+    }
+}
+
+#[derive(Clone)]
+pub struct GameObject;
+
+impl GuidType for GameObject {
+    fn get_prefix() -> u16 {
+        0xF110
+    }
+}
+
+#[derive(Clone)]
+pub struct DynamicObject;
+
+impl GuidType for DynamicObject {
+    fn get_prefix() -> u16 {
+        0xF100
     }
 }
