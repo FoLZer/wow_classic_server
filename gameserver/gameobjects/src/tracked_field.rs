@@ -57,6 +57,15 @@ impl<T: UpdateWritable> TrackedField<T> {
     }
 }
 
+impl<T> From<T> for TrackedField<T> {
+    fn from(value: T) -> Self {
+        Self {
+            field: value,
+            is_updated: false,
+        }
+    }
+}
+
 impl UpdateWritable for u32 {
     fn write(&self, blocks: &mut [u32]) {
         blocks[0] = *self;

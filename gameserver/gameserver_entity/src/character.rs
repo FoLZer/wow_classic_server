@@ -32,6 +32,7 @@ pub struct Model {
     pub guild_id: i32,
     pub flags: i32,
     pub first_login: bool,
+    pub display_id: i32,
     pub equipment_head_display_id: i32,
     pub equipment_head_inventory_type: i32,
     pub equipment_neck_display_id: i32,

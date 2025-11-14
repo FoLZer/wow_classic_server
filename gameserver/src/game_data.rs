@@ -146,6 +146,20 @@ impl GameDataAccessor {
             other_equipment: vec![], //TODO
         }))
     }
+
+    pub async fn get_display_id_for_race_gender(
+        &self,
+        race: ValidRace,
+        gender: ValidGender,
+    ) -> Result<Option<u32>, sea_orm::DbErr> {
+        let data = gameserver_entity::character_display_id::Entity::find_by_id((
+            race.0 as i8,
+            gender.0 as i8,
+        ))
+        .one(&self.db)
+        .await?;
+        Ok(data.map(|v| v.display_id as u32))
+    }
 }
 
 pub struct CharacterStartData {

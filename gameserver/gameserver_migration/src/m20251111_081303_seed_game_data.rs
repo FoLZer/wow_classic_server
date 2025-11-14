@@ -179,6 +179,22 @@ impl MigrationTrait for Migration {
         .insert(&txn)
         .await?;
 
+        // Character Display Ids
+        gameserver_entity::character_display_id::ActiveModel {
+            race: ActiveValue::Set(1),
+            gender: ActiveValue::Set(0),
+            display_id: ActiveValue::Set(49),
+        }
+        .insert(&txn)
+        .await?;
+        gameserver_entity::character_display_id::ActiveModel {
+            race: ActiveValue::Set(1),
+            gender: ActiveValue::Set(1),
+            display_id: ActiveValue::Set(50),
+        }
+        .insert(&txn)
+        .await?;
+
         txn.commit().await
     }
 

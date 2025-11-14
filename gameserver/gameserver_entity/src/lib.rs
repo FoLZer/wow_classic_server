@@ -3,6 +3,7 @@
 pub mod prelude;
 
 pub mod character;
+pub mod character_display_id;
 pub mod class;
 pub mod gender;
 pub mod player_start_data;

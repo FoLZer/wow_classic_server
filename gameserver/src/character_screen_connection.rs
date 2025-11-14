@@ -14,7 +14,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFil
 use sha1::{Digest, Sha1};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
 
-use crate::{character::NewCharacter, game_data::GameDataAccessor};
+use crate::{game_data::GameDataAccessor, login_character::NewCharacter};
 
 lazy_static! {
     static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(StdRng::from_os_rng());
@@ -23,7 +23,7 @@ lazy_static! {
 pub struct CharacterScreenConnection {
     pub account_id: u32,
     pub stream: TcpStream,
-    session_key: [u8; 40],
+    pub session_key: [u8; 40],
 
     db: DatabaseConnection,
     game_data_accessor: GameDataAccessor,
@@ -162,7 +162,7 @@ impl CharacterScreenConnection {
                     let response = packets::server::SMSG_CHAR_ENUM {
                         characters: characters
                             .into_iter()
-                            .map(|v| crate::character::Character::from_db(v).to_packet())
+                            .map(|v| crate::login_character::Character::from_db(v).to_packet())
                             .collect(),
                     };
 
@@ -375,6 +375,56 @@ impl CharacterScreenConnection {
                         }
                     };
 
+                    let display_id = match self
+                        .game_data_accessor
+                        .get_display_id_for_race_gender(race, gender)
+                        .await
+                    {
+                        Ok(Some(v)) => v,
+                        Ok(None) => {
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_CREATE_ERROR,
+                            };
+
+                            warn!(
+                                "Client (account_id: {}) tried to create a character with a race+gender pair without assigned display_id (race {} + gender {})",
+                                self.account_id,
+                                race.get(),
+                                gender.get()
+                            );
+
+                            if let Err(e) = self
+                                .stream
+                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .await
+                            {
+                                warn!(
+                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
+                                    self.account_id, e
+                                )
+                            };
+                            continue;
+                        }
+                        Err(e) => {
+                            error!("Failed to get display_id due to a DB error. Error: {}", e);
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_CREATE_FAILED,
+                            };
+
+                            if let Err(e) = self
+                                .stream
+                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .await
+                            {
+                                error!(
+                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
+                                    self.account_id, e
+                                )
+                            };
+                            continue;
+                        }
+                    };
+
                     let character = NewCharacter {
                         name: name.clone(),
                         race,
@@ -395,6 +445,7 @@ impl CharacterScreenConnection {
                         guild_id: 0,
                         flags: 0,
                         first_login: true,
+                        display_id,
                         equipment: start_char_info.start_equipment,
                     };
 
@@ -595,7 +646,7 @@ impl CharacterScreenConnection {
                         continue;
                     };
 
-                    todo!()
+                    return CharacterScreenResult::WorldTransition { guid };
                 }
                 ClientPacket::CMSG_PING(packet) => {
                     let response = packets::server::SMSG_PONG {
@@ -625,7 +676,7 @@ impl CharacterScreenConnection {
 }
 
 pub enum CharacterScreenResult {
-    WorldTransition,
+    WorldTransition { guid: Guid<guid::Player> },
     ClientDisconnect,
 }
 

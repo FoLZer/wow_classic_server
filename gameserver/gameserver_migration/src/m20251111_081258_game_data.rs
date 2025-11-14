@@ -306,6 +306,35 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .create_table(
+                Table::create()
+                    .table(CharacterDisplayId::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(CharacterDisplayId::Race)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CharacterDisplayId::Gender)
+                            .tiny_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CharacterDisplayId::DisplayId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .primary_key(
+                        &mut IndexCreateStatement::new()
+                            .col(CharacterDisplayId::Race)
+                            .col(CharacterDisplayId::Gender),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -328,6 +357,9 @@ impl MigrationTrait for Migration {
                     .table(PlayerStartOtherEquipment::Table)
                     .to_owned(),
             )
+            .await?;
+        manager
+            .drop_table(Table::drop().table(CharacterDisplayId::Table).to_owned())
             .await?;
 
         Ok(())
@@ -419,4 +451,14 @@ enum PlayerStartOtherEquipment {
 
     DisplayId,
     InventoryType,
+}
+
+#[derive(DeriveIden)]
+enum CharacterDisplayId {
+    Table,
+
+    Race,
+    Gender,
+
+    DisplayId,
 }

@@ -50,6 +50,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Character::GuildId).integer().not_null())
                     .col(ColumnDef::new(Character::Flags).integer().not_null())
                     .col(ColumnDef::new(Character::FirstLogin).boolean().not_null())
+                    .col(ColumnDef::new(Character::DisplayId).integer().not_null())
                     .col(
                         ColumnDef::new(Character::EquipmentHeadDisplayId)
                             .integer()
@@ -281,6 +282,7 @@ enum Character {
     GuildId,
     Flags,
     FirstLogin,
+    DisplayId,
 
     EquipmentHeadDisplayId,
     EquipmentHeadInventoryType,
