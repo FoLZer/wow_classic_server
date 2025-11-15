@@ -35,11 +35,20 @@ pub trait GuidType {
 }
 
 #[derive(Clone)]
-pub struct Player;
+pub struct Item;
 
-impl GuidType for Player {
+impl GuidType for Item {
     fn get_prefix() -> u16 {
-        0x0000
+        0x4000
+    }
+}
+
+#[derive(Clone)]
+pub struct Container;
+
+impl GuidType for Container {
+    fn get_prefix() -> u16 {
+        0x4000
     }
 }
 
@@ -49,6 +58,15 @@ pub struct Unit;
 impl GuidType for Unit {
     fn get_prefix() -> u16 {
         0xF130
+    }
+}
+
+#[derive(Clone)]
+pub struct Player;
+
+impl GuidType for Player {
+    fn get_prefix() -> u16 {
+        0x0000
     }
 }
 
@@ -67,5 +85,38 @@ pub struct DynamicObject;
 impl GuidType for DynamicObject {
     fn get_prefix() -> u16 {
         0xF100
+    }
+}
+
+#[derive(Clone)]
+pub struct Corpse;
+
+impl GuidType for Corpse {
+    fn get_prefix() -> u16 {
+        0xF101
+    }
+}
+
+pub enum AnyGuid {
+    Item(Guid<Item>),
+    Container(Guid<Container>),
+    Unit(Guid<Unit>),
+    Player(Guid<Player>),
+    GameObject(Guid<GameObject>),
+    DynamicObject(Guid<DynamicObject>),
+    Corpse(Guid<Corpse>),
+}
+
+impl AnyGuid {
+    pub fn get(&self) -> NonZeroU64 {
+        match self {
+            AnyGuid::Item(guid) => guid.get(),
+            AnyGuid::Container(guid) => guid.get(),
+            AnyGuid::Unit(guid) => guid.get(),
+            AnyGuid::Player(guid) => guid.get(),
+            AnyGuid::GameObject(guid) => guid.get(),
+            AnyGuid::DynamicObject(guid) => guid.get(),
+            AnyGuid::Corpse(guid) => guid.get(),
+        }
     }
 }

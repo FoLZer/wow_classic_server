@@ -10,3 +10,5 @@ macros = { path = "../../macros" }
 tokio = "1.48.0"
 common = { path = "../common" }
 chrono = "0.4.42"
+bit-vec = "0.8.0"
+bitfield-struct = "0.12.1"

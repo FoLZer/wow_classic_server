@@ -28,3 +28,4 @@ common = { path = "./common" }
 chrono = "0.4.42"
 concurrent-queue = "2.5.0"
 gameobjects = { path = "./gameobjects" }
+bit-vec = "0.8.0"

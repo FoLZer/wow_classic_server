@@ -11,7 +11,9 @@ use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use lazy_static::lazy_static;
 use macros::create_server_packets;
 
-use crate::{account_result::AccountResult, character_info::CharacterInfo};
+use crate::{
+    account_result::AccountResult, character_info::CharacterInfo, update_data::UpdateBlocks,
+};
 
 lazy_static! {
     static ref ENCRYPT_DATA: Mutex<(usize, u8)> = Mutex::new((0, 0));
@@ -34,6 +36,9 @@ SMSG_CHAR_LOGIN_FAILED 0x041 {
 SMSG_LOGIN_SETTIMESPEED 0x042 {
     game_time: DateTime<Local>: LittleEndian,
     game_speed: f32: LittleEndian,
+},
+SMSG_UPDATE_OBJECT 0x0A9 {
+    update_data: UpdateBlocks: LittleEndian,
 },
 SMSG_TUTORIAL_FLAGS 0x0FD {
     tutorial_data0: u32: LittleEndian,

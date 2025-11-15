@@ -1,7 +1,7 @@
 use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
 
-use crate::tracked_field::{ClientUpdatable, TrackedField, UpdateWritable};
+use crate::tracked_field::{ClientUpdatable, TrackedField, TrackedWriteTrait, UpdateWritable};
 
 pub struct ObjectFields<GuidType: guid::GuidType> {
     pub guid: TrackedField<Guid<GuidType>>,

@@ -1099,6 +1099,7 @@ dependencies = [
 name = "gameserver"
 version = "0.1.0"
 dependencies = [
+ "bit-vec",
  "chrono",
  "common",
  "concurrent-queue",
@@ -1809,6 +1810,8 @@ dependencies = [
 name = "packets"
 version = "0.1.0"
 dependencies = [
+ "bit-vec",
+ "bitfield-struct",
  "byteorder",
  "chrono",
  "common",

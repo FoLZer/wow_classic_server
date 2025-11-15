@@ -2,7 +2,7 @@ use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
 use macros::tracked;
 
-use crate::tracked_field::UpdateWritable;
+use crate::tracked_field::{UpdateWritable, TrackedWriteTrait};
 
 #[tracked]
 pub struct UnitFields {

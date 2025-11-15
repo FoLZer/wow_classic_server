@@ -1,14 +1,23 @@
 use std::sync::Arc;
 
+use bit_vec::BitVec;
 use chrono::{DateTime, Local, TimeDelta};
+use common::guid::AnyGuid;
 use concurrent_queue::ConcurrentQueue;
+use gameobjects::tracked_field::ClientUpdatable;
 use log::error;
+use packets::update_data::{
+    MovementFlags, MovementInfo, MovementUpdate, PositionUpdate, PossibleUpdate, UpdateBlocks,
+    UpdateData, ValuesUpdate,
+};
 use tokio::io::AsyncWriteExt;
 
 use crate::character::Character;
 
 pub struct Server {
     pub game_time: DateTime<Local>,
+
+    characters: Vec<Character>,
 
     world_transition_character_queue: Arc<ConcurrentQueue<Character>>,
 }
@@ -17,6 +26,8 @@ impl Server {
     pub fn new(world_transition_character_queue: Arc<ConcurrentQueue<Character>>) -> Self {
         Self {
             game_time: Local::now(),
+
+            characters: Vec::new(),
 
             world_transition_character_queue,
         }
@@ -137,6 +148,76 @@ impl Server {
                 );
                 return;
             };
+
+            let mut mask_blocks = BitVec::new();
+            let mut values_blocks = Vec::new();
+
+            character
+                .object_fields
+                .write_full_update_block(&mut mask_blocks, &mut values_blocks);
+            character
+                .unit_fields
+                .write_full_update_block(&mut mask_blocks, &mut values_blocks);
+            character
+                .player_fields
+                .write_full_update_block(&mut mask_blocks, &mut values_blocks);
+
+            let block = UpdateData::CreateNewObject {
+                guid: AnyGuid::Player(character.object_fields.guid.get().clone()),
+                movement: MovementUpdate {
+                    is_self_update: true,
+                    position: Some(PositionUpdate::Living {
+                        movement_info: MovementInfo {
+                            movement_flags: MovementFlags::new(),
+                            timestamp: 0,
+                            pos_x: character.position.0,
+                            pos_y: character.position.1,
+                            pos_z: character.position.2,
+                            orientation: character.orientation,
+                            on_transport_data: None,
+                            swimming_pitch: None,
+                            fall_time: Some(0),
+                            falling_data: None,
+                            spline_elevation: None,
+                        },
+                        walk_speed: 1.0,
+                        run_speed: 70.0,
+                        run_backwards_speed: 4.5,
+                        swim_speed: 0.0,
+                        swim_backwards_speed: 0.0,
+                        turn_speed: std::f32::consts::PI,
+                    }),
+                    high_guid: None,
+                    is_update_all: true,
+                    full_guid: PossibleUpdate::NoUpdate,
+                    transport_time_millis: None,
+                },
+                values: ValuesUpdate {
+                    mask_blocks,
+                    values_blocks,
+                },
+            };
+
+            let response = packets::server::SMSG_UPDATE_OBJECT {
+                update_data: UpdateBlocks {
+                    has_transport: false,
+                    blocks: vec![block],
+                },
+            };
+
+            if let Err(e) = character
+                .stream
+                .write_all(&response.to_bytes(Some(character.session_key)))
+                .await
+            {
+                error!(
+                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                    character.account_id, e
+                );
+                return;
+            };
+
+            self.characters.push(character);
         }
     }
 }

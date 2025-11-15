@@ -2,6 +2,10 @@ use bit_vec::BitVec;
 use common::guid::{Guid, GuidType};
 
 pub trait UpdateWritable {
+    fn get_mask_bits_count() -> usize {
+        1
+    }
+
     fn get_update_blocks_count() -> usize {
         1
     }
@@ -19,12 +23,17 @@ pub trait ClientUpdatable {
     fn write_full_update_block(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>);
 }
 
+#[derive(Clone, Copy)]
 pub struct TrackedField<T> {
     is_updated: bool,
     field: T,
 }
 
 impl<T> TrackedField<T> {
+    pub fn get(&self) -> &T {
+        &self.field
+    }
+
     pub fn is_updated(&self) -> bool {
         self.is_updated
     }
@@ -35,17 +44,21 @@ impl<T> TrackedField<T> {
     }
 }
 
-impl<T: UpdateWritable> TrackedField<T> {
-    pub fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
+impl<T: UpdateWritable> TrackedWriteTrait for TrackedField<T> {
+    fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
         if self.is_updated {
             self.write_forced(mask_bits, values_buf);
         } else {
-            mask_bits.push(false);
+            for _ in 0..T::get_mask_bits_count() {
+                mask_bits.push(false);
+            }
         }
     }
 
-    pub fn write_forced(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
-        mask_bits.push(true);
+    fn write_forced(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
+        for _ in 0..T::get_mask_bits_count() {
+            mask_bits.push(true);
+        }
 
         let count = T::get_update_blocks_count();
 
@@ -55,6 +68,25 @@ impl<T: UpdateWritable> TrackedField<T> {
         let blocks = &mut values_buf[len - count..];
         self.field.write(blocks);
     }
+}
+
+impl<T: UpdateWritable, const N: usize> TrackedWriteTrait for [TrackedField<T>; N] {
+    fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
+        for v in self {
+            v.write(mask_bits, values_buf);
+        }
+    }
+
+    fn write_forced(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
+        for v in self {
+            v.write_forced(mask_bits, values_buf);
+        }
+    }
+}
+
+pub(crate) trait TrackedWriteTrait {
+    fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>);
+    fn write_forced(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>);
 }
 
 impl<T> From<T> for TrackedField<T> {
@@ -75,18 +107,6 @@ impl UpdateWritable for u32 {
 impl UpdateWritable for f32 {
     fn write(&self, blocks: &mut [u32]) {
         blocks[0] = self.to_bits();
-    }
-}
-
-impl<const N: usize> UpdateWritable for [u32; N] {
-    fn get_update_blocks_count() -> usize {
-        N
-    }
-
-    fn write(&self, blocks: &mut [u32]) {
-        for (i, v) in self.iter().enumerate() {
-            blocks[i] = *v;
-        }
     }
 }
 

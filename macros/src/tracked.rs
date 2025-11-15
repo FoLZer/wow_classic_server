@@ -18,31 +18,67 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     for field in &mut data.fields {
         field_names.push(field.ident.clone().unwrap());
 
-        field.ty = Type::Path(TypePath {
-            qself: None,
-            path: Path {
-                leading_colon: None,
-                segments: Punctuated::from_iter([
-                    PathSegment {
-                        ident: Ident::new("crate", Span::call_site()),
-                        arguments: PathArguments::None,
-                    },
-                    PathSegment {
-                        ident: Ident::new("tracked_field", Span::call_site()),
-                        arguments: PathArguments::None,
-                    },
-                    PathSegment {
-                        ident: Ident::new("TrackedField", Span::call_site()),
-                        arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-                            colon2_token: None,
-                            lt_token: Lt(Span::call_site()),
-                            args: Punctuated::from_iter([GenericArgument::Type(field.ty.clone())]),
-                            gt_token: Gt(Span::call_site()),
-                        }),
-                    },
-                ]),
-            },
-        });
+        if let Type::Array(ar) = &mut field.ty {
+            ar.elem = Box::new(Type::Path(TypePath {
+                qself: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter([
+                        PathSegment {
+                            ident: Ident::new("crate", Span::call_site()),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: Ident::new("tracked_field", Span::call_site()),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: Ident::new("TrackedField", Span::call_site()),
+                            arguments: PathArguments::AngleBracketed(
+                                AngleBracketedGenericArguments {
+                                    colon2_token: None,
+                                    lt_token: Lt(Span::call_site()),
+                                    args: Punctuated::from_iter([GenericArgument::Type(
+                                        *ar.elem.clone(),
+                                    )]),
+                                    gt_token: Gt(Span::call_site()),
+                                },
+                            ),
+                        },
+                    ]),
+                },
+            }))
+        } else {
+            field.ty = Type::Path(TypePath {
+                qself: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: Punctuated::from_iter([
+                        PathSegment {
+                            ident: Ident::new("crate", Span::call_site()),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: Ident::new("tracked_field", Span::call_site()),
+                            arguments: PathArguments::None,
+                        },
+                        PathSegment {
+                            ident: Ident::new("TrackedField", Span::call_site()),
+                            arguments: PathArguments::AngleBracketed(
+                                AngleBracketedGenericArguments {
+                                    colon2_token: None,
+                                    lt_token: Lt(Span::call_site()),
+                                    args: Punctuated::from_iter([GenericArgument::Type(
+                                        field.ty.clone(),
+                                    )]),
+                                    gt_token: Gt(Span::call_site()),
+                                },
+                            ),
+                        },
+                    ]),
+                },
+            });
+        }
     }
 
     let name = ast.ident.clone();

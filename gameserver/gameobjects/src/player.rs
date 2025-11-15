@@ -2,7 +2,7 @@ use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
 use macros::tracked;
 
-use crate::tracked_field::UpdateWritable;
+use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
 
 #[tracked]
 pub struct PlayerFields {
@@ -75,19 +75,19 @@ pub struct QuestLogFields {
     pub log_3: u32,
 }
 
-impl<const N: usize> UpdateWritable for [QuestLogFields; N] {
+impl UpdateWritable for QuestLogFields {
+    fn get_mask_bits_count() -> usize {
+        3
+    }
+
     fn get_update_blocks_count() -> usize {
-        N * 3
+        3
     }
 
     fn write(&self, blocks: &mut [u32]) {
-        for (i, v) in self.iter().enumerate() {
-            let blocks = &mut blocks[(i * 3)..=(i * 3 + 2)];
-
-            blocks[0] = v.log_1;
-            blocks[1] = v.log_2;
-            blocks[2] = v.log_3;
-        }
+        blocks[0] = self.log_1;
+        blocks[1] = self.log_2;
+        blocks[2] = self.log_3;
     }
 }
 
@@ -98,20 +98,23 @@ pub struct VisibleItemFields {
     pub _padding: u32,
 }
 
-impl<const N: usize> UpdateWritable for [VisibleItemFields; N] {
+impl UpdateWritable for VisibleItemFields {
+    fn get_mask_bits_count() -> usize {
+        12
+    }
+
     fn get_update_blocks_count() -> usize {
-        N * 12
+        12
     }
 
     fn write(&self, blocks: &mut [u32]) {
-        for (i, v) in self.iter().enumerate() {
-            let blocks = &mut blocks[(i * 12)..=(i * 12 + 11)];
-
-            v.creator.write(&mut blocks[0..=1]);
-            v.unkn.write(&mut blocks[2..=9]);
-            blocks[10] = v.properties;
-            blocks[11] = v._padding;
+        self.creator.write(&mut blocks[0..=1]);
+        for (i, v) in self.unkn.iter().enumerate() {
+            let i = 2 + i;
+            v.write(&mut blocks[i..=i]);
         }
+        blocks[10] = self.properties;
+        blocks[11] = self._padding;
     }
 }
 
