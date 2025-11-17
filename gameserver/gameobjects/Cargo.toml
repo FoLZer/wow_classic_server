@@ -7,4 +7,5 @@ edition = "2024"
 bit-vec = "0.8.0"
 bitfield-struct = "0.12.1"
 common = { path = "../common" }
+log = "0.4.28"
 macros = { path = "../../macros" }

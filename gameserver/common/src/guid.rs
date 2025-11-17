@@ -3,7 +3,7 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Guid<T: GuidType>(NonZeroU32, PhantomData<T>);
 
 impl<T: GuidType> Guid<T> {
@@ -34,7 +34,7 @@ pub trait GuidType {
     fn get_prefix() -> u16;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Item;
 
 impl GuidType for Item {
@@ -43,7 +43,7 @@ impl GuidType for Item {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Container;
 
 impl GuidType for Container {
@@ -52,7 +52,7 @@ impl GuidType for Container {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Unit;
 
 impl GuidType for Unit {
@@ -61,7 +61,7 @@ impl GuidType for Unit {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Player;
 
 impl GuidType for Player {
@@ -70,7 +70,7 @@ impl GuidType for Player {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct GameObject;
 
 impl GuidType for GameObject {
@@ -79,7 +79,7 @@ impl GuidType for GameObject {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct DynamicObject;
 
 impl GuidType for DynamicObject {
@@ -88,7 +88,7 @@ impl GuidType for DynamicObject {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Corpse;
 
 impl GuidType for Corpse {
@@ -97,6 +97,7 @@ impl GuidType for Corpse {
     }
 }
 
+#[derive(Debug)]
 pub enum AnyGuid {
     Item(Guid<Item>),
     Container(Guid<Container>),

@@ -12,6 +12,14 @@ pub struct ObjectFields<GuidType: guid::GuidType> {
 }
 
 impl<T: guid::GuidType> ClientUpdatable for ObjectFields<T> {
+    fn clear_update_flags(&mut self) {
+        self.guid.clear_update_flag();
+        self.object_type.clear_update_flag();
+        self.entry.clear_update_flag();
+        self.scale_x.clear_update_flag();
+        self._padding.clear_update_flag();
+    }
+
     fn write_update_block(&self, mask_bits: &mut bit_vec::BitVec<u32>, values_buf: &mut Vec<u32>) {
         self.guid.write(mask_bits, values_buf);
         self.object_type.write(mask_bits, values_buf);

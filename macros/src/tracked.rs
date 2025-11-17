@@ -14,11 +14,17 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         panic!("This derive macro should only be used on structs")
     };
 
+    let mut clear_flags_stmts = Vec::new();
     let mut field_names = Vec::new();
     for field in &mut data.fields {
-        field_names.push(field.ident.clone().unwrap());
+        let ident = field.ident.clone().unwrap();
+        field_names.push(ident.clone());
 
         if let Type::Array(ar) = &mut field.ty {
+            clear_flags_stmts.push(quote! {
+                self.#ident.iter_mut().for_each(|v| v.clear_update_flag());
+            });
+
             ar.elem = Box::new(Type::Path(TypePath {
                 qself: None,
                 path: Path {
@@ -49,6 +55,10 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 },
             }))
         } else {
+            clear_flags_stmts.push(quote! {
+                self.#ident.clear_update_flag();
+            });
+
             field.ty = Type::Path(TypePath {
                 qself: None,
                 path: Path {
@@ -88,6 +98,12 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #s
 
         impl crate::tracked_field::ClientUpdatable for #name {
+            fn clear_update_flags(&mut self) {
+                #(
+                    #clear_flags_stmts
+                )*
+            }
+
             fn write_update_block(
                 &self,
                 mask_bits: &mut bit_vec::BitVec<u32>,

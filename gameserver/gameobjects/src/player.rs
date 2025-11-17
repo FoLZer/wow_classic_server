@@ -17,12 +17,16 @@ pub struct PlayerFields {
     pub guild_timestamp: u32,
     pub quest_log: [QuestLogFields; 20],
     pub visible_items: [VisibleItemFields; 19],
-    pub inv_slot_head: [u32; 46],
-    pub main_backpack_slots: [u32; 32],
-    pub bank_slots: [u32; 48],
-    pub bank_bag_slots: [u32; 12],
-    pub vendor_buyback_slots: [u32; 24],
-    pub keyring_slots: [u32; 64],
+
+    pub equipment_slots: [Option<Guid<guid::Item>>; 19],
+    pub bag_slots: [Option<Guid<guid::Item>>; 4],
+    pub main_backpack_slots: [Option<Guid<guid::Item>>; 16],
+    pub bank_slots: [Option<Guid<guid::Item>>; 28],
+    pub bank_bag_slots: [Option<Guid<guid::Item>>; 7],
+    pub vendor_buyback_slots: [Option<Guid<guid::Item>>; 12],
+    pub keyring_slots: [Option<Guid<guid::Item>>; 12],
+    pub _unkn: [Option<Guid<guid::Item>>; 15],
+
     pub far_sight: Option<Guid<guid::DynamicObject>>,
     pub field_combo_target: Option<Guid<guid::GameObject>>, //unknown
     pub xp: u32,
@@ -76,10 +80,6 @@ pub struct QuestLogFields {
 }
 
 impl UpdateWritable for QuestLogFields {
-    fn get_mask_bits_count() -> usize {
-        3
-    }
-
     fn get_update_blocks_count() -> usize {
         3
     }
@@ -99,10 +99,6 @@ pub struct VisibleItemFields {
 }
 
 impl UpdateWritable for VisibleItemFields {
-    fn get_mask_bits_count() -> usize {
-        12
-    }
-
     fn get_update_blocks_count() -> usize {
         12
     }

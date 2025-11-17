@@ -3,6 +3,7 @@ mod character_screen_connection;
 mod game_data;
 mod ipc_connection;
 mod login_character;
+mod packet_handler;
 mod server;
 
 use std::{
@@ -24,7 +25,11 @@ use log::{error, info, warn};
 use packets::account_result::AccountResult;
 use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
-use tokio::{io::AsyncWriteExt, net::TcpListener, sync::Mutex};
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpListener, tcp::OwnedReadHalf},
+    sync::Mutex,
+};
 
 use crate::{
     character::Character,
@@ -103,13 +108,14 @@ async fn main() {
         config.server_category,
     );
 
-    let world_transition_character_queue: Arc<ConcurrentQueue<Character>> =
+    let world_transition_character_queue: Arc<ConcurrentQueue<(Character, OwnedReadHalf)>> =
         Arc::new(ConcurrentQueue::unbounded());
 
+    let game_data_accessor = GameDataAccessor::new(db.clone());
     {
-        let game_data_accessor = GameDataAccessor::new(db.clone());
         let world_transition_character_queue = world_transition_character_queue.clone();
 
+        let game_data_accessor = game_data_accessor.clone();
         tokio::spawn(async move {
             let socket = TcpListener::bind(config.bind_to)
                 .await
@@ -203,13 +209,24 @@ async fn main() {
                                     }
                                 };
 
-                                let character =
-                                    Character::from_model(conn.stream, conn.session_key, model);
+                                let (rx, tx) = conn.stream.into_split();
 
-                                info!("Transitioning client's character (client_id: {}, character_id: {}) into a game world", character.account_id, 0); //TODO: character_id
+                                let mut character =
+                                    Character::from_model(tx, conn.session_key, model);
+
+                                character.player_fields.main_backpack_slots[0] =
+                                    Some(common::guid::Guid::from_u32(
+                                        std::num::NonZeroU32::new(2).unwrap(),
+                                    ))
+                                    .into();
+
+                                info!(
+                                    "Transitioning client's character (client_id: {}, character_id: {}) into a game world",
+                                    character.account_id, 0
+                                ); //TODO: character_id
 
                                 // If this fails, the client will be disconnected anyway due to Drop being called
-                                let _ = world_transition_character_queue.push(character);
+                                let _ = world_transition_character_queue.push((character, rx));
                                 return;
                             }
                             CharacterScreenResult::ClientDisconnect => {
@@ -224,7 +241,7 @@ async fn main() {
 
     let max_sleep_for_ms = (1000 / TICKRATE) as i64;
 
-    let mut server = Server::new(world_transition_character_queue);
+    let mut server = Server::new(world_transition_character_queue, game_data_accessor);
     loop {
         let new_game_time = chrono::Local::now();
         let diff = (new_game_time - server.game_time).abs();

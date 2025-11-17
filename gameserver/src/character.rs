@@ -1,4 +1,4 @@
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, sync::Arc};
 
 use common::guid::{self, Guid};
 use gameobjects::{
@@ -11,7 +11,7 @@ use gameobjects::{
         UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields,
     },
 };
-use tokio::net::TcpStream;
+use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
 pub struct Character {
     pub map_id: u32,
@@ -20,7 +20,7 @@ pub struct Character {
 
     pub account_id: u32,
     pub session_key: [u8; 40],
-    pub stream: TcpStream,
+    pub stream_tx: Arc<Mutex<OwnedWriteHalf>>,
 
     pub object_fields: ObjectFields<guid::Player>,
     pub unit_fields: UnitFields,
@@ -29,7 +29,7 @@ pub struct Character {
 
 impl Character {
     pub fn from_model(
-        stream: TcpStream,
+        stream_tx: OwnedWriteHalf,
         session_key: [u8; 40],
         model: gameserver_entity::character::Model,
     ) -> Self {
@@ -40,7 +40,7 @@ impl Character {
 
             account_id: model.account_id as u32,
             session_key,
-            stream,
+            stream_tx: Arc::new(Mutex::new(stream_tx)),
 
             //TODO: fill in these values, obviously
             object_fields: ObjectFields {
@@ -173,12 +173,16 @@ impl Character {
                     }
                     .into()
                 }),
-                inv_slot_head: [0.into(); 46],
-                main_backpack_slots: [0.into(); 32],
-                bank_slots: [0.into(); 48],
-                bank_bag_slots: [0.into(); 12],
-                vendor_buyback_slots: [0.into(); 24],
-                keyring_slots: [0.into(); 64],
+
+                equipment_slots: [None.into(); 19],
+                bag_slots: [None.into(); 4],
+                main_backpack_slots: [None.into(); 16],
+                bank_slots: [None.into(); 28],
+                bank_bag_slots: [None.into(); 7],
+                vendor_buyback_slots: [None.into(); 12],
+                keyring_slots: [None.into(); 12],
+                _unkn: [None.into(); 15],
+
                 far_sight: None.into(),
                 field_combo_target: None.into(),
                 xp: 0.into(),

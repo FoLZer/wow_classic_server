@@ -1,8 +1,9 @@
 use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
+use log::warn;
 use macros::tracked;
 
-use crate::tracked_field::{UpdateWritable, TrackedWriteTrait};
+use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
 
 #[tracked]
 pub struct UnitFields {
@@ -96,6 +97,7 @@ impl UpdateWritable for UnitFieldBytes1 {
 }
 
 #[bitfield(u32)]
+#[derive(PartialEq, Eq)]
 pub struct UnitFieldBytes2 {
     #[bits(8)]
     pub stand_state: StandStateType,
@@ -137,10 +139,10 @@ pub enum StandStateType {
 }
 
 impl StandStateType {
-    const fn into_bits(self) -> u8 {
+    pub const fn into_bits(self) -> u8 {
         self as _
     }
-    const fn from_bits(value: u8) -> Self {
+    pub const fn from_bits(value: u8) -> Self {
         match value {
             0 => Self::Stand,
             1 => Self::Sit,
@@ -152,6 +154,28 @@ impl StandStateType {
             7 => Self::Dead,
             8 => Self::Kneel,
             _ => panic!(),
+        }
+    }
+
+    pub fn from_bits_non_const(value: u8) -> Self {
+        match value {
+            0 => Self::Stand,
+            1 => Self::Sit,
+            2 => Self::SitChair,
+            3 => Self::Sleep,
+            4 => Self::SitLowChair,
+            5 => Self::SitMediumChair,
+            6 => Self::SitHighChair,
+            7 => Self::Dead,
+            8 => Self::Kneel,
+            _ => {
+                warn!(
+                    "Tried to convert incorrect value ({}) to StandStateType, returning StandStateType::Stand as a fallback",
+                    value
+                );
+
+                Self::Stand
+            }
         }
     }
 }

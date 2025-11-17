@@ -12,7 +12,7 @@ use lazy_static::lazy_static;
 use macros::create_server_packets;
 
 use crate::{
-    account_result::AccountResult, character_info::CharacterInfo, update_data::UpdateBlocks,
+    account_result::AccountResult, character_info::CharacterInfo, inventory_change_result::InventoryChangeResult, item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat}, update_data::UpdateBlocks
 };
 
 lazy_static! {
@@ -37,6 +37,68 @@ SMSG_LOGIN_SETTIMESPEED 0x042 {
     game_time: DateTime<Local>: LittleEndian,
     game_speed: f32: LittleEndian,
 },
+SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
+    item_id: u32: LittleEndian,
+    class: u32: LittleEndian,
+    sub_class: u32: LittleEndian,
+    name_1: CString: LittleEndian,
+    name_2: CString: LittleEndian,
+    name_3: CString: LittleEndian,
+    name_4: CString: LittleEndian,
+    display_info_id: u32: LittleEndian,
+    quality: u32: LittleEndian,
+    flags: ItemFlags: LittleEndian,
+    buy_price: u32: LittleEndian,
+    sell_price: u32: LittleEndian,
+    inventory_type: u32: LittleEndian, //TODO
+    allowable_class: u32: LittleEndian,
+    allowable_race: u32: LittleEndian,
+    item_level: u32: LittleEndian,
+    required_level: u32: LittleEndian,
+    required_skill: u32: LittleEndian,
+    required_skill_rank: u32: LittleEndian,
+    required_spell: u32: LittleEndian,
+    required_honor_rank: u32: LittleEndian,
+    required_city_rank: u32: LittleEndian,
+    required_reputation_faction: u32: LittleEndian,
+    required_reputation_rank: u32: LittleEndian,
+    max_count: u32: LittleEndian,
+    stackable: u32: LittleEndian,
+    container_slots: u32: LittleEndian,
+    item_stats: [ItemStat; 10]: LittleEndian,
+    damage: [ItemDamage; 5]: LittleEndian,
+
+    armor: u32: LittleEndian,
+    holy_resistance: u32: LittleEndian,
+    fire_resistance: u32: LittleEndian,
+    nature_resistance: u32: LittleEndian,
+    frost_resistance: u32: LittleEndian,
+    shadow_resistance: u32: LittleEndian,
+    arcane_resistance: u32: LittleEndian,
+
+    delay: u32: LittleEndian,
+    ammo_type: u32: LittleEndian,
+    ranged_mod_range: f32: LittleEndian,
+
+    spells: [Option<ItemSpell>; 5]: LittleEndian,
+
+    bonding: u32: LittleEndian,
+    description: CString: LittleEndian,
+    page_text: u32: LittleEndian,
+    language_id: u32: LittleEndian,
+    page_material: u32: LittleEndian,
+    start_quest: u32: LittleEndian,
+    lock_id: u32: LittleEndian,
+    material: u32: LittleEndian,
+    sheath: u32: LittleEndian,
+    random_property: u32: LittleEndian,
+    block: u32: LittleEndian,
+    item_set: u32: LittleEndian,
+    max_durability: u32: LittleEndian,
+    area: u32: LittleEndian,
+    map: u32: LittleEndian,
+    bag_family: u32: LittleEndian,
+},
 SMSG_UPDATE_OBJECT 0x0A9 {
     update_data: UpdateBlocks: LittleEndian,
 },
@@ -50,12 +112,18 @@ SMSG_TUTORIAL_FLAGS 0x0FD {
     tutorial_data6: u32: LittleEndian,
     tutorial_data7: u32: LittleEndian,
 },
+SMSG_INVENTORY_CHANGE_FAILURE 0x112 {
+    result: InventoryChangeResult: LittleEndian
+},
 SMSG_BINDPOINTUPDATE 0x155 {
     homebind_x: f32: LittleEndian,
     homebind_y: f32: LittleEndian,
     homebind_z: f32: LittleEndian,
     homebind_map_id: u32: LittleEndian,
     homebind_area_id: u32: LittleEndian,
+},
+SMSG_QUERY_TIME_RESPONSE 0x1CF {
+    time: DateTime<Local>: LittleEndian
 },
 SMSG_PONG 0x1DD {
     sequence_id: u32: LittleEndian,

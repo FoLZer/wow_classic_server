@@ -1092,6 +1092,7 @@ dependencies = [
  "bit-vec",
  "bitfield-struct",
  "common",
+ "log",
  "macros",
 ]
 
