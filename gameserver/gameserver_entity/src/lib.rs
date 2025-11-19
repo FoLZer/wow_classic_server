@@ -6,6 +6,7 @@ pub mod character;
 pub mod character_display_id;
 pub mod class;
 pub mod gender;
+pub mod item;
 pub mod item_prototype;
 pub mod player_start_data;
 pub mod player_start_other_equipment;

@@ -16,13 +16,13 @@ use packets::{
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf};
 
 use crate::{
-    character::Character,
-    game_data::GameDataAccessor,
-    packet_handler::{PlayerUpdate, PlayerUpdateData, packet_handler},
+    character::Character, creature::Creature, game_data::GameDataAccessor, packet_handler::{PlayerUpdate, PlayerUpdateData, packet_handler}
 };
 
 pub struct Server {
     pub game_time: DateTime<Local>,
+
+    creatures: HashMap<Guid<guid::Unit>, Creature>,
 
     characters: HashMap<Guid<guid::Player>, Character>,
 
@@ -37,8 +37,14 @@ impl Server {
         world_transition_character_queue: Arc<ConcurrentQueue<(Character, OwnedReadHalf)>>,
         game_data_accessor: GameDataAccessor,
     ) -> Self {
+        let mut creatures = HashMap::new();
+
+
+
         Self {
             game_time: Local::now(),
+
+            creatures,
 
             characters: HashMap::new(),
 
@@ -264,7 +270,6 @@ impl Server {
                 .write_full_update_block(&mut mask_blocks, &mut values_blocks);
                 (gameobjects::item::ItemFields {
                     owner: Some(*character.object_fields.guid.get()).into(),
-                    //owner: None.into(),
                     contained_in: None.into(),
                     creator: None.into(),
                     gift_creator: None.into(),

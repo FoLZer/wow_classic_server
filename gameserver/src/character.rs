@@ -13,6 +13,8 @@ use gameobjects::{
 };
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
+use crate::item::Item;
+
 pub struct Character {
     pub map_id: u32,
     pub position: (f32, f32, f32),
@@ -21,6 +23,8 @@ pub struct Character {
     pub account_id: u32,
     pub session_key: [u8; 40],
     pub stream_tx: Arc<Mutex<OwnedWriteHalf>>,
+
+    items: CharacterItems,
 
     pub object_fields: ObjectFields<guid::Player>,
     pub unit_fields: UnitFields,
@@ -229,4 +233,37 @@ impl Character {
             },
         }
     }
+}
+
+struct CharacterItems {
+    pub equipment: EquipmentItems,
+    pub bags: [Item; 4],
+    pub main_backpack: [Item; 16],
+    pub bank: [Item; 28],
+    pub bank_bags: [Item; 7],
+    pub vendor_buyback: [Item; 12],
+    pub keyring: [Item; 12],
+    // unknown: [Item; 15]
+}
+
+pub struct EquipmentItems {
+    pub head: Item,
+    pub neck: Item,
+    pub shoulders: Item,
+    pub body: Item,
+    pub chest: Item,
+    pub waist: Item,
+    pub legs: Item,
+    pub feet: Item,
+    pub wrists: Item,
+    pub hands: Item,
+    pub finger1: Item,
+    pub finger2: Item,
+    pub trinket1: Item,
+    pub trinket2: Item,
+    pub back: Item,
+    pub mainhand: Item,
+    pub offhand: Item,
+    pub ranged: Item,
+    pub tabard: Item,
 }

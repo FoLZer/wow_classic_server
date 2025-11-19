@@ -33,47 +33,892 @@ pub struct Model {
     pub flags: i32,
     pub first_login: bool,
     pub display_id: i32,
-    pub equipment_head_display_id: i32,
-    pub equipment_head_inventory_type: i32,
-    pub equipment_neck_display_id: i32,
-    pub equipment_neck_inventory_type: i32,
-    pub equipment_shoulders_display_id: i32,
-    pub equipment_shoulders_inventory_type: i32,
-    pub equipment_body_display_id: i32,
-    pub equipment_body_inventory_type: i32,
-    pub equipment_chest_display_id: i32,
-    pub equipment_chest_inventory_type: i32,
-    pub equipment_waist_display_id: i32,
-    pub equipment_waist_inventory_type: i32,
-    pub equipment_legs_display_id: i32,
-    pub equipment_legs_inventory_type: i32,
-    pub equipment_feet_display_id: i32,
-    pub equipment_feet_inventory_type: i32,
-    pub equipment_wrists_display_id: i32,
-    pub equipment_wrists_inventory_type: i32,
-    pub equipment_hands_display_id: i32,
-    pub equipment_hands_inventory_type: i32,
-    pub equipment_finger1_display_id: i32,
-    pub equipment_finger1_inventory_type: i32,
-    pub equipment_finger2_display_id: i32,
-    pub equipment_finger2_inventory_type: i32,
-    pub equipment_trinket1_display_id: i32,
-    pub equipment_trinket1_inventory_type: i32,
-    pub equipment_trinket2_display_id: i32,
-    pub equipment_trinket2_inventory_type: i32,
-    pub equipment_back_display_id: i32,
-    pub equipment_back_inventory_type: i32,
-    pub equipment_mainhand_display_id: i32,
-    pub equipment_mainhand_inventory_type: i32,
-    pub equipment_offhand_display_id: i32,
-    pub equipment_offhand_inventory_type: i32,
-    pub equipment_ranged_display_id: i32,
-    pub equipment_ranged_inventory_type: i32,
-    pub equipment_tabard_display_id: i32,
-    pub equipment_tabard_inventory_type: i32,
+    pub equipment_head: i32,
+    pub equipment_neck: i32,
+    pub equipment_shoulders: i32,
+    pub equipment_body: i32,
+    pub equipment_chest: i32,
+    pub equipment_waist: i32,
+    pub equipment_legs: i32,
+    pub equipment_feet: i32,
+    pub equipment_wrists: i32,
+    pub equipment_hands: i32,
+    pub equipment_finger1: i32,
+    pub equipment_finger2: i32,
+    pub equipment_trinket1: i32,
+    pub equipment_trinket2: i32,
+    pub equipment_back: i32,
+    pub equipment_mainhand: i32,
+    pub equipment_offhand: i32,
+    pub equipment_ranged: i32,
+    pub equipment_tabard: i32,
+    pub bag1: i32,
+    pub bag2: i32,
+    pub bag3: i32,
+    pub bag4: i32,
+    pub main_backpack1: i32,
+    pub main_backpack2: i32,
+    pub main_backpack3: i32,
+    pub main_backpack4: i32,
+    pub main_backpack5: i32,
+    pub main_backpack6: i32,
+    pub main_backpack7: i32,
+    pub main_backpack8: i32,
+    pub main_backpack9: i32,
+    pub main_backpack10: i32,
+    pub main_backpack11: i32,
+    pub main_backpack12: i32,
+    pub main_backpack13: i32,
+    pub main_backpack14: i32,
+    pub main_backpack15: i32,
+    pub main_backpack16: i32,
+    pub bank1: i32,
+    pub bank2: i32,
+    pub bank3: i32,
+    pub bank4: i32,
+    pub bank5: i32,
+    pub bank6: i32,
+    pub bank7: i32,
+    pub bank8: i32,
+    pub bank9: i32,
+    pub bank10: i32,
+    pub bank11: i32,
+    pub bank12: i32,
+    pub bank13: i32,
+    pub bank14: i32,
+    pub bank15: i32,
+    pub bank16: i32,
+    pub bank17: i32,
+    pub bank18: i32,
+    pub bank19: i32,
+    pub bank20: i32,
+    pub bank21: i32,
+    pub bank22: i32,
+    pub bank23: i32,
+    pub bank24: i32,
+    pub bank25: i32,
+    pub bank26: i32,
+    pub bank27: i32,
+    pub bank28: i32,
+    pub bank_bag1: i32,
+    pub bank_bag2: i32,
+    pub bank_bag3: i32,
+    pub bank_bag4: i32,
+    pub bank_bag5: i32,
+    pub bank_bag6: i32,
+    pub bank_bag7: i32,
+    pub vendor_buyback1: i32,
+    pub vendor_buyback2: i32,
+    pub vendor_buyback3: i32,
+    pub vendor_buyback4: i32,
+    pub vendor_buyback5: i32,
+    pub vendor_buyback6: i32,
+    pub vendor_buyback7: i32,
+    pub vendor_buyback8: i32,
+    pub vendor_buyback9: i32,
+    pub vendor_buyback10: i32,
+    pub vendor_buyback11: i32,
+    pub vendor_buyback12: i32,
+    pub keyring1: i32,
+    pub keyring2: i32,
+    pub keyring3: i32,
+    pub keyring4: i32,
+    pub keyring5: i32,
+    pub keyring6: i32,
+    pub keyring7: i32,
+    pub keyring8: i32,
+    pub keyring9: i32,
+    pub keyring10: i32,
+    pub keyring11: i32,
+    pub keyring12: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring12",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item98,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring11",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item97,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring10",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item96,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring9",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item95,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring8",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item94,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring7",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item93,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring6",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item92,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring5",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item91,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring4",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item90,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring3",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item89,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item88,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Keyring1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item87,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback12",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item86,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback11",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item85,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback10",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item84,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback9",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item83,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback8",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item82,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback7",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item81,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback6",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item80,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback5",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item79,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback4",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item78,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback3",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item77,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item76,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::VendorBuyback1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item75,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag7",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item74,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag6",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item73,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag5",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item72,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag4",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item71,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag3",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item70,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item69,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::BankBag1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item68,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank28",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item67,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank27",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item66,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank26",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item65,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank25",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item64,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank24",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item63,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank23",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item62,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank22",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item61,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank21",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item60,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank20",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item59,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank19",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item58,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank18",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item57,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank17",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item56,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank16",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item55,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank15",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item54,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank14",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item53,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank13",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item52,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank12",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item51,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank11",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item50,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank10",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item49,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank9",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item48,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank8",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item47,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank7",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item46,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank6",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item45,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank5",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item44,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank4",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item43,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank3",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item42,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item41,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bank1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item40,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack16",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item39,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack15",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item38,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack14",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item37,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack13",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item36,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack12",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item35,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack11",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item34,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack10",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item33,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack9",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item32,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack8",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item31,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack7",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item30,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack6",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item29,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack5",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item28,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack4",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item27,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack3",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item26,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item25,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::MainBackpack1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item24,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bag4",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item23,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bag3",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item22,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bag2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item21,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::Bag1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item20,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentTabard",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item19,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentRanged",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item18,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentOffhand",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item17,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentMainhand",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item16,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentBack",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item15,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentTrinket2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item14,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentTrinket1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item13,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentFinger2",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item12,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentFinger1",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item11,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentHands",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item10,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentWrists",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item9,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentFeet",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item8,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentLegs",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item7,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentWaist",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item6,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentChest",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item5,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentBody",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item4,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentShoulders",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item3,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentNeck",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item2,
+    #[sea_orm(
+        belongs_to = "super::item::Entity",
+        from = "Column::EquipmentHead",
+        to = "super::item::Column::Id",
+        on_update = "NoAction",
+        on_delete = "NoAction"
+    )]
+    Item1,
+}
 
 impl ActiveModelBehavior for ActiveModel {}

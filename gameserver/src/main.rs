@@ -5,6 +5,8 @@ mod ipc_connection;
 mod login_character;
 mod packet_handler;
 mod server;
+mod creature;
+mod item;
 
 use std::{
     collections::HashMap,

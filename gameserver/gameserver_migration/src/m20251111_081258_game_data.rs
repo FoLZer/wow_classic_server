@@ -955,7 +955,7 @@ enum CharacterDisplayId {
 }
 
 #[derive(DeriveIden)]
-enum ItemPrototype {
+pub(crate) enum ItemPrototype {
     Table,
 
     Id,

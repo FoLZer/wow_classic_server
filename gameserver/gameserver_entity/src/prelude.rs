@@ -4,6 +4,7 @@ pub use super::character::Entity as Character;
 pub use super::character_display_id::Entity as CharacterDisplayId;
 pub use super::class::Entity as Class;
 pub use super::gender::Entity as Gender;
+pub use super::item::Entity as Item;
 pub use super::item_prototype::Entity as ItemPrototype;
 pub use super::player_start_data::Entity as PlayerStartData;
 pub use super::player_start_other_equipment::Entity as PlayerStartOtherEquipment;
