@@ -57,7 +57,7 @@ pub struct Equipment {
     pub tabard: GearInfo,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct GearInfo {
     pub display_id: u32,
     pub inventory_type: u8,

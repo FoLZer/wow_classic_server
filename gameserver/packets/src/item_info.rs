@@ -3,7 +3,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use crate::server::OrderedWrite;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ItemStat {
     pub ty: u32,
     pub value: u32,
@@ -18,7 +18,7 @@ impl<T: ByteOrder> OrderedWrite<T> for ItemStat {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ItemDamage {
     pub min: u32,
     pub max: u32,
@@ -35,7 +35,7 @@ impl<T: ByteOrder> OrderedWrite<T> for ItemDamage {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ItemSpell {
     pub id: u32,
     pub trigger: u32,

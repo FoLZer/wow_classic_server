@@ -1,10 +1,8 @@
 use packets::{
-    character_info::{Equipment, GearInfo},
+    character_info::GearInfo,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
 };
-use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
-
-use crate::character::EquipmentItems;
+use sea_orm::{DatabaseConnection, EntityLoaderTrait, EntityTrait, Iterable, PaginatorTrait};
 
 // This exists to provide an ability to switch data backend later if needed
 // It's supposed to be easy to clone
@@ -60,96 +58,54 @@ impl GameDataAccessor {
         race: ValidRace,
         class: ValidClass,
     ) -> Result<Option<CharacterStartData>, sea_orm::DbErr> {
-        let data =
-            gameserver_entity::player_start_data::Entity::find_by_id((race.0 as i8, class.0 as i8))
-                .one(&self.db)
-                .await?;
-        Ok(data.map(|data| CharacterStartData {
-            area_id: data.area_id as u32,
-            map_id: data.map_id as u32,
-            position: (data.position_x, data.position_y, data.position_z),
-            orientation: data.orientation,
-            level: data.level as u8,
-            start_equipment: EquipmentItems {
-                head: GearInfo {
-                    display_id: data.equipment_head_display_id as u32,
-                    inventory_type: data.equipment_head_inventory_type as u8,
-                },
-                neck: GearInfo {
-                    display_id: data.equipment_neck_display_id as u32,
-                    inventory_type: data.equipment_neck_inventory_type as u8,
-                },
-                shoulders: GearInfo {
-                    display_id: data.equipment_shoulders_display_id as u32,
-                    inventory_type: data.equipment_shoulders_inventory_type as u8,
-                },
-                body: GearInfo {
-                    display_id: data.equipment_body_display_id as u32,
-                    inventory_type: data.equipment_body_inventory_type as u8,
-                },
-                chest: GearInfo {
-                    display_id: data.equipment_chest_display_id as u32,
-                    inventory_type: data.equipment_chest_inventory_type as u8,
-                },
-                waist: GearInfo {
-                    display_id: data.equipment_waist_display_id as u32,
-                    inventory_type: data.equipment_waist_inventory_type as u8,
-                },
-                legs: GearInfo {
-                    display_id: data.equipment_legs_display_id as u32,
-                    inventory_type: data.equipment_legs_inventory_type as u8,
-                },
-                feet: GearInfo {
-                    display_id: data.equipment_feet_display_id as u32,
-                    inventory_type: data.equipment_feet_inventory_type as u8,
-                },
-                wrists: GearInfo {
-                    display_id: data.equipment_wrists_display_id as u32,
-                    inventory_type: data.equipment_wrists_inventory_type as u8,
-                },
-                hands: GearInfo {
-                    display_id: data.equipment_hands_display_id as u32,
-                    inventory_type: data.equipment_hands_inventory_type as u8,
-                },
-                finger1: GearInfo {
-                    display_id: data.equipment_finger1_display_id as u32,
-                    inventory_type: data.equipment_finger1_inventory_type as u8,
-                },
-                finger2: GearInfo {
-                    display_id: data.equipment_finger2_display_id as u32,
-                    inventory_type: data.equipment_finger2_inventory_type as u8,
-                },
-                trinket1: GearInfo {
-                    display_id: data.equipment_trinket1_display_id as u32,
-                    inventory_type: data.equipment_trinket1_inventory_type as u8,
-                },
-                trinket2: GearInfo {
-                    display_id: data.equipment_trinket2_display_id as u32,
-                    inventory_type: data.equipment_trinket2_inventory_type as u8,
-                },
-                back: GearInfo {
-                    display_id: data.equipment_back_display_id as u32,
-                    inventory_type: data.equipment_back_inventory_type as u8,
-                },
-                mainhand: GearInfo {
-                    display_id: data.equipment_mainhand_display_id as u32,
-                    inventory_type: data.equipment_mainhand_inventory_type as u8,
-                },
-                offhand: GearInfo {
-                    display_id: data.equipment_offhand_display_id as u32,
-                    inventory_type: data.equipment_offhand_inventory_type as u8,
-                },
-                ranged: GearInfo {
-                    display_id: data.equipment_ranged_display_id as u32,
-                    inventory_type: data.equipment_ranged_inventory_type as u8,
-                },
-                tabard: GearInfo {
-                    display_id: data.equipment_tabard_display_id as u32,
-                    inventory_type: data.equipment_tabard_inventory_type as u8,
-                },
-            },
-            other_equipment: vec![], //TODO
-        }))
+        let mut query = gameserver_entity::player_start_data::Entity::load()
+            .filter_by_id((race.0 as i8, class.0 as i8));
+
+        for relation in gameserver_entity::player_start_data::Relation::iter() {
+            query = query.with(relation);
+        }
+
+        let data = query.one(&self.db).await?;
+
+        dbg!(&data);
+
+        Ok(if let Some(data) = data {
+            let start_equipment = StartEquipment {
+                head: data.item_prototype_1.into_option().map(|v| v.into()),
+                neck: data.item_prototype_2.into_option().map(|v| v.into()),
+                shoulders: data.item_prototype_3.into_option().map(|v| v.into()),
+                body: data.item_prototype_4.into_option().map(|v| v.into()),
+                chest: data.item_prototype_5.into_option().map(|v| v.into()),
+                waist: data.item_prototype_6.into_option().map(|v| v.into()),
+                legs: data.item_prototype_7.into_option().map(|v| v.into()),
+                feet: data.item_prototype_8.into_option().map(|v| v.into()),
+                wrists: data.item_prototype_9.into_option().map(|v| v.into()),
+                hands: data.item_prototype_10.into_option().map(|v| v.into()),
+                finger1: data.item_prototype_11.into_option().map(|v| v.into()),
+                finger2: data.item_prototype_12.into_option().map(|v| v.into()),
+                trinket1: data.item_prototype_13.into_option().map(|v| v.into()),
+                trinket2: data.item_prototype_14.into_option().map(|v| v.into()),
+                back: data.item_prototype_15.into_option().map(|v| v.into()),
+                mainhand: data.item_prototype_16.into_option().map(|v| v.into()),
+                offhand: data.item_prototype_17.into_option().map(|v| v.into()),
+                ranged: data.item_prototype_18.into_option().map(|v| v.into()),
+                tabard: data.item_prototype_19.into_option().map(|v| v.into()),
+            };
+
+            dbg!(&start_equipment);
+
+            Some(CharacterStartData {
+                area_id: data.area_id as u32,
+                map_id: data.map_id as u32,
+                position: (data.position_x, data.position_y, data.position_z),
+                orientation: data.orientation,
+                level: data.level as u8,
+                start_equipment,
+                other_equipment: vec![], //TODO
+            })
+        } else {
+            None
+        })
     }
 
     pub async fn get_display_id_for_race_gender(
@@ -369,10 +325,33 @@ pub struct CharacterStartData {
     pub position: (f32, f32, f32),
     pub orientation: f32,
     pub level: u8,
-    pub start_equipment: EquipmentItems,
+    pub start_equipment: StartEquipment,
 
     //Any other equipment that should be put in player's bag
     pub other_equipment: Vec<GearInfo>,
+}
+
+#[derive(Debug)]
+pub struct StartEquipment {
+    pub head: Option<ItemPrototype>,
+    pub neck: Option<ItemPrototype>,
+    pub shoulders: Option<ItemPrototype>,
+    pub body: Option<ItemPrototype>,
+    pub chest: Option<ItemPrototype>,
+    pub waist: Option<ItemPrototype>,
+    pub legs: Option<ItemPrototype>,
+    pub feet: Option<ItemPrototype>,
+    pub wrists: Option<ItemPrototype>,
+    pub hands: Option<ItemPrototype>,
+    pub finger1: Option<ItemPrototype>,
+    pub finger2: Option<ItemPrototype>,
+    pub trinket1: Option<ItemPrototype>,
+    pub trinket2: Option<ItemPrototype>,
+    pub back: Option<ItemPrototype>,
+    pub mainhand: Option<ItemPrototype>,
+    pub offhand: Option<ItemPrototype>,
+    pub ranged: Option<ItemPrototype>,
+    pub tabard: Option<ItemPrototype>,
 }
 
 #[derive(Clone, Copy)]
@@ -399,6 +378,7 @@ impl ValidGender {
     }
 }
 
+#[derive(Debug)]
 pub struct ItemPrototype {
     pub item_id: u32,
     pub class: u32,
@@ -457,4 +437,192 @@ pub struct ItemPrototype {
     pub area: u32,
     pub map: u32,
     pub bag_family: u32,
+}
+
+impl From<gameserver_entity::item_prototype::ModelEx> for ItemPrototype {
+    fn from(value: gameserver_entity::item_prototype::ModelEx) -> Self {
+        Self {
+            item_id: value.id as u32,
+            class: value.class as u32,
+            sub_class: value.sub_class as u32,
+            name: value.name,
+            description: value.description,
+            display_info_id: value.display_id as u32,
+            quality: value.quality as u32,
+            flags: ItemFlags::new(), //TODO
+            buy_price: value.buy_price as u32,
+            sell_price: value.sell_price as u32,
+            inventory_type: value.inventory_type as u32,
+            allowable_class: value.allowable_class as u32,
+            allowable_race: value.allowable_race as u32,
+            item_level: value.item_level as u32,
+            required_level: value.required_level as u32,
+            required_skill: value.required_skill as u32,
+            required_skill_rank: value.required_skill_rank as u32,
+            required_spell: value.required_spell as u32,
+            required_honor_rank: value.required_honor_rank as u32,
+            required_city_rank: value.required_city_rank as u32,
+            required_reputation_faction: value.required_reputation_faction as u32,
+            required_reputation_rank: value.required_reputation_rank as u32,
+            max_count: value.max_count as u32,
+            stackable: value.stackable as u32,
+            container_slots: value.container_slots as u32,
+            item_stats: [
+                ItemStat {
+                    ty: value.item_stat1_type as u32,
+                    value: value.item_stat1_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat2_type as u32,
+                    value: value.item_stat2_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat3_type as u32,
+                    value: value.item_stat3_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat4_type as u32,
+                    value: value.item_stat4_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat5_type as u32,
+                    value: value.item_stat5_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat6_type as u32,
+                    value: value.item_stat6_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat7_type as u32,
+                    value: value.item_stat7_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat8_type as u32,
+                    value: value.item_stat8_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat9_type as u32,
+                    value: value.item_stat9_value as u32,
+                },
+                ItemStat {
+                    ty: value.item_stat10_type as u32,
+                    value: value.item_stat10_value as u32,
+                },
+            ],
+            damage: [
+                ItemDamage {
+                    min: value.item_damage1_min as u32,
+                    max: value.item_damage1_max as u32,
+                    ty: value.item_damage1_type as u32,
+                },
+                ItemDamage {
+                    min: value.item_damage2_min as u32,
+                    max: value.item_damage2_max as u32,
+                    ty: value.item_damage2_type as u32,
+                },
+                ItemDamage {
+                    min: value.item_damage3_min as u32,
+                    max: value.item_damage3_max as u32,
+                    ty: value.item_damage3_type as u32,
+                },
+                ItemDamage {
+                    min: value.item_damage4_min as u32,
+                    max: value.item_damage4_max as u32,
+                    ty: value.item_damage4_type as u32,
+                },
+                ItemDamage {
+                    min: value.item_damage5_min as u32,
+                    max: value.item_damage5_max as u32,
+                    ty: value.item_damage5_type as u32,
+                },
+            ],
+            armor: value.armor as u32,
+            holy_resistance: value.holy_resistance as u32,
+            fire_resistance: value.fire_resistance as u32,
+            nature_resistance: value.nature_resistance as u32,
+            frost_resistance: value.frost_resistance as u32,
+            shadow_resistance: value.shadow_resistance as u32,
+            arcane_resistance: value.arcane_resistance as u32,
+            delay: value.delay as u32,
+            ammo_type: value.ammo_type as u32,
+            ranged_mod_range: value.ranged_mod_range,
+            spells: [
+                if value.spell1_id != 0 {
+                    Some(ItemSpell {
+                        id: value.spell1_id as u32,
+                        trigger: value.spell1_trigger as u32,
+                        charges: value.spell1_charges as u32,
+                        cooldown: value.spell1_cooldown as u32,
+                        category: value.spell1_category as u32,
+                        category_cooldown: value.spell1_category_cooldown as u32,
+                    })
+                } else {
+                    None
+                },
+                if value.spell2_id != 0 {
+                    Some(ItemSpell {
+                        id: value.spell2_id as u32,
+                        trigger: value.spell2_trigger as u32,
+                        charges: value.spell2_charges as u32,
+                        cooldown: value.spell2_cooldown as u32,
+                        category: value.spell2_category as u32,
+                        category_cooldown: value.spell2_category_cooldown as u32,
+                    })
+                } else {
+                    None
+                },
+                if value.spell3_id != 0 {
+                    Some(ItemSpell {
+                        id: value.spell3_id as u32,
+                        trigger: value.spell3_trigger as u32,
+                        charges: value.spell3_charges as u32,
+                        cooldown: value.spell3_cooldown as u32,
+                        category: value.spell3_category as u32,
+                        category_cooldown: value.spell3_category_cooldown as u32,
+                    })
+                } else {
+                    None
+                },
+                if value.spell4_id != 0 {
+                    Some(ItemSpell {
+                        id: value.spell4_id as u32,
+                        trigger: value.spell4_trigger as u32,
+                        charges: value.spell4_charges as u32,
+                        cooldown: value.spell4_cooldown as u32,
+                        category: value.spell4_category as u32,
+                        category_cooldown: value.spell4_category_cooldown as u32,
+                    })
+                } else {
+                    None
+                },
+                if value.spell5_id != 0 {
+                    Some(ItemSpell {
+                        id: value.spell5_id as u32,
+                        trigger: value.spell5_trigger as u32,
+                        charges: value.spell5_charges as u32,
+                        cooldown: value.spell5_cooldown as u32,
+                        category: value.spell5_category as u32,
+                        category_cooldown: value.spell5_category_cooldown as u32,
+                    })
+                } else {
+                    None
+                },
+            ],
+            bonding: value.bonding as u32,
+            page_text: value.page_text as u32,
+            language_id: value.language_id as u32,
+            page_material: value.page_material as u32,
+            start_quest: value.start_quest as u32,
+            lock_id: value.lock_id as u32,
+            material: value.material as u32,
+            sheath: value.sheath as u32,
+            random_property: value.random_property as u32,
+            block: value.block as u32,
+            item_set: value.item_set as u32,
+            max_durability: value.max_durability as u32,
+            area: value.area as u32,
+            map: value.map as u32,
+            bag_family: value.bag_family as u32,
+        }
+    }
 }

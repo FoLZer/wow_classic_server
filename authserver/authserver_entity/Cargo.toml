@@ -9,4 +9,4 @@ name = "authserver_entity"
 path = "src/lib.rs"
 
 [dependencies]
-sea-orm = "1.1.0"
+sea-orm = "2.0.0-rc"
