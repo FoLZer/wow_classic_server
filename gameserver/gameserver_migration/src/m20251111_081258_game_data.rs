@@ -76,196 +76,25 @@ impl MigrationTrait for Migration {
                             .tiny_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentHeadDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentHeadInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentNeckDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentNeckInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentShouldersDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentShouldersInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentBodyDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentBodyInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentChestDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentChestInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentWaistDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentWaistInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentLegsDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentLegsInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentFeetDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentFeetInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentWristsDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentWristsInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentHandsDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentHandsInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentFinger1DisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentFinger1InventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentFinger2DisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentFinger2InventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentTrinket1DisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentTrinket1InventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentTrinket2DisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentTrinket2InventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentBackDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentBackInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentMainhandDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentMainhandInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentOffhandDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentOffhandInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentRangedDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentRangedInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentTabardDisplayId)
-                            .integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(PlayerStartData::EquipmentTabardInventoryType)
-                            .tiny_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(PlayerStartData::EquipmentHeadId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentNeckId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentShouldersId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentBodyId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentChestId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentWaistId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentLegsId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentFeetId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentWristsId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentHandsId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentFinger1Id).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentFinger2Id).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentTrinket1Id).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentTrinket2Id).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentBackId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentMainhandId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentOffhandId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentRangedId).integer())
+                    .col(ColumnDef::new(PlayerStartData::EquipmentTabardId).integer())
                     .col(
                         ColumnDef::new(PlayerStartData::OtherEquipmentTableId)
                             .integer()
@@ -276,6 +105,104 @@ impl MigrationTrait for Migration {
                         &mut IndexCreateStatement::new()
                             .col(PlayerStartData::Race)
                             .col(PlayerStartData::Class),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentHeadId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentNeckId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(
+                                PlayerStartData::Table,
+                                PlayerStartData::EquipmentShouldersId,
+                            )
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentBodyId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentChestId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentWaistId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentLegsId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentFeetId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentWristsId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentHandsId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentFinger1Id)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentFinger2Id)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentTrinket1Id)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentTrinket2Id)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentBackId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentMainhandId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentOffhandId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentRangedId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(PlayerStartData::Table, PlayerStartData::EquipmentTabardId)
+                            .to(ItemPrototype::Table, ItemPrototype::Id),
                     )
                     .to_owned(),
             )
@@ -890,44 +817,25 @@ enum PlayerStartData {
     Orientation,
     Level,
 
-    EquipmentHeadDisplayId,
-    EquipmentHeadInventoryType,
-    EquipmentNeckDisplayId,
-    EquipmentNeckInventoryType,
-    EquipmentShouldersDisplayId,
-    EquipmentShouldersInventoryType,
-    EquipmentBodyDisplayId,
-    EquipmentBodyInventoryType,
-    EquipmentChestDisplayId,
-    EquipmentChestInventoryType,
-    EquipmentWaistDisplayId,
-    EquipmentWaistInventoryType,
-    EquipmentLegsDisplayId,
-    EquipmentLegsInventoryType,
-    EquipmentFeetDisplayId,
-    EquipmentFeetInventoryType,
-    EquipmentWristsDisplayId,
-    EquipmentWristsInventoryType,
-    EquipmentHandsDisplayId,
-    EquipmentHandsInventoryType,
-    EquipmentFinger1DisplayId,
-    EquipmentFinger1InventoryType,
-    EquipmentFinger2DisplayId,
-    EquipmentFinger2InventoryType,
-    EquipmentTrinket1DisplayId,
-    EquipmentTrinket1InventoryType,
-    EquipmentTrinket2DisplayId,
-    EquipmentTrinket2InventoryType,
-    EquipmentBackDisplayId,
-    EquipmentBackInventoryType,
-    EquipmentMainhandDisplayId,
-    EquipmentMainhandInventoryType,
-    EquipmentOffhandDisplayId,
-    EquipmentOffhandInventoryType,
-    EquipmentRangedDisplayId,
-    EquipmentRangedInventoryType,
-    EquipmentTabardDisplayId,
-    EquipmentTabardInventoryType,
+    EquipmentHeadId,
+    EquipmentNeckId,
+    EquipmentShouldersId,
+    EquipmentBodyId,
+    EquipmentChestId,
+    EquipmentWaistId,
+    EquipmentLegsId,
+    EquipmentFeetId,
+    EquipmentWristsId,
+    EquipmentHandsId,
+    EquipmentFinger1Id,
+    EquipmentFinger2Id,
+    EquipmentTrinket1Id,
+    EquipmentTrinket2Id,
+    EquipmentBackId,
+    EquipmentMainhandId,
+    EquipmentOffhandId,
+    EquipmentRangedId,
+    EquipmentTabardId,
 
     OtherEquipmentTableId,
 }

@@ -4,6 +4,8 @@ use packets::{
 };
 use sea_orm::{DatabaseConnection, EntityTrait, PaginatorTrait};
 
+use crate::character::EquipmentItems;
+
 // This exists to provide an ability to switch data backend later if needed
 // It's supposed to be easy to clone
 #[derive(Clone)]
@@ -68,7 +70,7 @@ impl GameDataAccessor {
             position: (data.position_x, data.position_y, data.position_z),
             orientation: data.orientation,
             level: data.level as u8,
-            start_equipment: Equipment {
+            start_equipment: EquipmentItems {
                 head: GearInfo {
                     display_id: data.equipment_head_display_id as u32,
                     inventory_type: data.equipment_head_inventory_type as u8,
@@ -367,7 +369,7 @@ pub struct CharacterStartData {
     pub position: (f32, f32, f32),
     pub orientation: f32,
     pub level: u8,
-    pub start_equipment: Equipment,
+    pub start_equipment: EquipmentItems,
 
     //Any other equipment that should be put in player's bag
     pub other_equipment: Vec<GearInfo>,
