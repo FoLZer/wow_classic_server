@@ -1,0 +1,12 @@
+{
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "name": "gameserver",
+            "database": "./gameserver/gameserver.db",
+        }
+    ],
+
+    "sqltools.useNodeRuntime": true
+}

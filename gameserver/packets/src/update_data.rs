@@ -24,6 +24,7 @@ impl<T: ByteOrder> OrderedWrite<T> for UpdateBlocks {
     }
 }
 
+#[derive(Debug)]
 pub enum UpdateData {
     UpdateObject {
         guid: AnyGuid,
@@ -139,12 +140,14 @@ fn write_packed_guid(guid: &AnyGuid, writer: &mut Vec<u8>) -> Result<(), std::io
     Ok(())
 }
 
+#[derive(Debug)]
 pub enum PossibleUpdate<T> {
     Value(T),
     Clear,
     NoUpdate,
 }
 
+#[derive(Debug)]
 pub struct MovementUpdate {
     pub is_self_update: bool,
     pub position: Option<PositionUpdate>,
@@ -249,6 +252,7 @@ impl<T: ByteOrder> OrderedWrite<T> for MovementUpdate {
     }
 }
 
+#[derive(Debug)]
 pub enum PositionUpdate {
     NonLiving {
         pos_x: f32,
@@ -267,6 +271,7 @@ pub enum PositionUpdate {
     },
 }
 
+#[derive(Debug)]
 pub struct ValuesUpdate {
     pub mask_blocks: BitVec<u32>,
     pub values_blocks: Vec<u32>,

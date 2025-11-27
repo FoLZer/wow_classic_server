@@ -18,12 +18,12 @@ use ipc_comms::{
     realm_types::{RealmCategory, RealmType},
 };
 use log::{error, warn};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
+use sqlx::{Pool, Sqlite};
 use tokio::sync::Mutex;
 
 pub fn start_ipc_task(
     ipc_socket_name: String,
-    db: DatabaseConnection,
+    db: Pool<Sqlite>,
     exiting: Arc<AtomicBool>,
     server_pipe: Arc<Mutex<Option<SendHalf>>>,
     player_session_keys: Arc<Mutex<HashMap<String, SessionKeyResponse>>>,
@@ -119,11 +119,13 @@ pub fn start_ipc_task(
                     lock.insert(account_name, session_key);
                 }
                 GameServerIpcMessage::PlayerNumCharactersRequest { account_id } => {
-                    let num_characters = gameserver_entity::character::Entity::find()
-                        .filter(gameserver_entity::character::Column::AccountId.eq(account_id))
-                        .count(&db)
-                        .await
-                        .unwrap();
+                    let num_characters = sqlx::query_scalar!(
+                        "SELECT COUNT(*) FROM character WHERE account_id = ?",
+                        account_id
+                    )
+                    .fetch_one(&db)
+                    .await
+                    .unwrap() as u64;
 
                     let Some(ref mut tx_lock) = *server_pipe.lock().await else {
                         panic!("IPC tx pipe was removed from outside the responsible method"); // This should never happen

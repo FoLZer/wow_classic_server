@@ -7,8 +7,6 @@ members = [
     "authserver/authserver_migration",
     "authserver/authserver_entity",
     "gameserver",
-    "gameserver/gameserver_migration",
-    "gameserver/gameserver_entity",
     "gameserver/gameobjects",
     "gameserver/common",
 ]

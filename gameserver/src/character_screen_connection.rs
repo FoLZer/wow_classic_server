@@ -10,11 +10,15 @@ use packets::{
     client::{ClientPacket, ParseError},
 };
 use rand::{RngCore, SeedableRng, rngs::StdRng};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait, QueryFilter};
 use sha1::{Digest, Sha1};
+use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
 
-use crate::{game_data::GameDataAccessor, login_character::NewCharacter};
+use crate::{
+    character::{Character, CharacterCreateError},
+    character_selection::CharacterSelection,
+    game_data::GameDataAccessor,
+};
 
 lazy_static! {
     static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(StdRng::from_os_rng());
@@ -25,7 +29,7 @@ pub struct CharacterScreenConnection {
     pub stream: TcpStream,
     pub session_key: [u8; 40],
 
-    db: DatabaseConnection,
+    db: Pool<Sqlite>,
     game_data_accessor: GameDataAccessor,
 }
 
@@ -34,7 +38,7 @@ impl CharacterScreenConnection {
         mut stream: TcpStream,
         player_session_keys: Arc<Mutex<HashMap<String, SessionKeyResponse>>>,
         server_pipe: Arc<Mutex<Option<SendHalf>>>,
-        db: DatabaseConnection,
+        db: Pool<Sqlite>,
         game_data_accessor: GameDataAccessor,
     ) -> Result<Self, ParseError> {
         let server_seed = SECURE_RNG.lock().await.next_u32();
@@ -144,10 +148,11 @@ impl CharacterScreenConnection {
 
             match packet {
                 ClientPacket::CMSG_CHAR_ENUM(_) => {
-                    let characters = match gameserver_entity::character::Entity::find()
-                        .filter(gameserver_entity::character::Column::AccountId.eq(self.account_id))
-                        .all(&self.db)
-                        .await
+                    let characters = match CharacterSelection::get_all_for_account(
+                        &self.db,
+                        self.account_id,
+                    )
+                    .await
                     {
                         Ok(v) => v,
                         Err(e) => {
@@ -160,10 +165,7 @@ impl CharacterScreenConnection {
                     };
 
                     let response = packets::server::SMSG_CHAR_ENUM {
-                        characters: characters
-                            .into_iter()
-                            .map(|v| crate::login_character::Character::from_db(v).to_packet())
-                            .collect(),
+                        characters: characters.into_iter().map(|v| v.to_packet()).collect(),
                     };
 
                     if let Err(e) = self
@@ -178,9 +180,16 @@ impl CharacterScreenConnection {
                     };
                 }
                 ClientPacket::CMSG_CHAR_CREATE(packet) => {
-                    let race = match self.game_data_accessor.validate_race(packet.race).await {
-                        Ok(Some(v)) => v,
-                        Ok(None) => {
+                    match Character::create_new_character(
+                        &packet,
+                        self.account_id,
+                        &self.db,
+                        &self.game_data_accessor,
+                    )
+                    .await
+                    {
+                        Ok(_) => (),
+                        Err(CharacterCreateError::InvalidRace) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
@@ -202,31 +211,7 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
-                        Err(e) => {
-                            error!(
-                                "Failed to check if provided race was valid due to a DB error. Error: {}",
-                                e
-                            );
-                            let response = packets::server::SMSG_CHAR_CREATE {
-                                result: AccountResult::CHAR_CREATE_FAILED,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                    };
-                    let class = match self.game_data_accessor.validate_class(packet.class).await {
-                        Ok(Some(v)) => v,
-                        Ok(None) => {
+                        Err(CharacterCreateError::InvalidClass) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
@@ -248,32 +233,7 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
-                        Err(e) => {
-                            error!(
-                                "Failed to check if provided class was valid due to a DB error. Error: {}",
-                                e
-                            );
-                            let response = packets::server::SMSG_CHAR_CREATE {
-                                result: AccountResult::CHAR_CREATE_FAILED,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                    };
-                    let gender = match self.game_data_accessor.validate_gender(packet.gender).await
-                    {
-                        Ok(Some(v)) => v,
-                        Ok(None) => {
+                        Err(CharacterCreateError::InvalidGender) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
@@ -295,49 +255,14 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
-                        Err(e) => {
-                            error!(
-                                "Failed to check if provided gender was valid due to a DB error. Error: {}",
-                                e
-                            );
-                            let response = packets::server::SMSG_CHAR_CREATE {
-                                result: AccountResult::CHAR_CREATE_FAILED,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                    };
-                    //TODO: all the validate_ function calls must be joined and done in parallel
-                    //TODO: validate name
-                    let name = packet.character_name.to_string_lossy().to_string();
-                    //TODO: validate skin, face, hairstyle, etc.
-
-                    let start_char_info = match self
-                        .game_data_accessor
-                        .get_character_start_data(race, class)
-                        .await
-                    {
-                        Ok(Some(v)) => v,
-                        Ok(None) => {
+                        Err(CharacterCreateError::InvalidRaceClassCombination) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
 
                             warn!(
                                 "Client (account_id: {}) tried to create a character with an invalid race+class pair (race {} + class {})",
-                                self.account_id,
-                                race.get(),
-                                class.get()
+                                self.account_id, packet.race, packet.class
                             );
 
                             if let Err(e) = self
@@ -352,45 +277,14 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
-                        Err(e) => {
-                            error!(
-                                "Failed to check if provided gender was valid due to a DB error. Error: {}",
-                                e
-                            );
-                            let response = packets::server::SMSG_CHAR_CREATE {
-                                result: AccountResult::CHAR_CREATE_FAILED,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                    };
-
-                    let display_id = match self
-                        .game_data_accessor
-                        .get_display_id_for_race_gender(race, gender)
-                        .await
-                    {
-                        Ok(Some(v)) => v,
-                        Ok(None) => {
+                        Err(CharacterCreateError::DisplayIdNotFound) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
 
                             warn!(
                                 "Client (account_id: {}) tried to create a character with a race+gender pair without assigned display_id (race {} + gender {})",
-                                self.account_id,
-                                race.get(),
-                                gender.get()
+                                self.account_id, packet.race, packet.gender
                             );
 
                             if let Err(e) = self
@@ -405,8 +299,8 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
-                        Err(e) => {
-                            error!("Failed to get display_id due to a DB error. Error: {}", e);
+                        Err(CharacterCreateError::Database(e)) => {
+                            error!("Character creation failed due to a DB error. Error: {}", e);
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_FAILED,
                             };
@@ -425,55 +319,10 @@ impl CharacterScreenConnection {
                         }
                     };
 
-                    let character = NewCharacter {
-                        name: name.clone(),
-                        race,
-                        class,
-                        gender,
-                        skin: packet.skin,
-                        face: packet.face,
-                        hairstyle: packet.hairstyle,
-                        haircolor: packet.haircolor,
-                        facialhair: packet.facialhair,
-                        level: start_char_info.level,
-                        area: start_char_info.area_id,
-                        map: start_char_info.map_id,
-                        position_x: start_char_info.position.0,
-                        position_y: start_char_info.position.1,
-                        position_z: start_char_info.position.2,
-                        orientation: start_char_info.orientation,
-                        guild_id: 0,
-                        flags: 0,
-                        first_login: true,
-                        display_id,
-                        equipment: start_char_info.start_equipment,
-                    };
-
-                    if let Err(e) = character.insert(&self.db, self.account_id).await {
-                        error!(
-                            "Failed to insert a player's character into database. Error: {}",
-                            e
-                        );
-                        let response = packets::server::SMSG_CHAR_CREATE {
-                            result: AccountResult::CHAR_CREATE_FAILED,
-                        };
-
-                        if let Err(e) = self
-                            .stream
-                            .write_all(&response.to_bytes(Some(self.session_key)))
-                            .await
-                        {
-                            warn!(
-                                "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                self.account_id, e
-                            )
-                        };
-                        continue;
-                    }
-
                     info!(
-                        "Client (account_id: {}) has craeted a new character (character_name: {})",
-                        self.account_id, name
+                        "Client (account_id: {}) has created a new character (character_name: {})",
+                        self.account_id,
+                        packet.character_name.to_string_lossy()
                     );
 
                     let response = packets::server::SMSG_CHAR_CREATE {
@@ -515,15 +364,17 @@ impl CharacterScreenConnection {
                         };
                         continue;
                     };
-                    let model = match gameserver_entity::character::Entity::find_by_id(
-                        guid.get_u32().get(),
+                    let character_id = guid.get_u32();
+                    match sqlx::query_scalar!(
+                        "SELECT EXISTS(SELECT 1 FROM character WHERE id = ? AND account_id = ?)",
+                        character_id,
+                        self.account_id
                     )
-                    .filter(gameserver_entity::character::Column::AccountId.eq(self.account_id))
-                    .one(&self.db)
+                    .fetch_one(&self.db)
                     .await
                     {
-                        Ok(Some(v)) => v,
-                        Ok(None) => {
+                        Ok(_) => (),
+                        Err(sqlx::Error::RowNotFound) => {
                             let response = packets::server::SMSG_CHAR_DELETE {
                                 result: AccountResult::CHAR_DELETE_FAILED,
                             };
@@ -569,9 +420,18 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
-                    };
+                    }
 
-                    match model.delete(&self.db).await {
+                    // Race condition here but it generally doesn't matter, the next statement is going to fail by deleting 0 rows in the race condition case
+
+                    match sqlx::query!(
+                        "DELETE FROM character WHERE id = ? AND account_id = ?",
+                        character_id,
+                        self.account_id
+                    )
+                    .execute(&self.db)
+                    .await
+                    {
                         Ok(_) => {
                             info!(
                                 "Client (account_id: {}) has deleted a character (character_id: {})",

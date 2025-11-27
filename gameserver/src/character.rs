@@ -11,9 +11,11 @@ use gameobjects::{
         UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields,
     },
 };
+use packets::update_data::UpdateData;
+use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
-use crate::item::Item;
+use crate::{game_data::GameDataAccessor, item::Item};
 
 pub struct Character {
     pub map_id: u32,
@@ -32,44 +34,193 @@ pub struct Character {
 }
 
 impl Character {
-    pub fn from_model(
+    pub async fn load_from_db(
+        game_data_accessor: &GameDataAccessor,
+        db: &Pool<Sqlite>,
+        guid: Guid<guid::Player>,
+        account_id: u32,
         stream_tx: OwnedWriteHalf,
         session_key: [u8; 40],
-        model: gameserver_entity::character::ModelEx,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, (OwnedWriteHalf, sqlx::Error)> {
+        let character_id = guid.get_u32();
+        let model = match sqlx::query!(
+            "SELECT * FROM character WHERE id = ? AND account_id = ?",
+            character_id,
+            account_id
+        )
+        .fetch_one(db)
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => return Err((stream_tx, e)),
+        };
+
+        Ok(Self {
             map_id: model.map as u32,
-            position: (model.position_x, model.position_y, model.position_z),
-            orientation: model.orientation,
+            position: (
+                model.position_x as f32,
+                model.position_y as f32,
+                model.position_z as f32,
+            ),
+            orientation: model.orientation as f32,
 
             account_id: model.account_id as u32,
             session_key,
-            stream_tx: Arc::new(Mutex::new(stream_tx)),
 
             items: CharacterItems {
                 equipment: EquipmentItems {
-                    head: None,
-                    neck: None,
-                    shoulders: None,
-                    body: None,
-                    chest: None,
-                    waist: None,
-                    legs: None,
-                    feet: None,
-                    wrists: None,
-                    hands: None,
-                    finger1: None,
-                    finger2: None,
-                    trinket1: None,
-                    trinket2: None,
-                    back: None,
-                    mainhand: model
-                        .equipment_mainhand
-                        .as_ref()
-                        .map(|v| Item::from_model(v)),
-                    offhand: None,
-                    ranged: None,
-                    tabard: None,
+                    head: if let Some(id) = model.equipment_head_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    neck: if let Some(id) = model.equipment_neck_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    shoulders: if let Some(id) = model.equipment_shoulders_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    body: if let Some(id) = model.equipment_body_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    chest: if let Some(id) = model.equipment_chest_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    waist: if let Some(id) = model.equipment_waist_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    legs: if let Some(id) = model.equipment_legs_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    feet: if let Some(id) = model.equipment_feet_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    wrists: if let Some(id) = model.equipment_wrists_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    hands: if let Some(id) = model.equipment_hands_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    finger1: if let Some(id) = model.equipment_finger1_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    finger2: if let Some(id) = model.equipment_finger2_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    trinket1: if let Some(id) = model.equipment_trinket1_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    trinket2: if let Some(id) = model.equipment_trinket2_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    back: if let Some(id) = model.equipment_back_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    mainhand: if let Some(id) = model.equipment_mainhand_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    offhand: if let Some(id) = model.equipment_offhand_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    ranged: if let Some(id) = model.equipment_ranged_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
+                    tabard: if let Some(id) = model.equipment_tabard_id {
+                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                            Ok(v) => v,
+                            Err(e) => return Err((stream_tx, e)),
+                        }
+                    } else {
+                        None
+                    },
                 },
                 bags: [const { None }; 4],
                 main_backpack: [const { None }; 16],
@@ -78,6 +229,8 @@ impl Character {
                 vendor_buyback: [const { None }; 12],
                 keyring: [const { None }; 12],
             },
+
+            stream_tx: Arc::new(Mutex::new(stream_tx)),
 
             //TODO: fill in these values, obviously
             object_fields: ObjectFields {
@@ -190,9 +343,7 @@ impl Character {
                     .with_bank_bag_slots(0)
                     .with_rested_state(0)
                     .into(),
-                bytes_3: PlayerFieldBytes3::new()
-                    .with_gender(model.gender != 0)
-                    .into(),
+                bytes_3: PlayerFieldBytes3::new().with_gender(model.gender).into(),
                 duel_team: 0.into(),
                 guild_timestamp: 0.into(),
                 quest_log: [QuestLogFields {
@@ -212,29 +363,82 @@ impl Character {
                 }),
 
                 equipment_slots: [
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
                     model
-                        .equipment_mainhand
-                        .as_ref()
-                        .map(|v| Guid::from_u32(NonZeroU32::new(v.id).unwrap()))
+                        .equipment_head_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
                         .into(),
-                    None.into(),
-                    None.into(),
-                    None.into(),
+                    model
+                        .equipment_neck_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_shoulders_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_body_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_chest_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_waist_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_legs_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_feet_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_wrists_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_hands_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_finger1_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_finger2_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_trinket1_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_trinket2_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_back_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_mainhand_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_offhand_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_ranged_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
+                    model
+                        .equipment_tabard_id
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into(),
                 ],
                 bag_slots: [None.into(); 4],
                 main_backpack_slots: [None.into(); 16],
@@ -288,7 +492,399 @@ impl Character {
                 watched_faction_index: u32::MAX.into(),
                 combat_ratings: [0.into(); 20],
             },
+        })
+    }
+
+    pub async fn create_new_character(
+        packet: &packets::client::CMSG_CHAR_CREATE,
+        account_id: u32,
+        db: &Pool<Sqlite>,
+        game_data_accessor: &GameDataAccessor,
+    ) -> Result<(), CharacterCreateError> {
+        let race = match game_data_accessor.validate_race(packet.race).await {
+            Ok(Some(v)) => v,
+            Ok(None) => return Err(CharacterCreateError::InvalidRace),
+            Err(e) => return Err(CharacterCreateError::Database(e)),
+        };
+        let class = match game_data_accessor.validate_class(packet.class).await {
+            Ok(Some(v)) => v,
+            Ok(None) => return Err(CharacterCreateError::InvalidClass),
+            Err(e) => return Err(CharacterCreateError::Database(e)),
+        };
+        let gender = match packet.gender {
+            0 => false,
+            1 => true,
+            _ => return Err(CharacterCreateError::InvalidGender),
+        };
+        //TODO: all the validate_ function calls must be joined and done in parallel
+        //TODO: validate name
+        let name = packet.character_name.to_string_lossy().to_string();
+        //TODO: validate skin, face, hairstyle, etc.
+
+        let start_char_info = match game_data_accessor
+            .get_character_start_data(race, class)
+            .await
+        {
+            Ok(Some(v)) => v,
+            Ok(None) => return Err(CharacterCreateError::InvalidRaceClassCombination),
+            Err(e) => return Err(CharacterCreateError::Database(e)),
+        };
+
+        let display_id = match game_data_accessor
+            .get_display_id_for_race_gender(race, gender)
+            .await
+        {
+            Ok(Some(v)) => v,
+            Ok(None) => return Err(CharacterCreateError::DisplayIdNotFound),
+            Err(e) => return Err(CharacterCreateError::Database(e)),
+        };
+
+        let equipment_head_id = if let Some(proto) = start_char_info.start_equipment.head {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_neck_id = if let Some(proto) = start_char_info.start_equipment.neck {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_shoulders_id = if let Some(proto) = start_char_info.start_equipment.shoulders
+        {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_body_id = if let Some(proto) = start_char_info.start_equipment.body {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_chest_id = if let Some(proto) = start_char_info.start_equipment.chest {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_waist_id = if let Some(proto) = start_char_info.start_equipment.waist {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_legs_id = if let Some(proto) = start_char_info.start_equipment.legs {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_feet_id = if let Some(proto) = start_char_info.start_equipment.feet {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_wrists_id = if let Some(proto) = start_char_info.start_equipment.wrists {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_hands_id = if let Some(proto) = start_char_info.start_equipment.hands {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_finger1_id = if let Some(proto) = start_char_info.start_equipment.finger1 {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_finger2_id = if let Some(proto) = start_char_info.start_equipment.finger2 {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_trinket1_id = if let Some(proto) = start_char_info.start_equipment.trinket1 {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_trinket2_id = if let Some(proto) = start_char_info.start_equipment.trinket2 {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_back_id = if let Some(proto) = start_char_info.start_equipment.back {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_mainhand_id = if let Some(proto) = start_char_info.start_equipment.mainhand {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_offhand_id = if let Some(proto) = start_char_info.start_equipment.offhand {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_ranged_id = if let Some(proto) = start_char_info.start_equipment.ranged {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+        let equipment_tabard_id = if let Some(proto) = start_char_info.start_equipment.tabard {
+            Some(
+                proto
+                    .create_item(db, None, None, None, proto.max_count)
+                    .await
+                    .map_err(|e| CharacterCreateError::Database(e))?,
+            )
+        } else {
+            None
+        };
+
+        let race = race.get();
+        let class = class.get();
+        sqlx::query!(
+            "INSERT INTO character(
+                account_id, name, race, class, gender, skin,
+                face, hair_style, hair_color, facial_hair, level,
+                area, map, position_x, position_y, position_z,
+                orientation, first_login, display_id,
+                equipment_head_id, equipment_neck_id, equipment_shoulders_id,
+                equipment_body_id, equipment_chest_id, equipment_waist_id,
+                equipment_legs_id, equipment_feet_id, equipment_wrists_id,
+                equipment_hands_id, equipment_finger1_id, equipment_finger2_id,
+                equipment_trinket1_id, equipment_trinket2_id, equipment_back_id,
+                equipment_mainhand_id, equipment_offhand_id, equipment_ranged_id,
+                equipment_tabard_id
+            )
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            account_id,
+            name,
+            race,
+            class,
+            gender,
+            packet.skin,
+            packet.face,
+            packet.hairstyle,
+            packet.haircolor,
+            packet.facialhair,
+            start_char_info.level,
+            start_char_info.area_id,
+            start_char_info.map_id,
+            start_char_info.position.0,
+            start_char_info.position.1,
+            start_char_info.position.2,
+            start_char_info.orientation,
+            true,
+            display_id,
+            equipment_head_id,
+            equipment_neck_id,
+            equipment_shoulders_id,
+            equipment_body_id,
+            equipment_chest_id,
+            equipment_waist_id,
+            equipment_legs_id,
+            equipment_feet_id,
+            equipment_wrists_id,
+            equipment_hands_id,
+            equipment_finger1_id,
+            equipment_finger2_id,
+            equipment_trinket1_id,
+            equipment_trinket2_id,
+            equipment_back_id,
+            equipment_mainhand_id,
+            equipment_offhand_id,
+            equipment_ranged_id,
+            equipment_tabard_id
+        )
+        .execute(db)
+        .await
+        .map_err(|e| CharacterCreateError::Database(e))?;
+
+        Ok(())
+    }
+
+    pub fn build_item_full_update_blocks(&self) -> Vec<UpdateData> {
+        let mut r = Vec::with_capacity(130); // 113 fields for items
+        if let Some(item) = &self.items.equipment.head {
+            r.push(item.build_create_update_block());
         }
+        if let Some(item) = &self.items.equipment.neck {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.shoulders {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.body {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.chest {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.waist {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.legs {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.feet {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.wrists {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.hands {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.finger1 {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.finger2 {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.trinket1 {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.trinket2 {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.back {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.mainhand {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.offhand {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.ranged {
+            r.push(item.build_create_update_block());
+        }
+        if let Some(item) = &self.items.equipment.tabard {
+            r.push(item.build_create_update_block());
+        }
+        for item in &self.items.bags {
+            if let Some(item) = item {
+                r.push(item.build_create_update_block());
+            }
+        }
+        for item in &self.items.main_backpack {
+            if let Some(item) = item {
+                r.push(item.build_create_update_block());
+            }
+        }
+        for item in &self.items.bank {
+            if let Some(item) = item {
+                r.push(item.build_create_update_block());
+            }
+        }
+        for item in &self.items.bank_bags {
+            if let Some(item) = item {
+                r.push(item.build_create_update_block());
+            }
+        }
+        for item in &self.items.vendor_buyback {
+            if let Some(item) = item {
+                r.push(item.build_create_update_block());
+            }
+        }
+        for item in &self.items.keyring {
+            if let Some(item) = item {
+                r.push(item.build_create_update_block());
+            }
+        }
+
+        r
     }
 }
 
@@ -323,4 +919,13 @@ pub struct EquipmentItems {
     pub offhand: Option<Item>,
     pub ranged: Option<Item>,
     pub tabard: Option<Item>,
+}
+
+pub enum CharacterCreateError {
+    InvalidRace,
+    InvalidClass,
+    InvalidGender,
+    InvalidRaceClassCombination,
+    DisplayIdNotFound,
+    Database(sqlx::Error),
 }

@@ -2,11 +2,12 @@
 
 mod character;
 mod character_screen_connection;
+mod character_selection;
 mod creature;
 mod game_data;
 mod ipc_connection;
 mod item;
-mod login_character;
+mod item_prototype;
 mod packet_handler;
 mod server;
 
@@ -19,7 +20,6 @@ use std::{
 };
 
 use concurrent_queue::ConcurrentQueue;
-use gameserver_migration::{Migrator, MigratorTrait};
 use interprocess::local_socket::tokio::SendHalf;
 use ipc_comms::{
     SessionKeyResponse,
@@ -27,8 +27,8 @@ use ipc_comms::{
 };
 use log::{error, info, warn};
 use packets::account_result::AccountResult;
-use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityLoaderTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
+use sqlx::sqlite::SqlitePoolOptions;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, tcp::OwnedReadHalf},
@@ -85,17 +85,14 @@ async fn main() {
 
     let config: AppSettings = confy::load_path("./gameserver_config.toml").unwrap();
 
-    let db: DatabaseConnection = Database::connect(format!(
-        "sqlite://{}?mode=rwc",
-        config.database_path.display()
-    ))
-    .await
-    .unwrap();
-    db.get_schema_registry("gameserver_entity::*")
-        .sync(&db)
+    let db = SqlitePoolOptions::new()
+        .connect(&format!(
+            "sqlite://{}?mode=rwc",
+            config.database_path.display()
+        ))
         .await
         .unwrap();
-    Migrator::up(&db, None).await.unwrap();
+    sqlx::migrate!().run(&db).await.unwrap();
 
     let server_pipe: Arc<Mutex<Option<SendHalf>>> = Arc::new(Mutex::new(None));
     // Once connection is established, the key gets removed from here
@@ -116,7 +113,7 @@ async fn main() {
         config.server_category,
     );
 
-    let world_transition_character_queue: Arc<ConcurrentQueue<(Character, OwnedReadHalf)>> =
+    let world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>> =
         Arc::new(ConcurrentQueue::unbounded());
 
     let game_data_accessor = GameDataAccessor::new(db.clone());
@@ -150,7 +147,7 @@ async fn main() {
                         player_session_keys,
                         server_pipe,
                         db.clone(),
-                        game_data_accessor,
+                        game_data_accessor.clone(),
                     )
                     .await
                     .unwrap();
@@ -158,22 +155,20 @@ async fn main() {
                     loop {
                         match conn.connection_loop().await {
                             CharacterScreenResult::WorldTransition { guid } => {
-                                let model = match gameserver_entity::character::Entity::load()
-                                    .filter_by_id(guid.get_u32().get())
-                                    .filter(
-                                        gameserver_entity::character::Column::AccountId
-                                            .eq(conn.account_id),
-                                    )
-                                    .with(gameserver_entity::item::Entity)
-                                    .with((
-                                        gameserver_entity::item::Entity,
-                                        gameserver_entity::item_prototype::Entity,
-                                    ))
-                                    .one(&db)
-                                    .await
+                                let (rx, tx) = conn.stream.into_split();
+
+                                let character = match Character::load_from_db(
+                                    &game_data_accessor,
+                                    &db,
+                                    guid,
+                                    conn.account_id,
+                                    tx,
+                                    conn.session_key,
+                                )
+                                .await
                                 {
-                                    Ok(Some(v)) => v,
-                                    Ok(None) => {
+                                    Ok(v) => v,
+                                    Err((mut tx, sqlx::Error::RowNotFound)) => {
                                         let response = packets::server::SMSG_CHAR_LOGIN_FAILED {
                                             result: AccountResult::CHAR_LOGIN_NO_CHARACTER,
                                         };
@@ -184,8 +179,7 @@ async fn main() {
                                             guid.get_u32()
                                         );
 
-                                        if let Err(e) = conn
-                                            .stream
+                                        if let Err(e) = tx
                                             .write_all(&response.to_bytes(Some(conn.session_key)))
                                             .await
                                         {
@@ -194,9 +188,10 @@ async fn main() {
                                                 conn.account_id, e
                                             )
                                         };
+                                        conn.stream = tx.reunite(rx).unwrap();
                                         continue;
                                     }
-                                    Err(e) => {
+                                    Err((mut tx, e)) => {
                                         error!(
                                             "Failed to get client's character due to a DB error (account_id: {}, character_id: {}). Error: {}",
                                             conn.account_id,
@@ -207,8 +202,7 @@ async fn main() {
                                             result: AccountResult::CHAR_LOGIN_FAILED,
                                         };
 
-                                        if let Err(e) = conn
-                                            .stream
+                                        if let Err(e) = tx
                                             .write_all(&response.to_bytes(Some(conn.session_key)))
                                             .await
                                         {
@@ -217,13 +211,11 @@ async fn main() {
                                                 conn.account_id, e
                                             )
                                         };
+                                        conn.stream = tx.reunite(rx).unwrap();
                                         continue;
                                     }
                                 };
-
-                                let (rx, tx) = conn.stream.into_split();
-
-                                let character = Character::from_model(tx, conn.session_key, model);
+                                let character = Box::new(character);
 
                                 info!(
                                     "Transitioning client's character (client_id: {}, character_id: {}) into a game world",

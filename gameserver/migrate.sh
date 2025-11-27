@@ -1,3 +1,5 @@
 #!/bin/bash
 
-sea-orm-cli migrate -d gameserver_migration -u sqlite://gameserver.db?mode=rwc
+export DATABASE_URL=sqlite://gameserver.db?mode=rwc
+sqlx migrate revert
+sqlx migrate run

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bit_vec::BitVec;
 use chrono::{DateTime, Local, TimeDelta};
-use common::guid::{self, AnyGuid, Guid, GuidType};
+use common::guid::{self, AnyGuid, Guid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::tracked_field::ClientUpdatable;
 use log::{error, warn};
@@ -16,7 +16,10 @@ use packets::{
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf};
 
 use crate::{
-    character::Character, creature::Creature, game_data::GameDataAccessor, packet_handler::{PlayerUpdate, PlayerUpdateData, packet_handler}
+    character::Character,
+    creature::Creature,
+    game_data::GameDataAccessor,
+    packet_handler::{PlayerUpdate, PlayerUpdateData, packet_handler},
 };
 
 pub struct Server {
@@ -28,18 +31,16 @@ pub struct Server {
 
     // A queue containing all parsed updates received from players during this tick
     player_update_queue: Arc<ConcurrentQueue<PlayerUpdate>>,
-    world_transition_character_queue: Arc<ConcurrentQueue<(Character, OwnedReadHalf)>>,
+    world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>>,
     game_data_accessor: GameDataAccessor,
 }
 
 impl Server {
     pub fn new(
-        world_transition_character_queue: Arc<ConcurrentQueue<(Character, OwnedReadHalf)>>,
+        world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>>,
         game_data_accessor: GameDataAccessor,
     ) -> Self {
         let mut creatures = HashMap::new();
-
-
 
         Self {
             game_time: Local::now(),
@@ -251,64 +252,6 @@ impl Server {
                 return;
             };
 
-            let test_block = {
-                let guid = Guid::from_u32(std::num::NonZeroU32::new(2).unwrap());
-
-                let mut mask_blocks = BitVec::new();
-                let mut values_blocks = Vec::new();
-
-                (gameobjects::object::ObjectFields {
-                    guid: guid.into(),
-                    object_type: gameobjects::object::TypeBitField::new()
-                        .with_object(true)
-                        .with_item(true)
-                        .into(),
-                    entry: 789.into(),
-                    scale_x: 1.0.into(),
-                    _padding: 0.into(),
-                })
-                .write_full_update_block(&mut mask_blocks, &mut values_blocks);
-                (gameobjects::item::ItemFields {
-                    owner: Some(*character.object_fields.guid.get()).into(),
-                    contained_in: None.into(),
-                    creator: None.into(),
-                    gift_creator: None.into(),
-                    stack_count: 2.into(),
-                    expires_in: None.into(),
-                    spell_charges: [0.into(); 5],
-                    flags: gameobjects::item::ItemFlags::new().into(),
-                    enchantments: [gameobjects::item::ItemEnchantment {
-                        id: 0,
-                        duration: 0,
-                        charges: 0,
-                    }
-                    .into(); 9],
-                    property_seed: 0.into(),
-                    random_properties_id: 1.into(),
-                    item_text_id: 0.into(),
-                    durability: 60.into(),
-                    max_durability: 60.into(),
-                    _padding: 0.into(),
-                })
-                .write_full_update_block(&mut mask_blocks, &mut values_blocks);
-
-                UpdateData::CreateNewObject {
-                    guid: AnyGuid::Item(guid),
-                    movement: MovementUpdate {
-                        is_self_update: false,
-                        position: None,
-                        high_guid: Some(guid::Item::get_prefix() as u32),
-                        is_update_all: true,
-                        full_guid: PossibleUpdate::NoUpdate,
-                        transport_time_millis: None,
-                    },
-                    values: ValuesUpdate {
-                        mask_blocks: mask_blocks,
-                        values_blocks: values_blocks,
-                    },
-                }
-            };
-
             let mut mask_blocks = BitVec::new();
             let mut values_blocks = Vec::new();
 
@@ -358,10 +301,14 @@ impl Server {
                 },
             };
 
+            let mut update_blocks = vec![block];
+            let item_update_blocks = character.build_item_full_update_blocks();
+            update_blocks.extend(item_update_blocks);
+
             let response = packets::server::SMSG_UPDATE_OBJECT {
                 update_data: UpdateBlocks {
                     has_transport: false,
-                    blocks: vec![block, test_block],
+                    blocks: update_blocks,
                 },
             };
 
@@ -383,7 +330,7 @@ impl Server {
             let stream_tx = character.stream_tx.clone();
 
             self.characters
-                .insert(character.object_fields.guid.get().clone(), character);
+                .insert(character.object_fields.guid.get().clone(), *character);
 
             tokio::task::spawn(packet_handler(
                 rx,

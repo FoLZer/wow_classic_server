@@ -7,7 +7,6 @@ use gameobjects::unit::StandStateType;
 use log::{error, warn};
 use packets::{
     client::{ClientPacket, ParseError},
-    item_info::{ItemDamage, ItemFlags, ItemStat},
     movement_info::MovementInfo,
 };
 use tokio::{
@@ -275,7 +274,7 @@ pub async fn packet_handler(
                     flags: item_prototype.flags,
                     buy_price: item_prototype.buy_price,
                     sell_price: item_prototype.sell_price,
-                    inventory_type: item_prototype.inventory_type,
+                    inventory_type: item_prototype.inventory_type as u32,
                     allowable_class: item_prototype.allowable_class,
                     allowable_race: item_prototype.allowable_race,
                     item_level: item_prototype.item_level,
