@@ -18,6 +18,8 @@ sea-orm = { version = "2.0.0-rc", features = [
     "sqlx-sqlite",
     "runtime-tokio-rustls",
     "macros",
+    "schema-sync",
+    "entity-registry"
 ] }
 gameserver_entity = { path = "./gameserver_entity" }
 gameserver_migration = { path = "./gameserver_migration" }

@@ -2,7 +2,9 @@ use packets::{
     character_info::GearInfo,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
 };
-use sea_orm::{DatabaseConnection, EntityLoaderTrait, EntityTrait, Iterable, PaginatorTrait};
+use sea_orm::{
+    DatabaseConnection, EntityLoaderTrait, EntityTrait, Iterable, ModelTrait, PaginatorTrait,
+};
 
 // This exists to provide an ability to switch data backend later if needed
 // It's supposed to be easy to clone
@@ -59,7 +61,8 @@ impl GameDataAccessor {
         class: ValidClass,
     ) -> Result<Option<CharacterStartData>, sea_orm::DbErr> {
         let mut query = gameserver_entity::player_start_data::Entity::load()
-            .filter_by_id((race.0 as i8, class.0 as i8));
+            .filter_by_id((race.0, class.0))
+            .with(gameserver_entity::item_prototype::Entity);
 
         for relation in gameserver_entity::player_start_data::Relation::iter() {
             query = query.with(relation);
@@ -71,25 +74,46 @@ impl GameDataAccessor {
 
         Ok(if let Some(data) = data {
             let start_equipment = StartEquipment {
-                head: data.item_prototype_1.into_option().map(|v| v.into()),
-                neck: data.item_prototype_2.into_option().map(|v| v.into()),
-                shoulders: data.item_prototype_3.into_option().map(|v| v.into()),
-                body: data.item_prototype_4.into_option().map(|v| v.into()),
-                chest: data.item_prototype_5.into_option().map(|v| v.into()),
-                waist: data.item_prototype_6.into_option().map(|v| v.into()),
-                legs: data.item_prototype_7.into_option().map(|v| v.into()),
-                feet: data.item_prototype_8.into_option().map(|v| v.into()),
-                wrists: data.item_prototype_9.into_option().map(|v| v.into()),
-                hands: data.item_prototype_10.into_option().map(|v| v.into()),
-                finger1: data.item_prototype_11.into_option().map(|v| v.into()),
-                finger2: data.item_prototype_12.into_option().map(|v| v.into()),
-                trinket1: data.item_prototype_13.into_option().map(|v| v.into()),
-                trinket2: data.item_prototype_14.into_option().map(|v| v.into()),
-                back: data.item_prototype_15.into_option().map(|v| v.into()),
-                mainhand: data.item_prototype_16.into_option().map(|v| v.into()),
-                offhand: data.item_prototype_17.into_option().map(|v| v.into()),
-                ranged: data.item_prototype_18.into_option().map(|v| v.into()),
-                tabard: data.item_prototype_19.into_option().map(|v| v.into()),
+                /*
+                head: data.equipment_head.into_option().map(|v| v.into()),
+                neck: data.equipment_neck.into_option().map(|v| v.into()),
+                shoulders: data.equipment_shoulders.into_option().map(|v| v.into()),
+                body: data.equipment_body.into_option().map(|v| v.into()),
+                chest: data.equipment_chest.into_option().map(|v| v.into()),
+                waist: data.equipment_waist.into_option().map(|v| v.into()),
+                legs: data.equipment_legs.into_option().map(|v| v.into()),
+                feet: data.equipment_feet.into_option().map(|v| v.into()),
+                wrists: data.equipment_wrists.into_option().map(|v| v.into()),
+                hands: data.equipment_hands.into_option().map(|v| v.into()),
+                finger1: data.equipment_finger1.into_option().map(|v| v.into()),
+                finger2: data.equipment_finger2.into_option().map(|v| v.into()),
+                trinket1: data.equipment_trinket1.into_option().map(|v| v.into()),
+                trinket2: data.equipment_trinket2.into_option().map(|v| v.into()),
+                back: data.equipment_back.into_option().map(|v| v.into()),
+                */
+                head: None,
+                neck: None,
+                shoulders: None,
+                body: None,
+                chest: None,
+                waist: None,
+                legs: None,
+                feet: None,
+                wrists: None,
+                hands: None,
+                finger1: None,
+                finger2: None,
+                trinket1: None,
+                trinket2: None,
+                back: None,
+                mainhand: data.equipment_mainhand.into_option().map(|v| v.into()),
+                offhand: None,
+                ranged: None,
+                tabard: None,
+                /*
+                offhand: data.equipment_offhand.into_option().map(|v| v.into()),
+                ranged: data.equipment_ranged.into_option().map(|v| v.into()),
+                tabard: data.equipment_tabard.into_option().map(|v| v.into()),*/
             };
 
             dbg!(&start_equipment);

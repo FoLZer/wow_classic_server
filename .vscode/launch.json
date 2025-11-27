@@ -5,23 +5,57 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Debug executable 'authserver'",
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'packets'",
             "cargo": {
                 "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=packets"
-                ],
-                "filter": {
-                    "name": "packets",
-                    "kind": "lib"
-                }
+                    "run",
+                    "--bin=authserver",
+                    "--package=authserver"
+                ]
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+            "args": []
+        },
+        {
+            "name": "Debug executable 'authserver_migration'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "run",
+                    "--bin=authserver_migration",
+                    "--package=authserver_migration"
+                ]
+            },
+            "args": []
+        },
+        {
+            "name": "Debug executable 'gameserver'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "run",
+                    "--bin=gameserver",
+                    "--package=gameserver"
+                ],
+                "cwd": "${workspaceFolder}/gameserver"
+            },
+            "args": []
+        },
+        {
+            "name": "Debug executable 'gameserver_migration'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "run",
+                    "--bin=gameserver_migration",
+                    "--package=gameserver_migration"
+                ]
+            },
+            "args": []
         }
     ]
 }

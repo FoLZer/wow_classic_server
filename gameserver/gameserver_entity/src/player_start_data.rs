@@ -7,11 +7,11 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "player_start_data")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub race: i8,
+    pub race: u8,
     #[sea_orm(primary_key, auto_increment = false)]
-    pub class: i8,
-    pub area_id: i64,
-    pub map_id: i64,
+    pub class: u8,
+    pub area_id: u32,
+    pub map_id: u32,
     #[sea_orm(column_type = "Float")]
     pub position_x: f32,
     #[sea_orm(column_type = "Float")]
@@ -20,7 +20,7 @@ pub struct Model {
     pub position_z: f32,
     #[sea_orm(column_type = "Float")]
     pub orientation: f32,
-    pub level: i8,
+    pub level: u8,
     pub equipment_head_id: Option<i64>,
     pub equipment_neck_id: Option<i64>,
     pub equipment_shoulders_id: Option<i64>,
@@ -41,177 +41,181 @@ pub struct Model {
     pub equipment_ranged_id: Option<i64>,
     pub equipment_tabard_id: Option<i64>,
     pub other_equipment_table_id: i64,
+    /* 
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype19",
+        relation_enum = "EquipmentTabard",
         from = "equipment_tabard_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_19: HasOne<super::item_prototype::Entity>,
+    pub equipment_tabard: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype18",
+        relation_enum = "EquipmentRanged",
         from = "equipment_ranged_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_18: HasOne<super::item_prototype::Entity>,
+    pub equipment_ranged: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype17",
+        relation_enum = "EquipmentOffhand",
         from = "equipment_offhand_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_17: HasOne<super::item_prototype::Entity>,
+    pub equipment_offhand: HasOne<super::item_prototype::Entity>,
+    */
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype16",
+        relation_enum = "EquipmentMainhand",
         from = "equipment_mainhand_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_16: HasOne<super::item_prototype::Entity>,
+    pub equipment_mainhand: HasOne<super::item_prototype::Entity>,
+    /* 
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype15",
+        relation_enum = "EquipmentBack",
         from = "equipment_back_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_15: HasOne<super::item_prototype::Entity>,
+    pub equipment_back: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype14",
+        relation_enum = "EquipmentTrinket2",
         from = "equipment_trinket2_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_14: HasOne<super::item_prototype::Entity>,
+    pub equipment_trinket2: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype13",
+        relation_enum = "EquipmentTrinket1",
         from = "equipment_trinket1_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_13: HasOne<super::item_prototype::Entity>,
+    pub equipment_trinket1: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype12",
+        relation_enum = "EquipmentFinger2",
         from = "equipment_finger2_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_12: HasOne<super::item_prototype::Entity>,
+    pub equipment_finger2: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype11",
+        relation_enum = "EquipmentFinger1",
         from = "equipment_finger1_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_11: HasOne<super::item_prototype::Entity>,
+    pub equipment_finger1: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype10",
+        relation_enum = "EquipmentHands",
         from = "equipment_hands_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_10: HasOne<super::item_prototype::Entity>,
+    pub equipment_hands: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype9",
+        relation_enum = "EquipmentWrists",
         from = "equipment_wrists_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_9: HasOne<super::item_prototype::Entity>,
+    pub equipment_wrists: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype8",
+        relation_enum = "EquipmentFeet",
         from = "equipment_feet_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_8: HasOne<super::item_prototype::Entity>,
+    pub equipment_feet: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype7",
+        relation_enum = "EquipmentLegs",
         from = "equipment_legs_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_7: HasOne<super::item_prototype::Entity>,
+    pub equipment_legs: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype6",
+        relation_enum = "EquipmentWaist",
         from = "equipment_waist_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_6: HasOne<super::item_prototype::Entity>,
+    pub equipment_waist: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype5",
+        relation_enum = "EquipmentChest",
         from = "equipment_chest_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_5: HasOne<super::item_prototype::Entity>,
+    pub equipment_chest: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype4",
+        relation_enum = "EquipmentBody",
         from = "equipment_body_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_4: HasOne<super::item_prototype::Entity>,
+    pub equipment_body: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype3",
+        relation_enum = "EquipmentShoulders",
         from = "equipment_shoulders_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_3: HasOne<super::item_prototype::Entity>,
+    pub equipment_shoulders: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype2",
+        relation_enum = "EquipmentNeck",
         from = "equipment_neck_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_2: HasOne<super::item_prototype::Entity>,
+    pub equipment_neck: HasOne<super::item_prototype::Entity>,
     #[sea_orm(
         belongs_to,
-        relation_enum = "ItemPrototype1",
+        relation_enum = "EquipmentHead",
         from = "equipment_head_id",
         to = "id",
         on_update = "NoAction",
         on_delete = "NoAction"
     )]
-    pub item_prototype_1: HasOne<super::item_prototype::Entity>,
+    pub equipment_head: HasOne<super::item_prototype::Entity>,
+    */
 }
 
 impl ActiveModelBehavior for ActiveModel {}

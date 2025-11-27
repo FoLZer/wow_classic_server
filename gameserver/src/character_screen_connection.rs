@@ -516,7 +516,7 @@ impl CharacterScreenConnection {
                         continue;
                     };
                     let model = match gameserver_entity::character::Entity::find_by_id(
-                        guid.get_u32().get() as i32,
+                        guid.get_u32().get(),
                     )
                     .filter(gameserver_entity::character::Column::AccountId.eq(self.account_id))
                     .one(&self.db)

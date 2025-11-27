@@ -1,12 +1,14 @@
+#![feature(vec_try_remove)]
+
 mod character;
 mod character_screen_connection;
+mod creature;
 mod game_data;
 mod ipc_connection;
+mod item;
 mod login_character;
 mod packet_handler;
 mod server;
-mod creature;
-mod item;
 
 use std::{
     collections::HashMap,
@@ -25,7 +27,7 @@ use ipc_comms::{
 };
 use log::{error, info, warn};
 use packets::account_result::AccountResult;
-use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Database, DatabaseConnection, EntityLoaderTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use tokio::{
     io::AsyncWriteExt,
@@ -89,6 +91,10 @@ async fn main() {
     ))
     .await
     .unwrap();
+    db.get_schema_registry("gameserver_entity::*")
+        .sync(&db)
+        .await
+        .unwrap();
     Migrator::up(&db, None).await.unwrap();
 
     let server_pipe: Arc<Mutex<Option<SendHalf>>> = Arc::new(Mutex::new(None));
@@ -152,15 +158,19 @@ async fn main() {
                     loop {
                         match conn.connection_loop().await {
                             CharacterScreenResult::WorldTransition { guid } => {
-                                let model = match gameserver_entity::character::Entity::find_by_id(
-                                    guid.get_u32().get() as i32,
-                                )
-                                .filter(
-                                    gameserver_entity::character::Column::AccountId
-                                        .eq(conn.account_id),
-                                )
-                                .one(&db)
-                                .await
+                                let model = match gameserver_entity::character::Entity::load()
+                                    .filter_by_id(guid.get_u32().get())
+                                    .filter(
+                                        gameserver_entity::character::Column::AccountId
+                                            .eq(conn.account_id),
+                                    )
+                                    .with(gameserver_entity::item::Entity)
+                                    .with((
+                                        gameserver_entity::item::Entity,
+                                        gameserver_entity::item_prototype::Entity,
+                                    ))
+                                    .one(&db)
+                                    .await
                                 {
                                     Ok(Some(v)) => v,
                                     Ok(None) => {
@@ -213,14 +223,7 @@ async fn main() {
 
                                 let (rx, tx) = conn.stream.into_split();
 
-                                let mut character =
-                                    Character::from_model(tx, conn.session_key, model);
-
-                                character.player_fields.main_backpack_slots[0] =
-                                    Some(common::guid::Guid::from_u32(
-                                        std::num::NonZeroU32::new(2).unwrap(),
-                                    ))
-                                    .into();
+                                let character = Character::from_model(tx, conn.session_key, model);
 
                                 info!(
                                     "Transitioning client's character (client_id: {}, character_id: {}) into a game world",

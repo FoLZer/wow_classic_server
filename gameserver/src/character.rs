@@ -35,7 +35,7 @@ impl Character {
     pub fn from_model(
         stream_tx: OwnedWriteHalf,
         session_key: [u8; 40],
-        model: gameserver_entity::character::Model,
+        model: gameserver_entity::character::ModelEx,
     ) -> Self {
         Self {
             map_id: model.map as u32,
@@ -63,7 +63,10 @@ impl Character {
                     trinket1: None,
                     trinket2: None,
                     back: None,
-                    mainhand: None,
+                    mainhand: model
+                        .equipment_mainhand
+                        .as_ref()
+                        .map(|v| Item::from_model(v)),
                     offhand: None,
                     ranged: None,
                     tabard: None,
@@ -208,7 +211,31 @@ impl Character {
                     .into()
                 }),
 
-                equipment_slots: [None.into(); 19],
+                equipment_slots: [
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                    model
+                        .equipment_mainhand
+                        .as_ref()
+                        .map(|v| Guid::from_u32(NonZeroU32::new(v.id).unwrap()))
+                        .into(),
+                    None.into(),
+                    None.into(),
+                    None.into(),
+                ],
                 bag_slots: [None.into(); 4],
                 main_backpack_slots: [None.into(); 16],
                 bank_slots: [None.into(); 28],
