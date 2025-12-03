@@ -3,6 +3,9 @@ This project is a fully custom 1.12.1 server that aims to provide a fully separa
 To use this server you must have obtained a valid copy of World of Warcraft's client.
 Logging into the server without one is **violating [Blizzard Entertainment, Inc.][1] copyright**.
 
+Contact
+--------
+Development Discord server: [https://discord.gg/4WgSHzr9z4](https://discord.gg/4WgSHzr9z4)
 
 Acknowledgements
 --------
