@@ -1,7 +1,7 @@
 use std::io::{Cursor, ErrorKind};
 
 use bitfield_struct::bitfield;
-use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use common::guid::{self, Guid};
 
 use crate::{client::OrderedRead, server::OrderedWrite};
@@ -118,7 +118,7 @@ pub struct MovementInfoFallingData {
 
 impl<T: ByteOrder> OrderedRead<T> for MovementInfo {
     fn from_reader(reader: &mut Cursor<&[u8]>) -> std::io::Result<Self> {
-        let movement_flags = MovementFlags::from_bits(reader.read_u32::<BigEndian>()?);
+        let movement_flags = MovementFlags::from_bits(reader.read_u32::<LittleEndian>()?);
         let timestamp = reader.read_u32::<LittleEndian>()?;
         let pos_x = reader.read_f32::<LittleEndian>()?;
         let pos_y = reader.read_f32::<LittleEndian>()?;

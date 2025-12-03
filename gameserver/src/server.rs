@@ -176,7 +176,16 @@ impl Server {
         for update in self.player_update_queue.try_iter() {
             let character_id = update.character_id;
             match update.data {
-                PlayerUpdateData::Movement(movement_info) => (), //TODO
+                PlayerUpdateData::Movement(movement_info) => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+                    character.position.0 = movement_info.pos_x;
+                    character.position.1 = movement_info.pos_y;
+                    character.position.2 = movement_info.pos_z;
+
+                    //TODO
+                }
                 PlayerUpdateData::SwapInventoryItem { src, dst } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
                         continue;
@@ -486,7 +495,12 @@ impl Server {
     }
 
     fn is_creature_visible_to_player(&self, from: &Character, to: &Creature) -> bool {
-        true // TODO
+        let dist = (from.position.0 - to.position.0).powi(2)
+            + (from.position.1 - to.position.1).powi(2)
+            + (from.position.2 - to.position.2).powi(2);
+
+        dist < 20000.0
+        // TODO
     }
 
     /* --- Visibility --- */
@@ -656,7 +670,7 @@ impl Server {
         for (guid, new_visible_characters) in new_visible_characters_for_characters {
             let mut blocks = Vec::new();
 
-            for guid in new_visible_characters {
+            for guid in &new_visible_characters {
                 let Some(character) = self.characters.get_mut(&guid) else {
                     // Not possible due to how this vec got constructed above
                     unreachable!();
@@ -739,6 +753,10 @@ impl Server {
                 );
                 return;
             };
+
+            for guid in new_visible_characters {
+                character.other_visible_players.insert(guid);
+            }
         }
     }
 
@@ -895,10 +913,10 @@ impl Server {
         // Potential for a cache here but I don't think that many people are going to become visible in a single tick
         // It is a possibility but will depend on is_character_visible() function being split on maps or not
 
-        for (guid, new_visible_characters) in new_visible_creatures_for_characters {
+        for (guid, new_visible_creatures) in new_visible_creatures_for_characters {
             let mut blocks = Vec::new();
 
-            for guid in new_visible_characters {
+            for guid in &new_visible_creatures {
                 let Some(creature) = self.creatures.get_mut(&guid) else {
                     // Not possible due to how this vec got constructed above
                     unreachable!();
@@ -978,6 +996,10 @@ impl Server {
                 );
                 return;
             };
+
+            for guid in new_visible_creatures {
+                character.visible_creatures.insert(guid);
+            }
         }
     }
 

@@ -253,6 +253,7 @@ async fn main() {
         server.update(diff).await;
 
         let update_took = (chrono::Local::now() - server.game_time).num_milliseconds();
+        //println!("Update took {update_took} ms");
         let left_to_sleep = max_sleep_for_ms - update_took;
         if left_to_sleep > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(left_to_sleep as u64)).await;

@@ -4,7 +4,7 @@ use std::{ffi::CString, io::Cursor};
 
 use macros::create_client_packets;
 
-use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use tokio::io::AsyncRead;
 
 use crate::movement_info::MovementInfo;
@@ -47,8 +47,28 @@ CMSG_ITEM_QUERY_SINGLE 0x056 {
     item_id: u32: LittleEndian,
     guid: u64: LittleEndian
 },
+CMSG_CREATURE_QUERY 0x060 {
+    creature_id: u32: LittleEndian,
+    guid: u64: LittleEndian
+},
+CMSG_WHO 0x062 {
+    data: EndDataVec: LittleEndian // TODO
+},
+CMSG_WHOIS 0x064 {
+    character_name: CString: LittleEndian
+},
+CMSG_FRIEND_LIST 0x066 {},
 CMSG_ADD_FRIEND 0x069 {
-    friend_name: CString: LittleEndian
+    character_name: CString: LittleEndian
+},
+CMSG_DEL_FRIEND 0x06A {
+    guid: u64: LittleEndian
+},
+CMSG_ADD_IGNORE 0x06C {
+    character_name: CString: LittleEndian
+},
+CMSG_DEL_IGNORE 0x06D {
+    guid: u64: LittleEndian
 },
 CMSG_MESSAGECHAT 0x095 {
     ty: u32: LittleEndian,
@@ -58,6 +78,9 @@ CMSG_MESSAGECHAT 0x095 {
 CMSG_JOIN_CHANNEL 0x097 {
     channel_name: CString: LittleEndian,
     pass: CString: LittleEndian
+},
+CMSG_AREATRIGGER 0x0B4 {
+    trigger_id: u32: LittleEndian
 },
 MSG_MOVE_START_FORWARD 0x0B5 {
     movement_info: MovementInfo: LittleEndian,
@@ -134,6 +157,13 @@ CMSG_SWAP_INV_ITEM 0x10D {
     src_slot: u8: LittleEndian,
     dst_slot: u8: LittleEndian,
 },
+CMSG_SET_SELECTION 0x13D {
+    guid: u64: LittleEndian,
+},
+CMSG_ATTACKSWING 0x141 {
+    guid: u64: LittleEndian,
+},
+CMSG_ATTACKSTOP 0x142 {},
 CMSG_QUERY_TIME 0x1CE {},
 CMSG_PING 0x1DC {
     sequence_id: u32: LittleEndian,
@@ -145,7 +175,7 @@ CMSG_SETSHEATHED 0x1E0 {
 CMSG_AUTH_SESSION 0x1ED {
     build: u32: LittleEndian,
     server_id: u32: LittleEndian,
-    username: CString: BigEndian,
+    username: CString: LittleEndian,
     client_seed: u32: LittleEndian,
     client_proof: [u8; 20]: LittleEndian,
     decompressed_addon_info_size: u32: LittleEndian,
@@ -154,10 +184,14 @@ CMSG_AUTH_SESSION 0x1ED {
 CMSG_ZONEUPDATE 0x1F4 {
     new_zone: u32: LittleEndian
 },
+CMSG_GMTICKET_CREATE 0x205 {
+    data: EndDataVec: LittleEndian // TODO
+},
 CMSG_UPDATE_ACCOUNT_DATA 0x20B {
     data: EndDataVec: LittleEndian
 },
 CMSG_GMTICKET_GETTICKET 0x211 {},
+CMSG_GMTICKET_SYSTEMSTATUS 0x21A {},
 CMSG_SET_ACTIVE_MOVER 0x26A {
     guid: u64: LittleEndian
 },
