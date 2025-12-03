@@ -8,10 +8,14 @@ Building & Running
 To build the project you'll need to install Rust from [rust-lang.org](https://rust-lang.org/tools/install/), after which you'll be able to run the following commands.
 
 To compile the server into binaries, simply run `cargo build [--release]` in the root directory where you downloaded the project. (--release) flag is optional to enable all optimizations, otherwise it'll compile in debug mode.
+
 After compilation, your binaries will be located in `target/release/` or `target/debug/` in case of a debug build.
+
 To run the server you'll need to run __both__ the authserver (being the server that you authenticate on when you first connect) and the gameserver (the server which handles all in-game interactions).
+
 __If you're using this method__, copy `authserver/authserver_config.toml`, `authserver/log4rs.yaml`, `gameserver/gameserver_config.toml` and `gameserver/log4rs.yaml` into the folders where your binaries are located, otherwise they will immediately crash with an error due to the configs missing.
 
+--------
 Alternatively, you can run `cargo run [--release]` inside `authserver/` or `gameserver/` directories to run the servers without messing with binaries.
 
 Contact
