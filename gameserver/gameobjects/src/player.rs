@@ -93,9 +93,24 @@ impl UpdateWritable for QuestLogFields {
 
 pub struct VisibleItemFields {
     pub creator: Option<Guid<guid::Player>>,
-    pub unkn: [u32; 8],
-    pub properties: u32,
-    pub _padding: u32,
+    pub item_id: u32,
+    pub enchantment_ids: [u32; 2],
+    pub unkn: [u32; 5],
+    pub random_properties_id: u32,
+    pub property_seed: u32,
+}
+
+impl Default for VisibleItemFields {
+    fn default() -> Self {
+        Self {
+            creator: None,
+            item_id: 0,
+            enchantment_ids: [0; 2],
+            unkn: [0; 5],
+            random_properties_id: 0,
+            property_seed: 0,
+        }
+    }
 }
 
 impl UpdateWritable for VisibleItemFields {
@@ -105,12 +120,15 @@ impl UpdateWritable for VisibleItemFields {
 
     fn write(&self, blocks: &mut [u32]) {
         self.creator.write(&mut blocks[0..=1]);
-        for (i, v) in self.unkn.iter().enumerate() {
-            let i = 2 + i;
+        self.item_id.write(&mut blocks[2..=2]);
+        for (i, v) in self.enchantment_ids.iter().enumerate().map(|(i, v)| (i + 3, v)) {
             v.write(&mut blocks[i..=i]);
         }
-        blocks[10] = self.properties;
-        blocks[11] = self._padding;
+        for (i, v) in self.unkn.iter().enumerate().map(|(i, v)| (i + 5, v)) {
+            v.write(&mut blocks[i..=i]);
+        }
+        blocks[10] = self.random_properties_id;
+        blocks[11] = self.property_seed;
     }
 }
 

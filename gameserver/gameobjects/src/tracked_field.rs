@@ -53,6 +53,12 @@ impl<T> TrackedField<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq<T> for TrackedField<T> {
+    fn eq(&self, other: &T) -> bool {
+        &self.field == other
+    }
+}
+
 pub struct CopyCheck<T: Eq> {
     initial_value: T,
 }

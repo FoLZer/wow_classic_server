@@ -21,29 +21,32 @@ pub async fn packet_handler(
     mut rx: OwnedReadHalf,
     tx: Arc<Mutex<OwnedWriteHalf>>,
     session_key: [u8; 40],
+    mut decrypt_data: (usize, u8),
+    encrypt_data: Arc<Mutex<(usize, u8)>>,
     character_id: Guid<guid::Player>,
     player_update_queue: Arc<ConcurrentQueue<PlayerUpdate>>,
     game_data_accessor: GameDataAccessor,
 ) {
     loop {
-        let packet = match packets::client::read_packet(&mut rx, session_key).await {
-            Ok(v) => v,
-            Err(ParseError::Io(e)) if e.kind() == ErrorKind::UnexpectedEof => {
-                let _ = player_update_queue.push(PlayerUpdate {
-                    character_id: character_id,
-                    data: PlayerUpdateData::ForceKick,
-                });
-                return;
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to parse a packet from a client (character_id: {}). Error: {:?}",
-                    character_id.get(),
-                    e
-                );
-                continue;
-            }
-        };
+        let packet =
+            match packets::client::read_packet(&mut rx, session_key, &mut decrypt_data).await {
+                Ok(v) => v,
+                Err(ParseError::Io(e)) if e.kind() == ErrorKind::UnexpectedEof => {
+                    let _ = player_update_queue.push(PlayerUpdate {
+                        character_id: character_id,
+                        data: PlayerUpdateData::ForceKick,
+                    });
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to parse a packet from a client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    );
+                    continue;
+                }
+            };
 
         match packet {
             // Movement
@@ -322,7 +325,12 @@ pub async fn packet_handler(
 
                 let mut lock = tx.lock().await;
 
-                if let Err(e) = lock.write_all(&response.to_bytes(Some(session_key))).await {
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
                     warn!(
                         "Failed to send SMSG_ITEM_QUERY_SINGLE_RESPONSE to client (character_id: {}). Error: {:?}",
                         character_id.get(),
@@ -335,7 +343,12 @@ pub async fn packet_handler(
 
                 let mut lock = tx.lock().await;
 
-                if let Err(e) = lock.write_all(&response.to_bytes(Some(session_key))).await {
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
                     warn!(
                         "Failed to send SMSG_PONG to client (character_id: {}). Error: {:?}",
                         character_id.get(),
@@ -350,7 +363,12 @@ pub async fn packet_handler(
 
                 let mut lock = tx.lock().await;
 
-                if let Err(e) = lock.write_all(&response.to_bytes(Some(session_key))).await {
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
                     warn!(
                         "Failed to send SMSG_PONG to client (character_id: {}). Error: {:?}",
                         character_id.get(),

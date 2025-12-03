@@ -97,7 +97,7 @@ impl GuidType for Corpse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum AnyGuid {
     Item(Guid<Item>),
     Container(Guid<Container>),

@@ -3,22 +3,19 @@
 use std::{
     ffi::CString,
     io::{ErrorKind, Write},
-    sync::Mutex,
 };
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
-use lazy_static::lazy_static;
 use macros::create_server_packets;
 
 use crate::{
-    account_result::AccountResult, character_info::CharacterInfo, inventory_change_result::InventoryChangeResult, item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat}, update_data::UpdateBlocks
+    account_result::AccountResult,
+    character_info::CharacterInfo,
+    inventory_change_result::InventoryChangeResult,
+    item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
+    update_data::UpdateBlocks,
 };
-
-lazy_static! {
-    static ref ENCRYPT_DATA: Mutex<(usize, u8)> = Mutex::new((0, 0));
-    static ref DECRYPT_DATA: Mutex<(usize, u8)> = Mutex::new((0, 0));
-}
 
 create_server_packets!(
 SMSG_CHAR_CREATE 0x03A {

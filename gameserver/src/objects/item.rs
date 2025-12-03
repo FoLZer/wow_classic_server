@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, Guid, GuidType};
-use gameobjects::{item::ItemFields, object::ObjectFields, tracked_field::ClientUpdatable};
+use gameobjects::{item::ItemFields, object::ObjectFields, player::VisibleItemFields, tracked_field::ClientUpdatable};
 use log::error;
 use packets::update_data::{MovementUpdate, PossibleUpdate, UpdateData, ValuesUpdate};
 use sqlx::{Pool, Sqlite};
@@ -180,6 +180,20 @@ impl Item {
                 mask_blocks: mask_blocks,
                 values_blocks: values_blocks,
             },
+        }
+    }
+
+    pub fn get_visible_item_fields(&self) -> VisibleItemFields {
+        VisibleItemFields {
+            creator: self.item_fields.creator.get().clone(),
+            item_id: *self.object_fields.entry.get(),
+            enchantment_ids: [
+                self.item_fields.enchantments[0].get().id,
+                self.item_fields.enchantments[1].get().id,
+            ],
+            unkn: [0; 5],
+            random_properties_id: *self.item_fields.random_properties_id.get(),
+            property_seed: *self.item_fields.property_seed.get(),
         }
     }
 }

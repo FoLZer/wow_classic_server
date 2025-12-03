@@ -6,7 +6,7 @@ use common::guid::{self, Guid};
 
 use crate::{client::OrderedRead, server::OrderedWrite};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MovementInfo {
     pub movement_flags: MovementFlags,
     pub timestamp: u32,
@@ -98,7 +98,7 @@ pub struct MovementFlags {
     _unkn_9: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MovementInfoTransportData {
     pub guid: Guid<guid::DynamicObject>,
     pub pos_x: f32,
@@ -108,7 +108,7 @@ pub struct MovementInfoTransportData {
     pub time: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MovementInfoFallingData {
     pub velocity: f32,
     pub sin_angle: f32,

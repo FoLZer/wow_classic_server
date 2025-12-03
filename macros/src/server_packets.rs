@@ -44,19 +44,18 @@ pub fn create_server_packets_impl(input: TokenStream) -> TokenStream {
                     Ok(buf)
                 }
 
-                pub fn to_bytes(&self, session_key: Option<[u8; 40]>) -> Vec<u8> {
+                pub fn to_bytes(&self, session_key: Option<[u8; 40]>, encrypt_data: &mut (usize, u8)) -> Vec<u8> {
                     let inner_buf = self.to_bytes_inner_body().unwrap();
                     let mut outer_buf = Vec::new();
                     debug_assert!(inner_buf.len() <= u16::MAX as usize - 4);
                     outer_buf.write_u16::<BigEndian>(inner_buf.len() as u16 + 2).unwrap();
                     outer_buf.write_u16::<LittleEndian>(#opcode).unwrap();
                     if let Some(session_key) = session_key {
-                        let mut lock = ENCRYPT_DATA.lock().unwrap();
                         for b in &mut outer_buf {
-                            let enc = (*b ^ session_key[lock.0]).wrapping_add(lock.1);
-                            lock.0 = (lock.0 + 1) % session_key.len();
+                            let enc = (*b ^ session_key[encrypt_data.0]).wrapping_add(encrypt_data.1);
+                            encrypt_data.0 = (encrypt_data.0 + 1) % session_key.len();
                             *b = enc;
-                            lock.1 = enc;
+                            encrypt_data.1 = enc;
                         }
                     }
                     outer_buf.write_all(&inner_buf).unwrap();

@@ -5,8 +5,7 @@ use std::{ffi::CString, io::Cursor};
 use macros::create_client_packets;
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
-use lazy_static::lazy_static;
-use tokio::{io::AsyncRead, sync::Mutex};
+use tokio::io::AsyncRead;
 
 use crate::movement_info::MovementInfo;
 
@@ -140,6 +139,9 @@ CMSG_PING 0x1DC {
     sequence_id: u32: LittleEndian,
     latency: u32: LittleEndian
 },
+CMSG_SETSHEATHED 0x1E0 {
+    sheath_state: u32: LittleEndian
+},
 CMSG_AUTH_SESSION 0x1ED {
     build: u32: LittleEndian,
     server_id: u32: LittleEndian,
@@ -264,17 +266,12 @@ pub trait ReadablePacket {
     fn opcode() -> u32;
 }
 
-lazy_static! {
-    static ref DECRYPT_DATA: Mutex<(usize, u8)> = Mutex::new((0, 0));
-}
-
 pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
     reader: &mut R,
     session_key: Option<[u8; 40]>,
+    decrypt_data: &mut (usize, u8),
 ) -> Result<T, ParseError> {
     use tokio::io::AsyncReadExt;
-
-    let mut lock = DECRYPT_DATA.lock().await;
 
     let buf = {
         let size = match session_key {
@@ -286,9 +283,9 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
                     .map_err(ParseError::Io)?;
 
                 for b in &mut inner_buf {
-                    let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
-                    lock.0 = (lock.0 + 1) % session_key.len();
-                    lock.1 = *b;
+                    let dec = (b.wrapping_sub(decrypt_data.1)) ^ session_key[decrypt_data.0];
+                    decrypt_data.0 = (decrypt_data.0 + 1) % session_key.len();
+                    decrypt_data.1 = *b;
                     *b = dec;
                 }
                 u16::from_be_bytes(inner_buf)
@@ -311,9 +308,9 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
                 .map_err(ParseError::Io)?;
 
             for b in &mut inner_buf {
-                let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
-                lock.0 = (lock.0 + 1) % session_key.len();
-                lock.1 = *b;
+                let dec = (b.wrapping_sub(decrypt_data.1)) ^ session_key[decrypt_data.0];
+                decrypt_data.0 = (decrypt_data.0 + 1) % session_key.len();
+                decrypt_data.1 = *b;
                 *b = dec;
             }
             u32::from_le_bytes(inner_buf)
@@ -332,10 +329,9 @@ pub async fn read_specific_packet<R: AsyncRead + Unpin, T: ReadablePacket>(
 pub async fn read_packet<R: AsyncRead + Unpin>(
     reader: &mut R,
     session_key: [u8; 40],
+    decrypt_data: &mut (usize, u8),
 ) -> Result<ClientPacket, ParseError> {
     use tokio::io::AsyncReadExt;
-
-    let mut lock = DECRYPT_DATA.lock().await;
 
     let packet_buf = {
         let mut size_buf = [0; 2];
@@ -344,9 +340,9 @@ pub async fn read_packet<R: AsyncRead + Unpin>(
             .await
             .map_err(ParseError::Io)?;
         for b in &mut size_buf {
-            let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
-            lock.0 = (lock.0 + 1) % session_key.len();
-            lock.1 = *b;
+            let dec = (b.wrapping_sub(decrypt_data.1)) ^ session_key[decrypt_data.0];
+            decrypt_data.0 = (decrypt_data.0 + 1) % session_key.len();
+            decrypt_data.1 = *b;
             *b = dec;
         }
         let size = u16::from_be_bytes(size_buf);
@@ -363,9 +359,9 @@ pub async fn read_packet<R: AsyncRead + Unpin>(
         .await
         .map_err(ParseError::Io)?;
     for b in &mut opcode_buf {
-        let dec = (b.wrapping_sub(lock.1)) ^ session_key[lock.0];
-        lock.0 = (lock.0 + 1) % session_key.len();
-        lock.1 = *b;
+        let dec = (b.wrapping_sub(decrypt_data.1)) ^ session_key[decrypt_data.0];
+        decrypt_data.0 = (decrypt_data.0 + 1) % session_key.len();
+        decrypt_data.1 = *b;
         *b = dec;
     }
     let opcode = u32::from_le_bytes(opcode_buf);

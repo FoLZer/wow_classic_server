@@ -15,9 +15,9 @@ use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
 
 use crate::{
-    character::{Character, CharacterCreateError},
-    character_selection::CharacterSelection,
+    character_selection_screen::character_selection::CharacterSelection,
     game_data::GameDataAccessor,
+    objects::character::{Character, CharacterCreateError},
 };
 
 lazy_static! {
@@ -31,6 +31,9 @@ pub struct CharacterScreenConnection {
 
     db: Pool<Sqlite>,
     game_data_accessor: GameDataAccessor,
+
+    pub decrypt_data: (usize, u8),
+    pub encrypt_data: (usize, u8),
 }
 
 impl CharacterScreenConnection {
@@ -41,10 +44,13 @@ impl CharacterScreenConnection {
         db: Pool<Sqlite>,
         game_data_accessor: GameDataAccessor,
     ) -> Result<Self, ParseError> {
+        let mut decrypt_data = (0, 0);
+        let mut encrypt_data = (0, 0);
+
         let server_seed = SECURE_RNG.lock().await.next_u32();
         let send_packet = packets::server::SMSG_AUTH_CHALLENGE { server_seed };
         stream
-            .write_all(&send_packet.to_bytes(None))
+            .write_all(&send_packet.to_bytes(None, &mut encrypt_data))
             .await
             .map_err(ParseError::Io)?;
 
@@ -52,6 +58,7 @@ impl CharacterScreenConnection {
             packets::client::read_specific_packet::<_, packets::client::CMSG_AUTH_SESSION>(
                 &mut stream,
                 None,
+                &mut decrypt_data,
             )
             .await?;
 
@@ -114,7 +121,7 @@ impl CharacterScreenConnection {
             },
         };
         stream
-            .write_all(&send_packet.to_bytes(Some(session_key)))
+            .write_all(&send_packet.to_bytes(Some(session_key), &mut encrypt_data))
             .await
             .map_err(ParseError::Io)?;
 
@@ -125,26 +132,33 @@ impl CharacterScreenConnection {
 
             db,
             game_data_accessor,
+            decrypt_data,
+            encrypt_data,
         })
     }
 
     // This function returns when the client has selected the character to allow for state transition
     pub async fn connection_loop(&mut self) -> CharacterScreenResult {
         loop {
-            let packet =
-                match packets::client::read_packet(&mut self.stream, self.session_key).await {
-                    Ok(v) => v,
-                    Err(ParseError::Io(e)) if e.kind() == ErrorKind::UnexpectedEof => {
-                        return CharacterScreenResult::ClientDisconnect;
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse a packet from a client (account_id: {}). Error: {:?}",
-                            self.account_id, e
-                        );
-                        continue;
-                    }
-                };
+            let packet = match packets::client::read_packet(
+                &mut self.stream,
+                self.session_key,
+                &mut self.decrypt_data,
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(ParseError::Io(e)) if e.kind() == ErrorKind::UnexpectedEof => {
+                    return CharacterScreenResult::ClientDisconnect;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to parse a packet from a client (account_id: {}). Error: {:?}",
+                        self.account_id, e
+                    );
+                    continue;
+                }
+            };
 
             match packet {
                 ClientPacket::CMSG_CHAR_ENUM(_) => {
@@ -170,7 +184,9 @@ impl CharacterScreenConnection {
 
                     if let Err(e) = self
                         .stream
-                        .write_all(&response.to_bytes(Some(self.session_key)))
+                        .write_all(
+                            &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                        )
                         .await
                     {
                         warn!(
@@ -201,7 +217,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 error!(
@@ -223,7 +242,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 error!(
@@ -245,7 +267,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 error!(
@@ -267,7 +292,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 warn!(
@@ -289,7 +317,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 warn!(
@@ -307,7 +338,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 error!(
@@ -331,7 +365,9 @@ impl CharacterScreenConnection {
 
                     if let Err(e) = self
                         .stream
-                        .write_all(&response.to_bytes(Some(self.session_key)))
+                        .write_all(
+                            &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                        )
                         .await
                     {
                         warn!(
@@ -354,7 +390,9 @@ impl CharacterScreenConnection {
 
                         if let Err(e) = self
                             .stream
-                            .write_all(&response.to_bytes(Some(self.session_key)))
+                            .write_all(
+                                &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                            )
                             .await
                         {
                             error!(
@@ -387,7 +425,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 warn!(
@@ -410,7 +451,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 error!(
@@ -445,7 +489,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 warn!(
@@ -469,7 +516,10 @@ impl CharacterScreenConnection {
 
                             if let Err(e) = self
                                 .stream
-                                .write_all(&response.to_bytes(Some(self.session_key)))
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
                                 .await
                             {
                                 warn!(
@@ -495,7 +545,9 @@ impl CharacterScreenConnection {
 
                         if let Err(e) = self
                             .stream
-                            .write_all(&response.to_bytes(Some(self.session_key)))
+                            .write_all(
+                                &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                            )
                             .await
                         {
                             error!(
@@ -515,7 +567,9 @@ impl CharacterScreenConnection {
 
                     if let Err(e) = self
                         .stream
-                        .write_all(&response.to_bytes(Some(self.session_key)))
+                        .write_all(
+                            &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                        )
                         .await
                     {
                         warn!(
@@ -560,11 +614,11 @@ fn calculate_world_server_proof(
 mod tests {
     use itertools::Itertools;
 
-    use crate::character_screen_connection::calculate_world_server_proof;
+    use crate::character_selection_screen::character_screen_connection::calculate_world_server_proof;
 
     #[test]
     fn calc_world_server_proof() {
-        let f = include_str!("../tests/calculate_world_server_proof.txt");
+        let f = include_str!("../../tests/calculate_world_server_proof.txt");
         for line in f.split("\n") {
             if line.is_empty() {
                 continue;

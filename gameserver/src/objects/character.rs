@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, sync::Arc};
+use std::{collections::HashSet, num::NonZeroU32, sync::Arc};
 
 use common::guid::{self, Guid};
 use gameobjects::{
@@ -15,7 +15,7 @@ use packets::update_data::UpdateData;
 use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
-use crate::{game_data::GameDataAccessor, item::Item};
+use crate::{game_data::GameDataAccessor, objects::item::Item};
 
 pub struct Character {
     pub map_id: u32,
@@ -25,12 +25,17 @@ pub struct Character {
     pub account_id: u32,
     pub session_key: [u8; 40],
     pub stream_tx: Arc<Mutex<OwnedWriteHalf>>,
+    pub decrypt_data: (usize, u8),
+    pub encrypt_data: Arc<Mutex<(usize, u8)>>,
 
     items: CharacterItems,
 
     pub object_fields: ObjectFields<guid::Player>,
     pub unit_fields: UnitFields,
     pub player_fields: PlayerFields,
+
+    pub other_visible_players: HashSet<Guid<guid::Player>>,
+    pub visible_creatures: HashSet<Guid<guid::Unit>>,
 }
 
 impl Character {
@@ -41,6 +46,8 @@ impl Character {
         account_id: u32,
         stream_tx: OwnedWriteHalf,
         session_key: [u8; 40],
+        decrypt_data: (usize, u8),
+        encrypt_data: (usize, u8),
     ) -> Result<Self, (OwnedWriteHalf, sqlx::Error)> {
         let character_id = guid.get_u32();
         let model = match sqlx::query!(
@@ -55,6 +62,169 @@ impl Character {
             Err(e) => return Err((stream_tx, e)),
         };
 
+        let items = CharacterItems {
+            equipment: EquipmentItems {
+                head: if let Some(id) = model.equipment_head_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                neck: if let Some(id) = model.equipment_neck_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                shoulders: if let Some(id) = model.equipment_shoulders_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                body: if let Some(id) = model.equipment_body_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                chest: if let Some(id) = model.equipment_chest_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                waist: if let Some(id) = model.equipment_waist_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                legs: if let Some(id) = model.equipment_legs_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                feet: if let Some(id) = model.equipment_feet_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                wrists: if let Some(id) = model.equipment_wrists_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                hands: if let Some(id) = model.equipment_hands_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                finger1: if let Some(id) = model.equipment_finger1_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                finger2: if let Some(id) = model.equipment_finger2_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                trinket1: if let Some(id) = model.equipment_trinket1_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                trinket2: if let Some(id) = model.equipment_trinket2_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                back: if let Some(id) = model.equipment_back_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                mainhand: if let Some(id) = model.equipment_mainhand_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                offhand: if let Some(id) = model.equipment_offhand_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                ranged: if let Some(id) = model.equipment_ranged_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+                tabard: if let Some(id) = model.equipment_tabard_id {
+                    match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                        Ok(v) => v,
+                        Err(e) => return Err((stream_tx, e)),
+                    }
+                } else {
+                    None
+                },
+            },
+            bags: [const { None }; 4],
+            main_backpack: [const { None }; 16],
+            bank: [const { None }; 28],
+            bank_bags: [const { None }; 7],
+            vendor_buyback: [const { None }; 12],
+            keyring: [const { None }; 12],
+        };
+
         Ok(Self {
             map_id: model.map as u32,
             position: (
@@ -66,169 +236,8 @@ impl Character {
 
             account_id: model.account_id as u32,
             session_key,
-
-            items: CharacterItems {
-                equipment: EquipmentItems {
-                    head: if let Some(id) = model.equipment_head_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    neck: if let Some(id) = model.equipment_neck_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    shoulders: if let Some(id) = model.equipment_shoulders_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    body: if let Some(id) = model.equipment_body_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    chest: if let Some(id) = model.equipment_chest_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    waist: if let Some(id) = model.equipment_waist_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    legs: if let Some(id) = model.equipment_legs_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    feet: if let Some(id) = model.equipment_feet_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    wrists: if let Some(id) = model.equipment_wrists_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    hands: if let Some(id) = model.equipment_hands_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    finger1: if let Some(id) = model.equipment_finger1_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    finger2: if let Some(id) = model.equipment_finger2_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    trinket1: if let Some(id) = model.equipment_trinket1_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    trinket2: if let Some(id) = model.equipment_trinket2_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    back: if let Some(id) = model.equipment_back_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    mainhand: if let Some(id) = model.equipment_mainhand_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    offhand: if let Some(id) = model.equipment_offhand_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    ranged: if let Some(id) = model.equipment_ranged_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                    tabard: if let Some(id) = model.equipment_tabard_id {
-                        match Item::load_from_db(game_data_accessor, db, id as u32).await {
-                            Ok(v) => v,
-                            Err(e) => return Err((stream_tx, e)),
-                        }
-                    } else {
-                        None
-                    },
-                },
-                bags: [const { None }; 4],
-                main_backpack: [const { None }; 16],
-                bank: [const { None }; 28],
-                bank_bags: [const { None }; 7],
-                vendor_buyback: [const { None }; 12],
-                keyring: [const { None }; 12],
-            },
+            decrypt_data,
+            encrypt_data: Arc::new(Mutex::new(encrypt_data)),
 
             stream_tx: Arc::new(Mutex::new(stream_tx)),
 
@@ -352,15 +361,104 @@ impl Character {
                     log_3: 0,
                 }
                 .into(); 20],
-                visible_items: std::array::from_fn(|_| {
-                    VisibleItemFields {
-                        creator: None,
-                        unkn: [0; 8],
-                        properties: 0,
-                        _padding: 0,
-                    }
-                    .into()
-                }),
+
+                visible_items: [
+                    if let Some(item) = &items.equipment.head {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.neck {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.shoulders {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.body {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.chest {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.waist {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.legs {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.feet {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.wrists {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.hands {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.finger1 {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.finger2 {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.trinket1 {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.trinket2 {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.back {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.mainhand {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.offhand {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.ranged {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                    if let Some(item) = &items.equipment.tabard {
+                        item.get_visible_item_fields().into()
+                    } else {
+                        VisibleItemFields::default().into()
+                    },
+                ],
 
                 equipment_slots: [
                     model
@@ -492,6 +590,10 @@ impl Character {
                 watched_faction_index: u32::MAX.into(),
                 combat_ratings: [0.into(); 20],
             },
+            other_visible_players: HashSet::new(),
+            visible_creatures: HashSet::new(),
+
+            items,
         })
     }
 

@@ -1,13 +1,9 @@
 #![feature(vec_try_remove)]
 
-mod character;
-mod character_screen_connection;
-mod character_selection;
-mod creature;
+mod character_selection_screen;
 mod game_data;
 mod ipc_connection;
-mod item;
-mod item_prototype;
+mod objects;
 mod packet_handler;
 mod server;
 
@@ -36,10 +32,12 @@ use tokio::{
 };
 
 use crate::{
-    character::Character,
-    character_screen_connection::{CharacterScreenConnection, CharacterScreenResult},
+    character_selection_screen::character_screen_connection::{
+        CharacterScreenConnection, CharacterScreenResult,
+    },
     game_data::GameDataAccessor,
     ipc_connection::start_ipc_task,
+    objects::character::Character,
     server::Server,
 };
 
@@ -164,6 +162,8 @@ async fn main() {
                                     conn.account_id,
                                     tx,
                                     conn.session_key,
+                                    conn.decrypt_data,
+                                    conn.encrypt_data,
                                 )
                                 .await
                                 {
@@ -180,7 +180,10 @@ async fn main() {
                                         );
 
                                         if let Err(e) = tx
-                                            .write_all(&response.to_bytes(Some(conn.session_key)))
+                                            .write_all(&response.to_bytes(
+                                                Some(conn.session_key),
+                                                &mut conn.encrypt_data,
+                                            ))
                                             .await
                                         {
                                             error!(
@@ -203,7 +206,10 @@ async fn main() {
                                         };
 
                                         if let Err(e) = tx
-                                            .write_all(&response.to_bytes(Some(conn.session_key)))
+                                            .write_all(&response.to_bytes(
+                                                Some(conn.session_key),
+                                                &mut conn.encrypt_data,
+                                            ))
                                             .await
                                         {
                                             error!(

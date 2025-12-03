@@ -11,3 +11,8 @@ members = [
     "gameserver/common",
 ]
 resolver = "2"
+
+[profile.dev]
+package.bitfield-struct.opt-level = 3
+package.sqlx-macros.opt-level = 3
+package.macros.opt-level = 3

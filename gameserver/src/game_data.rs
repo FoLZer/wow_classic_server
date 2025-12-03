@@ -4,7 +4,7 @@ use log::error;
 use packets::character_info::GearInfo;
 use sqlx::{Pool, Sqlite};
 
-use crate::item_prototype::ItemPrototype;
+use crate::objects::item_prototype::ItemPrototype;
 
 // This exists to provide an ability to switch data backend later if needed
 // It's supposed to be easy to clone
