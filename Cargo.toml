@@ -9,6 +9,11 @@ members = [
     "gameserver",
     "gameserver/gameobjects",
     "gameserver/common",
+    "worldeditor",
+    #"worldeditor/mpq",
+    "worldeditor/dbc_structs",
+    "worldeditor/dbd_reader",
+    "worldeditor/dbc_reader"
 ]
 resolver = "2"
 
@@ -16,3 +21,4 @@ resolver = "2"
 package.bitfield-struct.opt-level = 3
 package.sqlx-macros.opt-level = 3
 package.macros.opt-level = 3
+package.bevy.opt-level = 3

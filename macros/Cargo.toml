@@ -1,12 +1,13 @@
 [package]
 name = "macros"
 version = "0.1.0"
+authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = "*"
+syn = "2.0.111"
 quote = "*"
 proc-macro2 = "*"

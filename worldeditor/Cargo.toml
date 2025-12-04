@@ -1,0 +1,28 @@
+[package]
+name = "worldeditor"
+version = "0.1.0"
+authors = ["FoLZer <folzer.se@gmail.com>"]
+edition = "2024"
+
+[dependencies]
+#bevy = "0.17.3"
+bevy = { git = "https://github.com/bevyengine/bevy.git" }
+bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", features = [
+    "free_camera",
+] }
+log4rs = "1.4.0"
+log = { version = "*" }
+serde = { version = "1.0.228", features = ["derive"] }
+confy = "2.0.0"
+dbc_structs = { path = "./dbc_structs" }
+byteorder = "1.5.0"
+bitfield-struct = "0.12.1"
+texpresso = "2.0.2"
+image = "0.25.9"
+dbc_reader = { path = "./dbc_reader" }
+#bevy-inspector-egui = "0.35.0"
+
+wow-mpq = "0.3.2"
+wow-adt = "0.3.2"
+wow-wdt = "0.3.2"
+wow-blp = "0.3.2"
