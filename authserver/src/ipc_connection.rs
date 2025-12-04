@@ -158,7 +158,7 @@ pub async fn start_ipc_task(
                                     session_key: match session_key {
                                         Some(v) => SessionKeyResponse::Authenticated {
                                             account_id: v.0,
-                                            session_key: v.1
+                                            session_key: v.1,
                                         },
                                         None => SessionKeyResponse::Unauthenticated,
                                     },

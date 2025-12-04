@@ -2,7 +2,10 @@ use std::num::NonZeroU32;
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, Guid, GuidType};
-use gameobjects::{item::ItemFields, object::ObjectFields, player::VisibleItemFields, tracked_field::ClientUpdatable};
+use gameobjects::{
+    item::ItemFields, object::ObjectFields, player::VisibleItemFields,
+    tracked_field::ClientUpdatable,
+};
 use log::error;
 use packets::update_data::{MovementUpdate, PossibleUpdate, UpdateData, ValuesUpdate};
 use sqlx::{Pool, Sqlite};
@@ -12,9 +15,6 @@ use crate::game_data::GameDataAccessor;
 pub struct Item {
     pub object_fields: ObjectFields<guid::Item>,
     pub item_fields: ItemFields,
-
-    pub display_id: u32,
-    pub inventory_type: u8,
 }
 
 impl Item {
@@ -151,9 +151,6 @@ impl Item {
                 max_durability: prototype.max_durability.into(),
                 _padding: 0.into(),
             },
-
-            display_id: prototype.display_info_id,
-            inventory_type: prototype.inventory_type,
         }))
     }
 

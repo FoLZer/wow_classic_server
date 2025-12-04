@@ -20,14 +20,14 @@ pub enum AuthServerIpcMessage {
         realm_category: RealmCategory,
     },
     PlayerSessionKeyRequest {
-        account_name: String // Game server can only access account name at first
+        account_name: String, // Game server can only access account name at first
     },
     PlayerNumCharactersResponse {
         account_id: u32,
-        num_characters: u8
+        num_characters: u8,
     },
     // UpdateNumCharactersCache?
-    GameServerClosed
+    GameServerClosed,
 }
 
 impl AuthServerIpcMessage {
@@ -67,9 +67,9 @@ impl AuthServerIpcMessage {
 pub enum SessionKeyResponse {
     Authenticated {
         account_id: u32, // lets the server know the account id of the player
-        session_key: [u8; 40]
-    }, 
-    Unauthenticated
+        session_key: [u8; 40],
+    },
+    Unauthenticated,
 }
 
 // Auth server -> Game server
@@ -77,13 +77,13 @@ pub enum SessionKeyResponse {
 pub enum GameServerIpcMessage {
     PlayerSessionKeyResponse {
         account_name: String,
-        session_key: SessionKeyResponse // if None -> user is not authenticated
+        session_key: SessionKeyResponse, // if None -> user is not authenticated
     },
     PlayerNumCharactersRequest {
         account_id: u32,
     },
     AuthServerError(AuthServerError),
-    AuthServerClosed
+    AuthServerClosed,
 }
 
 impl GameServerIpcMessage {
@@ -128,8 +128,5 @@ pub enum IpcError {
 
 #[derive(Debug, Decode, Encode)]
 pub enum AuthServerError {
-    DuplicateRealmInfo {
-        previous_id: u8,
-        new_id: u8
-    }
+    DuplicateRealmInfo { previous_id: u8, new_id: u8 },
 }

@@ -1,6 +1,5 @@
 use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
-use log::warn;
 use macros::tracked;
 
 use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
@@ -24,7 +23,7 @@ pub struct UnitFields {
     pub bytes_1: UnitFieldBytes1,
     pub virtual_item_slot_displays: [u32; 3],
     pub virtual_item_infos: [u32; 6],
-    pub flags: u32,
+    pub flags: UnitFlags,
     pub aura: [u32; 48],
     pub aura_flags: [u32; 6],
     pub aura_levels: [u32; 12],
@@ -97,6 +96,48 @@ impl UpdateWritable for UnitFieldBytes1 {
 }
 
 #[bitfield(u32)]
+pub struct UnitFlags {
+    _unkn: bool,
+    not_attackable: bool,
+    client_lost_control: bool,
+    _unkn: bool,
+    is_renamed: bool,
+    is_resting: bool, //usage unknown
+    _unkn: bool,
+    _unkn: bool,
+    not_attackable_out_of_combat: bool,
+    passive: bool,
+    is_looting: bool, //shows looting animation
+    _unkn: bool,
+    pvp: bool,
+    _unused: bool, //FIXME: check the _unused values
+    _unused: bool,
+    _unkn: bool,
+    _unkn: bool,
+    is_pacified: bool,
+    _unkn: bool,
+    in_combat: bool,
+    _unkn: bool,
+    _unkn: bool,
+    _unkn: bool,
+    _unkn: bool,
+    _unkn: bool,
+    not_selectable: bool,
+    skinnable: bool,
+    has_auras_visible: bool,
+    _unkn: bool,
+    _unkn: bool,
+    sheathe: bool,
+    _unkn: bool,
+}
+
+impl UpdateWritable for UnitFlags {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.0;
+    }
+}
+
+#[bitfield(u32)]
 #[derive(PartialEq, Eq)]
 pub struct UnitFieldBytes2 {
     #[bits(8)]
@@ -143,22 +184,13 @@ impl StandStateType {
         self as _
     }
     pub const fn from_bits(value: u8) -> Self {
-        match value {
-            0 => Self::Stand,
-            1 => Self::Sit,
-            2 => Self::SitChair,
-            3 => Self::Sleep,
-            4 => Self::SitLowChair,
-            5 => Self::SitMediumChair,
-            6 => Self::SitHighChair,
-            7 => Self::Dead,
-            8 => Self::Kneel,
-            _ => panic!(),
-        }
+        let Ok(value) = Self::try_from_bits(value) else {
+            panic!();
+        };
+        value
     }
-
-    pub fn from_bits_non_const(value: u8) -> Self {
-        match value {
+    pub const fn try_from_bits(value: u8) -> Result<Self, u8> {
+        Ok(match value {
             0 => Self::Stand,
             1 => Self::Sit,
             2 => Self::SitChair,
@@ -168,19 +200,13 @@ impl StandStateType {
             6 => Self::SitHighChair,
             7 => Self::Dead,
             8 => Self::Kneel,
-            _ => {
-                warn!(
-                    "Tried to convert incorrect value ({}) to StandStateType, returning StandStateType::Stand as a fallback",
-                    value
-                );
-
-                Self::Stand
-            }
-        }
+            _ => return Err(value),
+        })
     }
 }
 
 #[bitfield(u32)]
+#[derive(PartialEq, Eq)]
 pub struct UnitFieldBytes3 {
     #[bits(8)]
     pub sheath_state: SheathState,
@@ -208,12 +234,19 @@ impl SheathState {
         self as _
     }
     const fn from_bits(value: u8) -> Self {
-        match value {
+        let Ok(value) = Self::try_from_bits(value) else {
+            panic!();
+        };
+        value
+    }
+
+    pub const fn try_from_bits(value: u8) -> Result<Self, u8> {
+        Ok(match value {
             0 => Self::Unarmed,
             1 => Self::Melee,
             2 => Self::Ranged,
-            _ => panic!(),
-        }
+            _ => return Err(value),
+        })
     }
 }
 

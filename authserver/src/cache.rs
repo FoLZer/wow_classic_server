@@ -5,14 +5,14 @@ use tokio::time::Instant;
 #[derive(Debug)]
 pub struct CacheData<T, const VALID_FOR_SECONDS: u64> {
     data: T,
-    time_set: Instant
+    time_set: Instant,
 }
 
 impl<T, const VALID_FOR: u64> CacheData<T, VALID_FOR> {
     pub fn new(data: T) -> Self {
         Self {
             data,
-            time_set: Instant::now()
+            time_set: Instant::now(),
         }
     }
 

@@ -35,10 +35,6 @@ INSERT INTO class(id)
 VALUES(8);
 INSERT INTO class(id)
 VALUES(9);
-INSERT INTO class(id)
-VALUES(10);
-INSERT INTO class(id)
-VALUES(11);
 /* Classes END */
 /* Character Display Ids START */
 INSERT INTO character_display_id(race, gender, display_id)

@@ -3,7 +3,7 @@ use std::{ffi::CString, io::ErrorKind, sync::Arc};
 use chrono::Local;
 use common::guid::{self, Guid};
 use concurrent_queue::ConcurrentQueue;
-use gameobjects::unit::StandStateType;
+use gameobjects::unit::{SheathState, StandStateType};
 use log::{error, warn};
 use packets::{
     client::{ClientPacket, ParseError},
@@ -41,7 +41,7 @@ pub async fn packet_handler(
                 Err(e) => {
                     warn!(
                         "Failed to parse a packet from a client (character_id: {}). Error: {:?}",
-                        character_id.get(),
+                        character_id.get_u32(),
                         e
                     );
                     continue;
@@ -219,8 +219,50 @@ pub async fn packet_handler(
                 };
             }
             // Movement processing end
+            ClientPacket::CMSG_SETSHEATHED(packet) => {
+                let state = match SheathState::try_from_bits(packet.sheath_state as u8) {
+                    Ok(v) => v,
+                    Err(value) => {
+                        warn!(
+                            "Tried to convert an incorrect value ({}) to SheathState. (character_id: {})",
+                            value,
+                            character_id.get_u32()
+                        );
+                        if let Err(_) = player_update_queue.push(PlayerUpdate {
+                            character_id,
+                            data: PlayerUpdateData::ResendSheathState,
+                        }) {
+                            return;
+                        };
+                        continue;
+                    }
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::SetSheathState { state: state },
+                }) {
+                    return;
+                };
+            }
             ClientPacket::CMSG_STANDSTATECHANGE(packet) => {
-                let state = StandStateType::from_bits_non_const(packet.anim_state as u8);
+                let state = match StandStateType::try_from_bits(packet.anim_state as u8) {
+                    Ok(v) => v,
+                    Err(value) => {
+                        warn!(
+                            "Tried to convert an incorrect value ({}) to StandStateType. (character_id: {})",
+                            value,
+                            character_id.get_u32()
+                        );
+                        if let Err(_) = player_update_queue.push(PlayerUpdate {
+                            character_id,
+                            data: PlayerUpdateData::ResendAnimationState,
+                        }) {
+                            return;
+                        };
+                        continue;
+                    }
+                };
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
@@ -395,6 +437,11 @@ pub struct PlayerUpdate {
 pub enum PlayerUpdateData {
     Movement(MovementInfo),
     SwapInventoryItem { src: Slot, dst: Slot },
+    // In case CMSG_SETSHEATHED failed to validate StandStateType
+    ResendSheathState,
+    SetSheathState { state: SheathState },
+    // In case CMSG_STANDSTATECHANGE failed to validate StandStateType
+    ResendAnimationState,
     SetAnimationState { state: StandStateType },
     // Kicks the client by abruptly dropping their connection, usually due to an error in reading client's packets
     ForceKick,

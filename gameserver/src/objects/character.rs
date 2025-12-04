@@ -8,7 +8,7 @@ use gameobjects::{
     },
     unit::{
         SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2, UnitFieldBytes2Flags,
-        UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields,
+        UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
     },
 };
 use packets::update_data::UpdateData;
@@ -266,7 +266,7 @@ impl Character {
                 powers: [0.into(); 5],
                 max_health: 500.into(),
                 max_powers: [0.into(); 5],
-                level: 1.into(),
+                level: (model.level as u32).into(),
                 faction_template: 1.into(),
                 bytes_1: UnitFieldBytes1::new()
                     .with_race(model.race as u8)
@@ -276,7 +276,7 @@ impl Character {
                     .into(),
                 virtual_item_slot_displays: [0.into(); 3],
                 virtual_item_infos: [0.into(); 6],
-                flags: 0.into(),
+                flags: UnitFlags::new().into(),
                 aura: [0.into(); 48],
                 aura_flags: [0.into(); 6],
                 aura_levels: [0.into(); 12],

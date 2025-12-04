@@ -121,7 +121,12 @@ impl UpdateWritable for VisibleItemFields {
     fn write(&self, blocks: &mut [u32]) {
         self.creator.write(&mut blocks[0..=1]);
         self.item_id.write(&mut blocks[2..=2]);
-        for (i, v) in self.enchantment_ids.iter().enumerate().map(|(i, v)| (i + 3, v)) {
+        for (i, v) in self
+            .enchantment_ids
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i + 3, v))
+        {
             v.write(&mut blocks[i..=i]);
         }
         for (i, v) in self.unkn.iter().enumerate().map(|(i, v)| (i + 5, v)) {

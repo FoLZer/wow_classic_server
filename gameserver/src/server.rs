@@ -77,7 +77,7 @@ impl Server {
                         .into(),
                     virtual_item_slot_displays: [0.into(); 3],
                     virtual_item_infos: [0.into(); 6],
-                    flags: 0.into(),
+                    flags: gameobjects::unit::UnitFlags::new().into(),
                     aura: [0.into(); 48],
                     aura_flags: [0.into(); 6],
                     aura_levels: [0.into(); 12],
@@ -247,6 +247,31 @@ impl Server {
 
                         src_slot.replace(item);
                     };
+                }
+                PlayerUpdateData::ResendSheathState => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    character.unit_fields.bytes_3.force_update();
+                }
+                PlayerUpdateData::SetSheathState { state } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    character
+                        .unit_fields
+                        .bytes_3
+                        .get_mut_using_copy()
+                        .set_sheath_state(state);
+                }
+                PlayerUpdateData::ResendAnimationState => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    character.unit_fields.bytes_2.force_update();
                 }
                 PlayerUpdateData::SetAnimationState { state } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {

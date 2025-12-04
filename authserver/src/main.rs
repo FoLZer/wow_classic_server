@@ -18,12 +18,12 @@ use std::{
     },
 };
 
+use authserver_migration::{Migrator, MigratorTrait};
 use inquire::{Confirm, Password, Text};
 use inquire_derive::Selectable;
 use interprocess::local_socket::tokio::SendHalf;
 use lazy_static::lazy_static;
 use log::{error, info};
-use authserver_migration::{Migrator, MigratorTrait};
 use num_bigint::BigInt;
 use rand::{RngCore, SeedableRng, rngs::StdRng};
 use sea_orm::{

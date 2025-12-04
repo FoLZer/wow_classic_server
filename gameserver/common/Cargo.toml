@@ -1,6 +1,7 @@
 [package]
 name = "common"
 version = "0.1.0"
+authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
 
 [dependencies]
