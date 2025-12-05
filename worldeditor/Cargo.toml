@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 #bevy = "0.17.3"
-bevy = { git = "https://github.com/bevyengine/bevy.git" }
+bevy = { git = "https://github.com/bevyengine/bevy.git", features = ["file_watcher"]}
 bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", features = [
     "free_camera",
 ] }
@@ -22,7 +22,8 @@ image = "0.25.9"
 dbc_reader = { path = "./dbc_reader" }
 #bevy-inspector-egui = "0.35.0"
 
-wow-mpq = "0.3.2"
-wow-adt = "0.3.2"
-wow-wdt = "0.3.2"
-wow-blp = "0.3.2"
+# Version right before ADT refactor with alpha maps being parsed correctly (unreleased on crates.io). Change to release version once the crate is updated
+wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }

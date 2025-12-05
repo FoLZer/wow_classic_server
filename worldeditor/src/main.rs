@@ -1,3 +1,5 @@
+mod terrain_material;
+
 use std::{
     collections::{HashMap, hash_map::Entry},
     io::Cursor,
@@ -7,15 +9,19 @@ use std::{
 
 use bevy::{
     asset::RenderAssetUsages,
+    image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use bevy_camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use serde::{Deserialize, Serialize};
 use wow_adt::{Adt, McnkChunk};
 use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
-use wow_wdt::{WdtReader, version::WowVersion};
+use wow_wdt::{WdtReader, chunks::MphdFlags, version::WowVersion};
+
+use crate::terrain_material::TerrainMaterial;
 
 #[derive(Deserialize, Serialize)]
 struct AppSettings {
@@ -49,7 +55,7 @@ fn main() {
     .unwrap();
 
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, MaterialPlugin::<TerrainMaterial>::default()))
         .add_plugins(FreeCameraPlugin)
         //.add_plugins(EguiPlugin::default())
         //.add_plugins(WorldInspectorPlugin::new())
@@ -66,6 +72,7 @@ struct MPQResource {
 fn setup(
     mut commands: Commands,
     materials: ResMut<Assets<StandardMaterial>>,
+    terrain_materials: ResMut<Assets<TerrainMaterial>>,
     meshes: ResMut<Assets<Mesh>>,
     images: ResMut<Assets<Image>>,
     mut mpqs_res: ResMut<MPQResource>,
@@ -79,7 +86,15 @@ fn setup(
         },
     ));
 
-    load_map(&mut mpqs_res.mpqs, commands, materials, meshes, images, 0);
+    load_map(
+        &mut mpqs_res.mpqs,
+        commands,
+        materials,
+        terrain_materials,
+        meshes,
+        images,
+        0,
+    );
 }
 
 const ADT_CELLS_PER_GRID: usize = 16;
@@ -88,8 +103,9 @@ fn load_map(
     mpqs: &mut PatchChain,
     mut commands: Commands,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut terrain_materials: ResMut<Assets<TerrainMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
+    mut images_res: ResMut<Assets<Image>>,
     index: usize,
 ) {
     let map_dbc = {
@@ -127,15 +143,21 @@ fn load_map(
     let map_meshes: Vec<
         Vec<
             Option<
-                [[(Mesh, f32, f32, f32, Option<Handle<Image>>); ADT_CELLS_PER_GRID];
-                    ADT_CELLS_PER_GRID],
+                [[(
+                    Mesh,
+                    f32,
+                    f32,
+                    f32,
+                    [Option<Handle<Image>>; 4],
+                    Handle<Image>,
+                ); ADT_CELLS_PER_GRID]; ADT_CELLS_PER_GRID],
             >,
         >,
     > = (0..64)
-        //(10..35)
+        //(30..35)
         .map(|y| {
             (0..64)
-                //(10..35)
+                //(30..35)
                 .map(|x| {
                     if wdt.main.entries[y][x].flags == 0 {
                         return None;
@@ -147,33 +169,34 @@ fn load_map(
 
                     Some(std::array::from_fn(|chunk_x| {
                         std::array::from_fn(|chunk_y| {
-                            let chunk = &adt.mcnk_chunks[chunk_x * ADT_CELLS_PER_GRID + chunk_y];
+                            let chunk_index = chunk_x * ADT_CELLS_PER_GRID + chunk_y;
+                            let chunk = &adt.mcnk_chunks[chunk_index];
                             let (mesh, x, y, z) = chunk_to_mesh(chunk);
 
                             let mtex = adt.mtex.as_ref().unwrap();
 
-                            if let Some(layer) = chunk
+                            let images = std::array::from_fn(|i| {
+                                if let Some(layer) = chunk
                                 .texture_layers
-                                .get(0)
-                                .filter(|v| (v.texture_id as usize) < mtex.filenames.len())
+                                .get(i)
                             {
                                 let texture_id = layer.texture_id;
 
                                 let filepath = &mtex.filenames[texture_id as usize];
                                 match texture_handles_map.entry(filepath.clone()) {
                                     Entry::Occupied(entry) => {
-                                        (mesh, x, y, z, Some(entry.get().clone()))
+                                        Some(entry.get().clone())
                                     }
                                     Entry::Vacant(entry) => {
                                         let blp = {
-                                            let file_buf = match mpqs.read_file(filepath) {
+                                            let file_buf = match mpq_read_file(mpqs, filepath) {
                                                 Ok(v) => v,
                                                 Err(wow_mpq::Error::FileNotFound(_)) => {
                                                     error!(
                                                         "BLP wasn't found for map {}. filepath: {}",
                                                         directory, filepath
                                                     );
-                                                    return (mesh, x, y, z, None);
+                                                    return None;
                                                 }
                                                 Err(e) => {
                                                     panic!("{:?}", e);
@@ -183,18 +206,46 @@ fn load_map(
                                             load_blp_from_buf(&file_buf).unwrap()
                                         };
                                         let texture = blp_to_image(&blp, 0).unwrap();
-                                        let handle = images.add(Image::from_dynamic(
+                                        let mut image = Image::from_dynamic(
                                             texture,
                                             true,
                                             RenderAssetUsages::RENDER_WORLD,
-                                        ));
+                                        );
+                                        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                                            mag_filter: ImageFilterMode::Linear,
+                                            min_filter: ImageFilterMode::Linear,
+                                            ..Default::default()
+                                        });
+                                        let handle = images_res.add(image);
                                         entry.insert(handle.clone());
-                                        (mesh, x, y, z, Some(handle))
+                                        Some(handle)
                                     }
                                 }
                             } else {
-                                (mesh, x, y, z, None)
+                                None
                             }
+                            });
+
+                            let do_not_fix_alpha_flag = (chunk.flags & 0x8000) != 0;
+                            let combined_alpha_map = chunk.get_combined_alpha_map(wdt.mphd.flags.contains(MphdFlags::ADT_HAS_BIG_ALPHA), !do_not_fix_alpha_flag);
+                            let mut alpha_image = Image::new(
+                                Extent3d {
+                                    width: 64,
+                                    height: 64,
+                                    ..Default::default()
+                                },
+                                TextureDimension::D2,
+                                combined_alpha_map.as_slice().to_vec(),
+                                TextureFormat::Rgba8Unorm,
+                                RenderAssetUsages::RENDER_WORLD
+                            );
+                            alpha_image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                                mag_filter: ImageFilterMode::Linear,
+                                min_filter: ImageFilterMode::Linear,
+                                ..Default::default()
+                            });
+
+                            (mesh, x, y, z, images, images_res.add(alpha_image))
                         })
                     }))
                 })
@@ -206,7 +257,10 @@ fn load_map(
         base_color: Color::WHITE,
         ..default()
     });
-    let mut materials_map: HashMap<Handle<Image>, Handle<StandardMaterial>> = HashMap::new();
+    let mut materials_map: HashMap<[Option<Handle<Image>>; 4], Handle<TerrainMaterial>> =
+        HashMap::new();
+
+    let mut transparent_image = None;
 
     for v1 in map_meshes.into_iter() {
         for v2 in v1.into_iter() {
@@ -218,34 +272,62 @@ fn load_map(
                 for v4 in v3.into_iter() {
                     let mesh = meshes.add(v4.0.clone());
 
-                    let material = match v4.4 {
-                        Some(image_handle) => {
-                            match materials_map.entry(image_handle.clone()) {
-                                Entry::Occupied(entry) => entry.get().clone(),
-                                Entry::Vacant(entry) => {
-                                    let handle = materials.add(StandardMaterial {
-                                        //base_color: Color::WHITE,
-                                        base_color_texture: Some(image_handle),
-                                        ..default()
-                                    });
-                                    entry.insert(handle.clone());
-                                    handle
-                                }
+                    const CHUNK_SIZE: f32 = 33.3333;
+
+                    let images = v4.4;
+                    let alpha_image = v4.5;
+                    if images.iter().all(|v| v.is_none()) {
+                        commands.spawn((
+                            Mesh3d(mesh),
+                            MeshMaterial3d(default_material.clone()),
+                            Transform::from_xyz(v4.1, v4.2, v4.3)
+                                .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI))
+                                .with_scale(Vec3 {
+                                    x: CHUNK_SIZE / 8.0,
+                                    y: 1.0,
+                                    z: CHUNK_SIZE / 8.0,
+                                }),
+                        ));
+                    } else {
+                        let material = match materials_map.entry(images.clone()) {
+                            Entry::Occupied(entry) => entry.get().clone(),
+                            Entry::Vacant(entry) => {
+                                let handle = terrain_materials.add(TerrainMaterial {
+                                    layer_1: images[0].clone().unwrap(),
+                                    layer_2: get_or_generate_transparent_image(
+                                        &images[1],
+                                        &mut transparent_image,
+                                        &mut images_res,
+                                    ),
+                                    layer_3: get_or_generate_transparent_image(
+                                        &images[2],
+                                        &mut transparent_image,
+                                        &mut images_res,
+                                    ),
+                                    layer_4: get_or_generate_transparent_image(
+                                        &images[3],
+                                        &mut transparent_image,
+                                        &mut images_res,
+                                    ),
+                                    alpha: alpha_image,
+                                });
+                                entry.insert(handle.clone());
+                                handle
                             }
-                        }
-                        None => default_material.clone(),
-                    };
-                    commands.spawn((
-                        Mesh3d(mesh),
-                        MeshMaterial3d(material),
-                        Transform::from_xyz(v4.1, v4.2, v4.3)
-                            .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI))
-                            .with_scale(Vec3 {
-                                x: 4.16,
-                                y: 1.0,
-                                z: 4.16,
-                            }),
-                    ));
+                        };
+
+                        commands.spawn((
+                            Mesh3d(mesh),
+                            MeshMaterial3d(material),
+                            Transform::from_xyz(v4.1, v4.2, v4.3)
+                                .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI))
+                                .with_scale(Vec3 {
+                                    x: CHUNK_SIZE / 8.0,
+                                    y: 1.0,
+                                    z: CHUNK_SIZE / 8.0,
+                                }),
+                        ));
+                    }
                 }
             }
         }
@@ -314,4 +396,53 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
         chunk.position[1],
         chunk.position[2],
     )
+}
+
+// Some file names appear to be uppercased inside mpqs, this function tries to handle this case
+fn mpq_read_file(mpqs: &mut PatchChain, filepath: &str) -> Result<Vec<u8>, wow_mpq::Error> {
+    match mpqs.read_file(filepath) {
+        Ok(v) => Ok(v),
+        Err(wow_mpq::Error::FileNotFound(_)) => {
+            let filepath = {
+                if let Some((left, right)) = filepath.rsplit_once("\\") {
+                    // Only uppercase the filename, without the extension if present
+                    let right = if let Some((left, right)) = right.rsplit_once('.') {
+                        format!("{}.{right}", left.to_uppercase())
+                    } else {
+                        right.to_uppercase()
+                    };
+                    format!("{left}\\{}", right)
+                } else {
+                    filepath.to_uppercase()
+                }
+            };
+            mpqs.read_file(&filepath)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn get_or_generate_transparent_image(
+    image: &Option<Handle<Image>>,
+    transparent_image: &mut Option<Handle<Image>>,
+    images_res: &mut ResMut<Assets<Image>>,
+) -> Handle<Image> {
+    match image {
+        Some(v) => v.clone(),
+        None => transparent_image
+            .get_or_insert_with(|| {
+                images_res.add(Image::new_fill(
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        ..Default::default()
+                    },
+                    TextureDimension::D2,
+                    &[0, 0, 0, 0],
+                    TextureFormat::Rgba8Unorm,
+                    RenderAssetUsages::RENDER_WORLD,
+                ))
+            })
+            .clone(),
+    }
 }
