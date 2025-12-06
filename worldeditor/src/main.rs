@@ -21,7 +21,7 @@ use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
 use wow_wdt::{WdtReader, chunks::MphdFlags, version::WowVersion};
 
-use crate::terrain_material::TerrainMaterial;
+use crate::terrain_material::{AnimationData, TerrainMaterial};
 
 #[derive(Deserialize, Serialize)]
 struct AppSettings {
@@ -38,7 +38,7 @@ impl Default for AppSettings {
 
 fn main() {
     let config: AppSettings = confy::load_path("./worldeditor_config.toml").unwrap();
-
+     
     let mpqs = PatchChain::from_archives_parallel(vec![
         (config.mpq_directory_path.join("patch-2.MPQ"), 101),
         (config.mpq_directory_path.join("patch.MPQ"), 100),
@@ -80,8 +80,8 @@ fn setup(
     commands.spawn((
         Camera3d::default(),
         FreeCamera {
-            walk_speed: 800.0,
-            run_speed: 2500.0,
+            walk_speed: 50.0,
+            run_speed: 600.0,
             ..Default::default()
         },
     ));
@@ -143,14 +143,7 @@ fn load_map(
     let map_meshes: Vec<
         Vec<
             Option<
-                [[(
-                    Mesh,
-                    f32,
-                    f32,
-                    f32,
-                    [Option<Handle<Image>>; 4],
-                    Handle<Image>,
-                ); ADT_CELLS_PER_GRID]; ADT_CELLS_PER_GRID],
+                [[TerrainMeshData; ADT_CELLS_PER_GRID]; ADT_CELLS_PER_GRID],
             >,
         >,
     > = (0..64)
@@ -159,7 +152,7 @@ fn load_map(
             (0..64)
                 //(30..35)
                 .map(|x| {
-                    if wdt.main.entries[y][x].flags == 0 {
+                    if !wdt.main.entries[y][x].has_adt() {
                         return None;
                     }
                     let map_path =
@@ -181,11 +174,37 @@ fn load_map(
                                 .get(i)
                             {
                                 let texture_id = layer.texture_id;
-
                                 let filepath = &mtex.filenames[texture_id as usize];
+
+                                let (animation_direction, animation_speed) = {
+                                    let is_animation_enabled = (layer.flags & 0x40) != 0;
+                                    if is_animation_enabled {
+                                        const DIRECTIONS: [IVec2; 8] = [
+                                            IVec2::new(0, 1),
+                                            IVec2::new(1, 1),
+                                            IVec2::new(1, 0),
+                                            IVec2::new(1, -1),
+                                            IVec2::new(0, -1),
+                                            IVec2::new(-1, -1),
+                                            IVec2::new(-1, 0),
+                                            IVec2::new(-1, 1),
+                                        ];
+
+                                        let direction_index = layer.flags & 0b111;
+                                        let speed = (layer.flags >> 3) & 0b111;
+                                        (DIRECTIONS[direction_index as usize], speed)
+                                    } else {
+                                        (IVec2::new(0, 0), 0)
+                                    }
+                                };
+
                                 match texture_handles_map.entry(filepath.clone()) {
                                     Entry::Occupied(entry) => {
-                                        Some(entry.get().clone())
+                                        Some(TerrainTextureLayer {
+                                            texture: entry.get().clone(),
+                                            animation_direction,
+                                            animation_speed 
+                                        })
                                     }
                                     Entry::Vacant(entry) => {
                                         let blp = {
@@ -208,7 +227,7 @@ fn load_map(
                                         let texture = blp_to_image(&blp, 0).unwrap();
                                         let mut image = Image::from_dynamic(
                                             texture,
-                                            true,
+                                            false,
                                             RenderAssetUsages::RENDER_WORLD,
                                         );
                                         image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
@@ -218,7 +237,11 @@ fn load_map(
                                         });
                                         let handle = images_res.add(image);
                                         entry.insert(handle.clone());
-                                        Some(handle)
+                                        Some(TerrainTextureLayer {
+                                            texture: handle,
+                                            animation_direction,
+                                            animation_speed,
+                                        })
                                     }
                                 }
                             } else {
@@ -245,7 +268,14 @@ fn load_map(
                                 ..Default::default()
                             });
 
-                            (mesh, x, y, z, images, images_res.add(alpha_image))
+                            TerrainMeshData {
+                                mesh,
+                                position_x: x,
+                                position_y: y,
+                                position_z: z,
+                                texture_layers: images,
+                                alpha_texture: images_res.add(alpha_image),
+                            }
                         })
                     }))
                 })
@@ -257,7 +287,7 @@ fn load_map(
         base_color: Color::WHITE,
         ..default()
     });
-    let mut materials_map: HashMap<[Option<Handle<Image>>; 4], Handle<TerrainMaterial>> =
+    let mut materials_map: HashMap<([Option<TerrainTextureLayer>; 4], Handle<Image>), Handle<TerrainMaterial>> =
         HashMap::new();
 
     let mut transparent_image = None;
@@ -270,17 +300,15 @@ fn load_map(
 
             for v3 in v2.into_iter() {
                 for v4 in v3.into_iter() {
-                    let mesh = meshes.add(v4.0.clone());
+                    let mesh = meshes.add(v4.mesh.clone());
 
                     const CHUNK_SIZE: f32 = 33.3333;
 
-                    let images = v4.4;
-                    let alpha_image = v4.5;
-                    if images.iter().all(|v| v.is_none()) {
+                    if v4.texture_layers.iter().all(|v| v.is_none()) {
                         commands.spawn((
                             Mesh3d(mesh),
                             MeshMaterial3d(default_material.clone()),
-                            Transform::from_xyz(v4.1, v4.2, v4.3)
+                            Transform::from_xyz(v4.position_x, v4.position_y, v4.position_z)
                                 .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI))
                                 .with_scale(Vec3 {
                                     x: CHUNK_SIZE / 8.0,
@@ -289,27 +317,45 @@ fn load_map(
                                 }),
                         ));
                     } else {
-                        let material = match materials_map.entry(images.clone()) {
+                        let material = match materials_map.entry((v4.texture_layers.clone(), v4.alpha_texture.clone())) {
                             Entry::Occupied(entry) => entry.get().clone(),
                             Entry::Vacant(entry) => {
+                                let layer_1 = v4.texture_layers[0].as_ref().unwrap();
+                                let layer_2 = v4.texture_layers[1].clone().unwrap_or_else(|| TerrainTextureLayer {
+                                    texture: get_or_generate_transparent_image(
+                                        &mut transparent_image,
+                                        &mut images_res,
+                                    ),
+                                    animation_direction: IVec2::new(0, 0),
+                                    animation_speed: 0
+                                });
+                                let layer_3 = v4.texture_layers[2].clone().unwrap_or_else(|| TerrainTextureLayer {
+                                    texture: get_or_generate_transparent_image(
+                                        &mut transparent_image,
+                                        &mut images_res,
+                                    ),
+                                    animation_direction: IVec2::new(0, 0),
+                                    animation_speed: 0
+                                });
+                                let layer_4 = v4.texture_layers[3].clone().unwrap_or_else(|| TerrainTextureLayer {
+                                    texture: get_or_generate_transparent_image(
+                                        &mut transparent_image,
+                                        &mut images_res,
+                                    ),
+                                    animation_direction: IVec2::new(0, 0),
+                                    animation_speed: 0
+                                });
+
                                 let handle = terrain_materials.add(TerrainMaterial {
-                                    layer_1: images[0].clone().unwrap(),
-                                    layer_2: get_or_generate_transparent_image(
-                                        &images[1],
-                                        &mut transparent_image,
-                                        &mut images_res,
-                                    ),
-                                    layer_3: get_or_generate_transparent_image(
-                                        &images[2],
-                                        &mut transparent_image,
-                                        &mut images_res,
-                                    ),
-                                    layer_4: get_or_generate_transparent_image(
-                                        &images[3],
-                                        &mut transparent_image,
-                                        &mut images_res,
-                                    ),
-                                    alpha: alpha_image,
+                                    layer_1: layer_1.texture.clone(),
+                                    layer_2: layer_2.texture.clone(),
+                                    layer_3: layer_3.texture.clone(),
+                                    layer_4: layer_4.texture.clone(),
+                                    alpha: v4.alpha_texture,
+                                    animation_data: AnimationData::new(
+                                        [layer_1.animation_direction, layer_2.animation_direction, layer_3.animation_direction, layer_4.animation_direction],
+                                        [layer_1.animation_speed, layer_2.animation_speed, layer_3.animation_speed, layer_4.animation_speed],
+                                    )
                                 });
                                 entry.insert(handle.clone());
                                 handle
@@ -319,7 +365,7 @@ fn load_map(
                         commands.spawn((
                             Mesh3d(mesh),
                             MeshMaterial3d(material),
-                            Transform::from_xyz(v4.1, v4.2, v4.3)
+                            Transform::from_xyz(v4.position_x, v4.position_y, v4.position_z)
                                 .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI))
                                 .with_scale(Vec3 {
                                     x: CHUNK_SIZE / 8.0,
@@ -344,19 +390,18 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
     //let mut indices = vec![[[1000; 3]; 4]; 8 * 8];
     let mut indices = vec![[[0; 3]; 4]; 8 * 8];
 
-    const CHUNK_SIZE: f32 = 8.0;
     for y in 0..8 {
         //outer
         for x in 0..9 {
             let i = y * 17 + x;
             vertices[i] = [x as f32, heights[i], y as f32];
-            uvs[i] = [x as f32 / CHUNK_SIZE, y as f32 / CHUNK_SIZE];
+            uvs[i] = [x as f32, y as f32];
         }
         //inner
         for x in 0..8 {
             let i = y * 17 + 9 + x;
             vertices[i] = [(x as f32 + 0.5), heights[i], (y as f32 + 0.5)];
-            uvs[i] = [(x as f32 + 0.5) / CHUNK_SIZE, (y as f32 + 0.5) / CHUNK_SIZE];
+            uvs[i] = [(x as f32 + 0.5), (y as f32 + 0.5)];
 
             let top_left = (i - 9) as u16;
             let top_right = (i - 8) as u16;
@@ -378,7 +423,7 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
         let y = 8;
         let i = y * 17 + x;
         vertices[i] = [x as f32, heights[i], y as f32];
-        uvs[i] = [x as f32 / CHUNK_SIZE, y as f32 / CHUNK_SIZE];
+        uvs[i] = [x as f32, y as f32];
     }
 
     (
@@ -423,26 +468,38 @@ fn mpq_read_file(mpqs: &mut PatchChain, filepath: &str) -> Result<Vec<u8>, wow_m
 }
 
 fn get_or_generate_transparent_image(
-    image: &Option<Handle<Image>>,
     transparent_image: &mut Option<Handle<Image>>,
     images_res: &mut ResMut<Assets<Image>>,
 ) -> Handle<Image> {
-    match image {
-        Some(v) => v.clone(),
-        None => transparent_image
-            .get_or_insert_with(|| {
-                images_res.add(Image::new_fill(
-                    Extent3d {
-                        width: 1,
-                        height: 1,
-                        ..Default::default()
-                    },
-                    TextureDimension::D2,
-                    &[0, 0, 0, 0],
-                    TextureFormat::Rgba8Unorm,
-                    RenderAssetUsages::RENDER_WORLD,
-                ))
-            })
-            .clone(),
-    }
+    transparent_image
+        .get_or_insert_with(|| {
+            images_res.add(Image::new_fill(
+                Extent3d {
+                    width: 1,
+                    height: 1,
+                    ..Default::default()
+                },
+                TextureDimension::D2,
+                &[0, 0, 0, 0],
+                TextureFormat::Rgba8Unorm,
+                RenderAssetUsages::RENDER_WORLD,
+            ))
+        })
+        .clone()
+}
+
+pub struct TerrainMeshData {
+    pub mesh: Mesh,
+    pub position_x: f32,
+    pub position_y: f32,
+    pub position_z: f32,
+    pub texture_layers: [Option<TerrainTextureLayer>; 4],
+    pub alpha_texture: Handle<Image>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct TerrainTextureLayer {
+    pub texture: Handle<Image>,
+    pub animation_direction: IVec2,
+    pub animation_speed: u32,
 }

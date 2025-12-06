@@ -27,53 +27,56 @@ var alpha: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(9)
 var alpha_sampler: sampler;
 
-fn saturation(color: vec4<f32>, adjustment: f32) -> vec4<f32>
-{
-    // Algorithm from Chapter 16 of OpenGL Shading Language
-    let W: vec4<f32> = vec4(0.2125, 0.7154, 0.0721, 1.0);
-    let intensity: vec4<f32> = vec4(dot(color, W));
-    return mix(intensity, color, adjustment);
+struct IVec2Pad {
+    v: vec2<i32>,
+    pad: vec2<i32>
+}
+
+struct AnimationData {
+    animation_directions: array<IVec2Pad, 4>,
+    animation_speed_1: u32,
+    animation_speed_2: u32,
+    animation_speed_3: u32,
+    animation_speed_4: u32,
+};
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(10)
+var<uniform> animation_data: AnimationData;
+
+fn animation_uv(uv: vec2<f32>, animation_direction: vec2<i32>, animation_speed: u32, animation_time: f32) -> vec2<f32> {
+    var animation_speed_float = f32(animation_speed) / 7.0;
+    var animation_direction_float: vec2<f32> = vec2<f32>(animation_direction);
+
+    return ((animation_direction_float * ((animation_time * animation_speed_float) % 1.0)) + uv) % 1.0;
 }
 
 @fragment
 fn fragment(
     mesh: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    var uv = mesh.uv;
+    var animation_time = 1.0;
+    let uv: vec2<f32> = mesh.uv % 1.0;
+    
+    let alpha_uv: vec2<f32> = mesh.uv / 8.0;
+    let alpha_values = textureSample(alpha, alpha_sampler, alpha_uv).rgb;
 
-    let alpha_values = textureSample(alpha, alpha_sampler, uv);
+    var layer_1_color: vec3<f32> = textureSample(layer_1, layer_1_sampler, animation_uv(uv, animation_data.animation_directions[0].v, animation_data.animation_speed_1, animation_time)).rgb;
+    var layer_2_color: vec3<f32> = textureSample(layer_2, layer_2_sampler, animation_uv(uv, animation_data.animation_directions[1].v, animation_data.animation_speed_2, animation_time)).rgb;
+    var layer_3_color: vec3<f32> = textureSample(layer_3, layer_3_sampler, animation_uv(uv, animation_data.animation_directions[2].v, animation_data.animation_speed_3, animation_time)).rgb;
+    var layer_4_color: vec3<f32> = textureSample(layer_4, layer_4_sampler, animation_uv(uv, animation_data.animation_directions[3].v, animation_data.animation_speed_4, animation_time)).rgb;
 
-    var layer_1_color: vec4<f32> = textureSample(layer_1, layer_1_sampler, uv);
-
-    var layer_2_color: vec4<f32> = textureSample(layer_2, layer_2_sampler, uv);
     var alpha_2_value: f32 = alpha_values.r;
-
-    var layer_3_color: vec4<f32> = textureSample(layer_3, layer_3_sampler, uv);
     var alpha_3_value: f32 = alpha_values.g;
-
-    var layer_4_color: vec4<f32> = textureSample(layer_4, layer_4_sampler, uv);
     var alpha_4_value: f32 = alpha_values.b;
+    var alpha_1_value = 1.0 - (alpha_2_value + alpha_3_value + alpha_4_value);
 
-    // finalColor = tex0 * (1.0 - (alpha1 + alpha2 + alpha3)) + tex1 * alpha1 + tex2 * alpha2 + tex3 * alpha3
-    //var final_color: vec4<f32> = layer_1_color * (1.0 - (alpha_2_value + alpha_3_value + alpha_4_value)) + (layer_2_color * alpha_2_value) + (layer_3_color * alpha_3_value) + (layer_4_color * alpha_4_value);
+    var final_color1: vec3<f32> = layer_1_color * alpha_1_value;
+    var final_color2: vec3<f32> = layer_2_color * alpha_2_value;
+    var final_color3: vec3<f32> = layer_3_color * alpha_3_value;
+    var final_color4: vec3<f32> = layer_4_color * alpha_4_value;
 
-    //var final_color: vec4<f32> = layer_1_color + layer_2_color * alpha_2_value;
-    var final_color1: vec4<f32> = layer_1_color;
-    var final_color2: vec4<f32> = layer_2_color;
-    var final_color2a: vec4<f32> = layer_2_color * alpha_2_value;
-    var final_color3: vec4<f32> = layer_3_color;
-    var final_color3a: vec4<f32> = layer_3_color * alpha_3_value;
-    var final_color4: vec4<f32> = layer_4_color;
-    var final_color4a: vec4<f32> = layer_4_color * alpha_4_value;
-
-    //return vec4((alpha_2_value + alpha_3_value + alpha_4_value), 0, 0, 1.0);
-
-    var layer_1_alpha = 1.0 - (alpha_2_value + alpha_3_value + alpha_4_value);
-    var final_color1a: vec4<f32> = layer_1_color * layer_1_alpha;
-    //return final_color2a + final_color3a + final_color4a;
-    var final_color: vec4<f32> = final_color1a + final_color2a + final_color3a + final_color4a;
-
-    // return layer_1_color * (1.0 - (alpha_2_value + alpha_3_value + alpha_4_value)) + (layer_2_color * alpha_2_value);
+    // FIXME: for some reason this color blending returns incorrect colors, have yet to figure out why
+    var final_color: vec4<f32> = vec4(final_color1 + final_color2 + final_color3 + final_color4, 1.0);
 
     return final_color;
 }
