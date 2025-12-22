@@ -6,7 +6,9 @@ edition = "2024"
 
 [dependencies]
 #bevy = "0.17.3"
-bevy = { git = "https://github.com/bevyengine/bevy.git", features = ["file_watcher"]}
+bevy = { git = "https://github.com/bevyengine/bevy.git", features = [
+    "file_watcher",
+] }
 bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", features = [
     "free_camera",
 ] }
