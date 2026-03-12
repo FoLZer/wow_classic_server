@@ -25,7 +25,12 @@ dbc_reader = { path = "./dbc_reader" }
 #bevy-inspector-egui = "0.35.0"
 
 # Version right before ADT refactor with alpha maps being parsed correctly (unreleased on crates.io). Change to release version once the crate is updated
-wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
-wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
-wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
-wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+
+wow-mpq = "0.6.4"
+wow-adt = "0.6.4"
+wow-wdt = "0.6.4"
+wow-blp = "0.6.4"

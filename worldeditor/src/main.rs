@@ -1,5 +1,6 @@
 mod map_loader;
 mod terrain_material;
+mod combined_alpha_map;
 
 use std::{path::PathBuf, str::FromStr};
 

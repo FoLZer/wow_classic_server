@@ -13,12 +13,13 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use image::GenericImageView;
-use wow_adt::{Adt, McnkChunk};
+use wow_adt::{McnkChunk, ParsedAdt, RootAdt, parse_adt};
 use wow_blp::{BlpImage, convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
 use wow_wdt::{WdtFile, WdtReader, chunks::MphdFlags, version::WowVersion};
 
 use crate::{
+    combined_alpha_map::CombinedAlphaMap,
     mpq_read_file,
     terrain_material::{AnimationData, TerrainMaterial},
 };
@@ -103,7 +104,8 @@ impl TerrainData {
                 }
                 let map_path = format!("World\\Maps\\{}\\{}_{}_{}.adt", map_name, map_name, x, y);
                 let map_file_buf = mpqs.read_file(&map_path).unwrap();
-                let adt = Adt::from_reader(&mut Cursor::new(map_file_buf)).unwrap();
+                let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
+                let ParsedAdt::Root(adt) = adt else { panic!() };
 
                 data.extend(
                     adt_to_meshes(
@@ -172,7 +174,7 @@ impl TerrainData {
 }
 
 fn adt_to_meshes(
-    adt: &Adt,
+    adt: &RootAdt,
     map_name: &str,
     has_big_alpha: bool,
     texture_handles_map: &mut HashMap<String, Handle<Image>>,
@@ -185,16 +187,13 @@ fn adt_to_meshes(
             let chunk = &adt.mcnk_chunks[chunk_index];
             let (mesh, x, y, z) = chunk_to_mesh(chunk);
 
-            let mtex = adt.mtex.as_ref().unwrap();
-
             let images = std::array::from_fn(|i| {
-                if let Some(layer) = chunk.texture_layers.get(i) {
+                if let Some(Some(layer)) = chunk.layers.as_ref().map(|c| c.layers.get(i)) {
                     let texture_id = layer.texture_id;
-                    let filepath = &mtex.filenames[texture_id as usize];
+                    let filepath = &adt.textures[texture_id as usize];
 
                     let (animation_direction, animation_speed) = {
-                        let is_animation_enabled = (layer.flags & 0x40) != 0;
-                        if is_animation_enabled {
+                        if layer.flags.animation_enabled() {
                             const DIRECTIONS: [IVec2; 8] = [
                                 IVec2::new(0, 1),
                                 IVec2::new(1, 1),
@@ -206,9 +205,10 @@ fn adt_to_meshes(
                                 IVec2::new(-1, 1),
                             ];
 
-                            let direction_index = layer.flags & 0b111;
-                            let speed = (layer.flags >> 3) & 0b111;
-                            (DIRECTIONS[direction_index as usize], speed)
+                            (
+                                DIRECTIONS[layer.flags.animation_rotation() as usize],
+                                layer.flags.animation_speed() as u32,
+                            )
                         } else {
                             (IVec2::new(0, 0), 0)
                         }
@@ -255,9 +255,11 @@ fn adt_to_meshes(
                 }
             });
 
-            let do_not_fix_alpha_flag = (chunk.flags & 0x8000) != 0;
-            let combined_alpha_map =
-                chunk.get_combined_alpha_map(has_big_alpha, !do_not_fix_alpha_flag);
+            let combined_alpha_map = CombinedAlphaMap::new(
+                chunk,
+                has_big_alpha,
+                !chunk.header.flags.do_not_fix_alpha_map(),
+            );
             let mut alpha_image = Image::new(
                 Extent3d {
                     width: 64,
@@ -272,6 +274,7 @@ fn adt_to_meshes(
             alpha_image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                 mag_filter: ImageFilterMode::Linear,
                 min_filter: ImageFilterMode::Linear,
+                mipmap_filter: ImageFilterMode::Linear,
                 ..Default::default()
             });
 
@@ -282,7 +285,7 @@ fn adt_to_meshes(
                 position_z: z,
                 texture_layers: images,
                 alpha_texture: images_res.add(alpha_image),
-                fix_alpha: chunk.flags & 0x8000 != 0
+                fix_alpha: chunk.header.flags.do_not_fix_alpha_map(),
             }
         })
     })
@@ -291,7 +294,7 @@ fn adt_to_meshes(
 const HEIGHTMAP_SIZE: usize = 145;
 
 fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
-    let heights = &chunk.height_map;
+    let heights = chunk.heights.as_ref().unwrap();
 
     let mut vertices = vec![[-10.0; 3]; HEIGHTMAP_SIZE];
     let mut uvs = vec![[0.0; 2]; HEIGHTMAP_SIZE];
@@ -301,13 +304,13 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
         //outer
         for x in 0..9 {
             let i = y * 17 + x;
-            vertices[i] = [x as f32, heights[i], y as f32];
+            vertices[i] = [x as f32, heights.heights[i], y as f32];
             uvs[i] = [x as f32, y as f32];
         }
         //inner
         for x in 0..8 {
             let i = y * 17 + 9 + x;
-            vertices[i] = [(x as f32 + 0.5), heights[i], (y as f32 + 0.5)];
+            vertices[i] = [(x as f32 + 0.5), heights.heights[i], (y as f32 + 0.5)];
             uvs[i] = [(x as f32 + 0.5), (y as f32 + 0.5)];
 
             let top_left = (i - 9) as u16;
@@ -329,7 +332,7 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
     for x in 0..9 {
         let y = 8;
         let i = y * 17 + x;
-        vertices[i] = [x as f32, heights[i], y as f32];
+        vertices[i] = [x as f32, heights.heights[i], y as f32];
         uvs[i] = [x as f32, y as f32];
     }
 
@@ -344,9 +347,9 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
             indices.into_iter().flatten().flatten().collect(),
         ))
         .with_computed_normals(),
-        chunk.position[0],
-        chunk.position[1],
-        chunk.position[2],
+        chunk.header.position[1],
+        chunk.header.position[2],
+        chunk.header.position[0],
     )
 }
 
