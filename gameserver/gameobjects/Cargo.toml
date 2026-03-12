@@ -5,7 +5,7 @@ authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
 
 [dependencies]
-bit-vec = "0.8.0"
+bit-vec = "0.9.0"
 bitfield-struct = "0.12.1"
 common = { path = "../common" }
 log = "0.4.28"

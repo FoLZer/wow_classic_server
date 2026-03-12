@@ -9,7 +9,7 @@ use packets::{
     account_result::AccountResult,
     client::{ClientPacket, ParseError},
 };
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, rngs::StdRng};
 use sha1::{Digest, Sha1};
 use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
@@ -21,7 +21,7 @@ use crate::{
 };
 
 lazy_static! {
-    static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(StdRng::from_os_rng());
+    static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(rand::make_rng());
 }
 
 pub struct CharacterScreenConnection {

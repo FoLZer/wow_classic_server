@@ -25,7 +25,7 @@ use interprocess::local_socket::tokio::SendHalf;
 use lazy_static::lazy_static;
 use log::{error, info};
 use num_bigint::BigInt;
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{Rng, rngs::StdRng};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, Database, DatabaseConnection, EntityTrait,
     ModelTrait, QueryFilter,
@@ -63,7 +63,7 @@ impl Default for AppSettings {
 }
 
 lazy_static! {
-    static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(StdRng::from_os_rng());
+    static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(rand::make_rng());
 }
 
 #[tokio::main]

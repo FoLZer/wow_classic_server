@@ -78,7 +78,8 @@ struct TerrainData {
 }
 
 impl TerrainData {
-    const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..64;
+    //const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..64;
+    const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..14;
 
     pub fn load_from_wdt(
         wdt: &WdtFile,

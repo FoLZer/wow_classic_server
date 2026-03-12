@@ -5,6 +5,6 @@ authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
 
 [dependencies]
-bincode = "2.0.1"
+rkyv = "0.8.15"
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = "1.48.0"
+tokio = "1.50.0"

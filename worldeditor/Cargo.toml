@@ -13,14 +13,14 @@ bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", featu
     "free_camera",
 ] }
 log4rs = "1.4.0"
-log = { version = "*" }
+log = { version = "0.4.29" }
 serde = { version = "1.0.228", features = ["derive"] }
 confy = "2.0.0"
 dbc_structs = { path = "./dbc_structs" }
 byteorder = "1.5.0"
 bitfield-struct = "0.12.1"
 texpresso = "2.0.2"
-image = "0.25.9"
+image = "0.25.10"
 dbc_reader = { path = "./dbc_reader" }
 #bevy-inspector-egui = "0.35.0"
 
