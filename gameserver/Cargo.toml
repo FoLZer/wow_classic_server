@@ -3,6 +3,7 @@ name = "gameserver"
 version = "0.1.0"
 authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 confy = "2.0.0"

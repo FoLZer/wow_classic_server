@@ -11,6 +11,7 @@ members = [
     "gameserver/common",
 ]
 resolver = "2"
+package.license = "GPL-3.0-only"
 
 [profile.dev]
 package.bitfield-struct.opt-level = 3

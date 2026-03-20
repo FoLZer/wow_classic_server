@@ -3,6 +3,7 @@ name = "gameobjects"
 version = "0.1.0"
 authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 bit-vec = "0.8.0"
