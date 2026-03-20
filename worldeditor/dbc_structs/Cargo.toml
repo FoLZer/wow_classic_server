@@ -3,6 +3,7 @@ name = "dbc_structs"
 version = "0.1.0"
 authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2021"
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
