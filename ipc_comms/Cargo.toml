@@ -3,6 +3,7 @@ name = "ipc_comms"
 version = "0.1.0"
 authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 rkyv = "0.8.15"

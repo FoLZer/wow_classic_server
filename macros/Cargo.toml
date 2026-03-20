@@ -3,6 +3,7 @@ name = "macros"
 version = "0.1.0"
 authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
+license.workspace = true
 
 [lib]
 proc-macro = true
