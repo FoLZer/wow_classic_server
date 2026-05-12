@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 #bevy = "0.17.3"
 bevy = { git = "https://github.com/bevyengine/bevy.git", features = [
-    "file_watcher",
+    "file_watcher", "dynamic_linking"
 ] }
 bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", features = [
     "free_camera",
@@ -31,7 +31,12 @@ dbc_reader = { path = "./dbc_reader" }
 #wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
 #wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
 
-wow-mpq = "0.6.4"
-wow-adt = "0.6.4"
-wow-wdt = "0.6.4"
-wow-blp = "0.6.4"
+#wow-mpq = "0.6.4"
+#wow-adt = "0.6.4"
+#wow-wdt = "0.6.4"
+#wow-blp = "0.6.4"
+
+wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }

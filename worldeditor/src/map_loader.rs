@@ -367,7 +367,7 @@ fn get_or_generate_transparent_image(
                 },
                 TextureDimension::D2,
                 &[0, 0, 0, 0],
-                TextureFormat::Rgba8Unorm,
+                TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             ))
         })
@@ -502,7 +502,7 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
                 },
                 TextureDimension::D2,
                 data,
-                TextureFormat::Rgba8Unorm,
+                TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             );
             image.texture_descriptor.mip_level_count = blp_raw1.images.len() as u32;
@@ -528,7 +528,7 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
                 },
                 TextureDimension::D2,
                 data,
-                TextureFormat::Rgba8Unorm,
+                TextureFormat::Rgba8UnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             );
             image.texture_descriptor.mip_level_count = blp_raw3.images.len() as u32;
@@ -553,7 +553,7 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
                 },
                 TextureDimension::D2,
                 data,
-                TextureFormat::Bc1RgbaUnorm,
+                TextureFormat::Bc1RgbaUnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             );
             image.texture_descriptor.mip_level_count = blp_dxtn.images.len() as u32;
@@ -578,7 +578,7 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
                 },
                 TextureDimension::D2,
                 data,
-                TextureFormat::Bc2RgbaUnorm,
+                TextureFormat::Bc2RgbaUnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             );
             image.texture_descriptor.mip_level_count = blp_dxtn.images.len() as u32;
@@ -603,7 +603,7 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
                 },
                 TextureDimension::D2,
                 data,
-                TextureFormat::Bc3RgbaUnorm,
+                TextureFormat::Bc3RgbaUnormSrgb,
                 RenderAssetUsages::RENDER_WORLD,
             );
             image.texture_descriptor.mip_level_count = blp_dxtn.images.len() as u32;

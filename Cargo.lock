@@ -857,6 +857,7 @@ name = "bevy"
 version = "0.19.0-dev"
 source = "git+https://github.com/bevyengine/bevy.git#3f6df4edfbe99e8bf0a9b7ad26d13c94add6448a"
 dependencies = [
+ "bevy_dylib",
  "bevy_internal",
 ]
 
@@ -1178,6 +1179,14 @@ dependencies = [
  "log",
  "serde",
  "sysinfo",
+]
+
+[[package]]
+name = "bevy_dylib"
+version = "0.19.0-dev"
+source = "git+https://github.com/bevyengine/bevy.git#3f6df4edfbe99e8bf0a9b7ad26d13c94add6448a"
+dependencies = [
+ "bevy_internal",
 ]
 
 [[package]]
@@ -4906,9 +4915,9 @@ dependencies = [
 
 [[package]]
 name = "libbz2-rs-sys"
-version = "0.2.2"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
+checksum = "f8fc329e1457d97a9d58a4e2ca49e3be572431a7e096008efc2e3a3c19d428f4"
 
 [[package]]
 name = "libc"
@@ -8071,10 +8080,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.2",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9843,8 +9852,7 @@ dependencies = [
 [[package]]
 name = "wow-adt"
 version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca9ccedef8d4f1e5fc1fdd86cf8545b5ae8fec49fa90b935a70e6967cfb835c0"
+source = "git+https://github.com/wowemulation-dev/warcraft-rs.git#c8bd2e5a7e99a3ca7471fcb3d5c705a8cc8a8004"
 dependencies = [
  "binrw",
  "log",
@@ -9854,8 +9862,7 @@ dependencies = [
 [[package]]
 name = "wow-blp"
 version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c644ee8928a98ae9fbcf6fc2c241b111474aabfbd4c3b53646cc723a5395ab8"
+source = "git+https://github.com/wowemulation-dev/warcraft-rs.git#c8bd2e5a7e99a3ca7471fcb3d5c705a8cc8a8004"
 dependencies = [
  "bytes",
  "color_quant",
@@ -9868,8 +9875,7 @@ dependencies = [
 [[package]]
 name = "wow-mpq"
 version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aecc4a02b8a2665fd5311dfc700e65ee17f4dd637724e74daa9b4287186bf21a"
+source = "git+https://github.com/wowemulation-dev/warcraft-rs.git#c8bd2e5a7e99a3ca7471fcb3d5c705a8cc8a8004"
 dependencies = [
  "adler2",
  "byteorder",
@@ -9898,8 +9904,7 @@ dependencies = [
 [[package]]
 name = "wow-wdt"
 version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7b6e21c47eff3a1709b0a17762b2c0f0b350c059e8a16fba0b29471fcd72028"
+source = "git+https://github.com/wowemulation-dev/warcraft-rs.git#c8bd2e5a7e99a3ca7471fcb3d5c705a8cc8a8004"
 dependencies = [
  "anyhow",
  "bitflags 2.11.0",
