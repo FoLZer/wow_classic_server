@@ -79,8 +79,7 @@ struct TerrainData {
 }
 
 impl TerrainData {
-    //const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..64;
-    const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..14;
+    const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..64;
 
     pub fn load_from_wdt(
         wdt: &WdtFile,
@@ -99,6 +98,7 @@ impl TerrainData {
 
         for y in Self::LOAD_ADT_RANGE {
             for x in Self::LOAD_ADT_RANGE {
+                info!("Loading ADT at {y}.{x}...");
                 if !wdt.main.entries[y][x].has_adt() {
                     continue;
                 }
@@ -295,8 +295,10 @@ const HEIGHTMAP_SIZE: usize = 145;
 
 fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
     let heights = chunk.heights.as_ref().unwrap();
+    let normals_chunk = chunk.normals.as_ref().unwrap();
 
     let mut vertices = vec![[-10.0; 3]; HEIGHTMAP_SIZE];
+    let mut normals = vec![[0.0; 3]; HEIGHTMAP_SIZE];
     let mut uvs = vec![[0.0; 2]; HEIGHTMAP_SIZE];
     let mut indices = vec![[[0; 3]; 4]; 8 * 8];
 
@@ -305,12 +307,22 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
         for x in 0..9 {
             let i = y * 17 + x;
             vertices[i] = [x as f32, heights.heights[i], y as f32];
+            normals[i] = [
+                -normals_chunk.normals[i].z as f32 / 127.0,
+                normals_chunk.normals[i].y as f32 / 127.0,
+                -normals_chunk.normals[i].x as f32 / 127.0,
+            ];
             uvs[i] = [x as f32, y as f32];
         }
         //inner
         for x in 0..8 {
             let i = y * 17 + 9 + x;
             vertices[i] = [(x as f32 + 0.5), heights.heights[i], (y as f32 + 0.5)];
+            normals[i] = [
+                -normals_chunk.normals[i].z as f32 / 127.0,
+                normals_chunk.normals[i].y as f32 / 127.0,
+                -normals_chunk.normals[i].x as f32 / 127.0,
+            ];
             uvs[i] = [(x as f32 + 0.5), (y as f32 + 0.5)];
 
             let top_left = (i - 9) as u16;
@@ -333,6 +345,11 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
         let y = 8;
         let i = y * 17 + x;
         vertices[i] = [x as f32, heights.heights[i], y as f32];
+        normals[i] = [
+            -normals_chunk.normals[i].z as f32 / 127.0,
+            normals_chunk.normals[i].y as f32 / 127.0,
+            -normals_chunk.normals[i].x as f32 / 127.0,
+        ];
         uvs[i] = [x as f32, y as f32];
     }
 
@@ -346,7 +363,8 @@ fn chunk_to_mesh(chunk: &McnkChunk) -> (Mesh, f32, f32, f32) {
         .with_inserted_indices(Indices::U16(
             indices.into_iter().flatten().flatten().collect(),
         ))
-        .with_computed_normals(),
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals),
+        //.with_computed_normals(),
         chunk.header.position[1],
         chunk.header.position[2],
         chunk.header.position[0],
