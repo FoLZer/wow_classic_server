@@ -12,7 +12,6 @@ use bevy::{
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
-use image::GenericImageView;
 use wow_adt::{McnkChunk, ParsedAdt, RootAdt, parse_adt};
 use wow_blp::{BlpImage, convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
@@ -214,13 +213,13 @@ fn adt_to_meshes(
                         }
                     };
 
-                    match texture_handles_map.entry(filepath.clone()) {
-                        Entry::Occupied(entry) => Some(TerrainTextureLayer {
-                            texture: entry.get().clone(),
+                    match texture_handles_map.get(filepath) {
+                        Some(texture) => Some(TerrainTextureLayer {
+                            texture: texture.clone(),
                             animation_direction,
                             animation_speed,
                         }),
-                        Entry::Vacant(entry) => {
+                        None => {
                             let blp = {
                                 let file_buf = match mpq_read_file(mpqs, filepath) {
                                     Ok(v) => v,
@@ -242,7 +241,7 @@ fn adt_to_meshes(
                             let image = blp_to_image_with_mipmaps(&blp);
 
                             let handle = images_res.add(image);
-                            entry.insert(handle.clone());
+                            texture_handles_map.insert(filepath.clone(), handle.clone());
                             Some(TerrainTextureLayer {
                                 texture: handle,
                                 animation_direction,
@@ -267,7 +266,7 @@ fn adt_to_meshes(
                     ..Default::default()
                 },
                 TextureDimension::D2,
-                combined_alpha_map.as_slice().to_vec(),
+                combined_alpha_map.into_vec(),
                 TextureFormat::Rgba8Unorm,
                 RenderAssetUsages::RENDER_WORLD,
             );
@@ -510,7 +509,8 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
             let mut data = Vec::new();
             for mipmap_level in 0..blp_raw1.images.len() {
                 let image = blp_to_image(&blp, mipmap_level).unwrap();
-                data.extend(image.pixels().map(|(_, _, pixel)| pixel.0).flatten());
+                data.extend_from_slice(&image.into_rgba8().into_vec());
+                //data.extend(image.pixels().map(|(_, _, pixel)| pixel.0).flatten());
             }
             let mut image = Image::new(
                 Extent3d {
@@ -536,7 +536,8 @@ fn blp_to_image_with_mipmaps(blp: &BlpImage) -> Image {
             let mut data = Vec::new();
             for mipmap_level in 0..blp_raw3.images.len() {
                 let image = blp_to_image(&blp, mipmap_level).unwrap();
-                data.extend(image.pixels().map(|(_, _, pixel)| pixel.0).flatten());
+                data.extend_from_slice(&image.into_rgba8().into_vec());
+                //data.extend(image.pixels().map(|(_, _, pixel)| pixel.0).flatten());
             }
             let mut image = Image::new(
                 Extent3d {

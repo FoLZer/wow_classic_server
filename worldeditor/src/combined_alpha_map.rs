@@ -1,5 +1,7 @@
 use wow_adt::McnkChunk;
 
+const ALPHA_LAYER_SIZE: usize = 64;
+
 /// Builder / converter that assembles multiple per-layer alpha maps into a single 64x64 RGBA
 /// texture where R/G/B contain terrain layer alphas (layers 1/2/3 respectively) and A is set to
 /// 255 for visibility in tools.
@@ -13,7 +15,7 @@ use wow_adt::McnkChunk;
 /// To preserve sampling semantics we duplicate the preceding pixel when we hit x==63 or y==63
 /// during `set_next_alpha` writes.
 pub struct CombinedAlphaMap {
-    map: [[[u8; 4]; 64]; 64],
+    map: Vec<u8>,
     current_x: usize,
     current_y: usize,
     current_layer: usize,
@@ -25,11 +27,8 @@ impl CombinedAlphaMap {
     /// Internal helper: allocate a blank alpha map accumulator.
     /// R/G/B channels initialized to 0, A to 255.
     fn blank(has_big_alpha: bool, fix_alpha: bool) -> Self {
-        let mut map = [[[0u8; 4]; 64]; 64];
-        // Alpha is unused, but we set it to 255 so the image is visible when viewed in debug UI.
-        map.iter_mut().for_each(|layer| layer.fill([0, 0, 0, 255]));
         Self {
-            map,
+            map: vec![0; 4 * ALPHA_LAYER_SIZE * ALPHA_LAYER_SIZE],
             current_x: 0,
             current_y: 0,
             current_layer: 0,
@@ -140,7 +139,7 @@ impl CombinedAlphaMap {
     /// Runs may span row boundaries - we decompress into a flat 4096-byte buffer.
     /// Corrupted data that would produce >4096 bytes is truncated; shorter output is zero-padded.
     fn ingest_layer_compressed(&mut self, raw: &[u8], mut offset: usize) {
-        const TARGET: usize = 64 * 64; // 4096
+        const TARGET: usize = ALPHA_LAYER_SIZE * ALPHA_LAYER_SIZE; // 4096
         let mut output = Vec::with_capacity(TARGET);
 
         while output.len() < TARGET {
@@ -163,22 +162,14 @@ impl CombinedAlphaMap {
                 }
                 let value = raw[offset];
                 offset += 1;
-                for _ in 0..count {
-                    if output.len() >= TARGET {
-                        break;
-                    }
-                    output.push(value);
-                }
+                output.resize(output.len() + count, value);
             } else {
                 // Copy mode: copy count literal bytes
-                for _ in 0..count {
-                    if offset >= raw.len() || output.len() >= TARGET {
-                        break;
-                    }
-                    let value = raw[offset];
-                    offset += 1;
-                    output.push(value);
+                if offset >= raw.len() {
+                    break;
                 }
+                output.extend_from_slice(&raw[offset..(offset+count).min(raw.len())]);
+                offset += count;
             }
         }
 
@@ -188,17 +179,21 @@ impl CombinedAlphaMap {
         self.next_layer();
     }
 
+    fn index(x: usize, y: usize, layer: usize) -> usize {
+        (y * ALPHA_LAYER_SIZE + x) * 4 + layer
+    }
+
     /// Directly set one channel value without advancing internal iteration state.
     fn set_alpha(&mut self, x: usize, y: usize, layer: usize, alpha: u8) {
         if y < 64 && x < 64 && layer < 4 {
-            self.map[y][x][layer] = alpha;
+            self.map[Self::index(x, y, layer)] = alpha;
         }
     }
 
     /// Get one channel value.
     fn get_alpha(&self, x: usize, y: usize, layer: usize) -> u8 {
         if y < 64 && x < 64 && layer < 4 {
-            self.map[y][x][layer]
+            self.map[Self::index(x, y, layer)]
         } else {
             0
         }
@@ -233,14 +228,9 @@ impl CombinedAlphaMap {
         self.current_y < 64
     }
 
-    /// View underlying RGBA bytes.
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(
-                self.map.as_ptr() as *const u8,
-                std::mem::size_of_val(&self.map),
-            )
-        }
+    /// Underlying RGBA bytes.
+    pub fn into_vec(self) -> Vec<u8> {
+        self.map
     }
 }
 
