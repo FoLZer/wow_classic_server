@@ -1,25 +1,42 @@
+mod combined_alpha_map;
 mod map_loader;
 mod terrain_material;
-mod combined_alpha_map;
 
 use std::{path::PathBuf, str::FromStr};
 
-use bevy::{camera::visibility::VisibilityRange, pbr::ExtendedMaterial, prelude::*, render::view::RenderVisibilityRangePlugin};
+use bevy::{
+    diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    pbr::ExtendedMaterial,
+    prelude::*,
+};
 use bevy_camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use serde::{Deserialize, Serialize};
 use wow_mpq::PatchChain;
 
-use crate::{map_loader::load_map, terrain_material::TerrainMaterial};
+use crate::{
+    map_loader::{load_map, stream_terrain_chunks},
+    terrain_material::TerrainMaterial,
+};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Resource)]
 struct AppSettings {
     mpq_directory_path: PathBuf,
+    #[serde(default = "default_terrain_view_distance")]
+    terrain_view_distance: f32,
+    #[serde(default)]
+    log_diagnostics: bool,
+}
+
+fn default_terrain_view_distance() -> f32 {
+    800.0
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             mpq_directory_path: PathBuf::from_str("./Data").unwrap(),
+            terrain_view_distance: default_terrain_view_distance(),
+            log_diagnostics: false,
         }
     }
 }
@@ -42,16 +59,25 @@ fn main() {
     ])
     .unwrap();
 
-    App::new()
-        .add_plugins((
-            DefaultPlugins,
-            MaterialPlugin::<ExtendedMaterial<StandardMaterial, TerrainMaterial>>::default(),
-        ))
-        .add_plugins(FreeCameraPlugin)
+    let mut app = App::new();
+    app.add_plugins((
+        DefaultPlugins,
+        MaterialPlugin::<ExtendedMaterial<StandardMaterial, TerrainMaterial>>::default(),
+    ));
+    if config.log_diagnostics {
+        app.add_plugins((
+            FrameTimeDiagnosticsPlugin::default(),
+            EntityCountDiagnosticsPlugin::default(),
+            LogDiagnosticsPlugin::default(),
+        ));
+    }
+    app.add_plugins(FreeCameraPlugin)
         //.add_plugins(EguiPlugin::default())
         //.add_plugins(WorldInspectorPlugin::new())
         .insert_resource(MPQResource { mpqs })
+        .insert_resource(config)
         .add_systems(Startup, setup)
+        .add_systems(Update, stream_terrain_chunks)
         .run();
 }
 
@@ -60,13 +86,7 @@ struct MPQResource {
     pub mpqs: PatchChain,
 }
 
-fn setup(
-    mut commands: Commands,
-    terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
-    meshes: ResMut<Assets<Mesh>>,
-    images: ResMut<Assets<Image>>,
-    mut mpqs_res: ResMut<MPQResource>,
-) {
+fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Res<AppSettings>) {
     commands.spawn((
         Camera3d::default(),
         FreeCamera {
@@ -80,10 +100,8 @@ fn setup(
     load_map(
         &mut mpqs_res.mpqs,
         commands,
-        terrain_materials,
-        meshes,
-        images,
         1,
+        settings.terrain_view_distance,
     );
 }
 

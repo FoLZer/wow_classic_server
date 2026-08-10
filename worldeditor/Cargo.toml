@@ -40,6 +40,3 @@ wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
-
-[profile.dev]
-opt-level = 1

@@ -18,21 +18,21 @@ use wow_mpq::PatchChain;
 use wow_wdt::{WdtFile, WdtReader, chunks::MphdFlags, version::WowVersion};
 
 use crate::{
+    MPQResource,
     combined_alpha_map::CombinedAlphaMap,
     mpq_read_file,
     terrain_material::{AnimationData, TerrainMaterial},
 };
 
 const ADT_CELLS_PER_GRID: usize = 16;
+const ADT_GRID_SIZE: usize = 64;
+const CHUNK_SIZE: f32 = 33.3334;
+const ADT_SIZE: f32 = CHUNK_SIZE * ADT_CELLS_PER_GRID as f32;
+const ADT_HALF_DIAGONAL: f32 = ADT_SIZE * std::f32::consts::FRAC_1_SQRT_2;
+const STREAM_BUFFER: f32 = ADT_SIZE;
+const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
 
-pub fn load_map(
-    mpqs: &mut PatchChain,
-    mut commands: Commands,
-    mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut images_res: ResMut<Assets<Image>>,
-    index: usize,
-) {
+pub fn load_map(mpqs: &mut PatchChain, mut commands: Commands, index: usize, view_distance: f32) {
     let map_dbc = {
         info!("Searching for Map.dbc...");
         let map_buf = mpqs.read_file("DBFilesClient\\Map.dbc").unwrap();
@@ -63,113 +63,169 @@ pub fn load_map(
         .read()
         .unwrap();
 
-    let terrain_data = TerrainData::load_from_wdt(&wdt, directory, mpqs, &mut images_res);
-
-    terrain_data.spawn(
-        &mut commands,
-        &mut terrain_materials,
-        &mut meshes,
-        &mut images_res,
-    );
+    commands.insert_resource(TerrainMap {
+        has_big_alpha: wdt.mphd.flags.contains(MphdFlags::ADT_HAS_BIG_ALPHA),
+        wdt,
+        map_name: directory.to_owned(),
+        loaded_adts: HashMap::new(),
+        texture_handles: HashMap::new(),
+        transparent_image: None,
+        last_update_position: None,
+        view_distance,
+    });
 }
 
-struct TerrainData {
-    data: Vec<TerrainMeshData>,
+struct LoadedAdt {
+    entities: Vec<Entity>,
+    meshes: Vec<Handle<Mesh>>,
+    materials: Vec<Handle<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
+    alpha_textures: Vec<Handle<Image>>,
 }
 
-impl TerrainData {
-    const LOAD_ADT_RANGE: std::ops::Range<usize> = 0..64;
+#[derive(Resource)]
+pub struct TerrainMap {
+    wdt: WdtFile,
+    map_name: String,
+    has_big_alpha: bool,
+    loaded_adts: HashMap<(usize, usize), LoadedAdt>,
+    texture_handles: HashMap<String, Handle<Image>>,
+    transparent_image: Option<Handle<Image>>,
+    last_update_position: Option<Vec2>,
+    view_distance: f32,
+}
 
-    pub fn load_from_wdt(
-        wdt: &WdtFile,
-        map_name: &str,
-        mpqs: &mut PatchChain,
-        images_res: &mut ResMut<Assets<Image>>,
-    ) -> Self {
-        let mut data = Vec::with_capacity(
-            Self::LOAD_ADT_RANGE.len()
-                * Self::LOAD_ADT_RANGE.len()
-                * ADT_CELLS_PER_GRID
-                * ADT_CELLS_PER_GRID,
-        );
+pub fn stream_terrain_chunks(
+    mut commands: Commands,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
+    mut terrain: ResMut<TerrainMap>,
+    mut mpqs: ResMut<MPQResource>,
+    mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Ok(camera_transform) = camera.single() else {
+        return;
+    };
+    let camera_position = camera_transform.translation().xz();
 
-        let mut texture_handles_map: HashMap<String, Handle<Image>> = HashMap::new();
+    if terrain.last_update_position.is_some_and(|position| {
+        position.distance_squared(camera_position) < STREAM_UPDATE_DISTANCE.powi(2)
+    }) {
+        return;
+    }
+    terrain.last_update_position = Some(camera_position);
 
-        for y in Self::LOAD_ADT_RANGE {
-            for x in Self::LOAD_ADT_RANGE {
-                info!("Loading ADT at {y}.{x}...");
-                if !wdt.main.entries[y][x].has_adt() {
-                    continue;
-                }
-                let map_path = format!("World\\Maps\\{}\\{}_{}_{}.adt", map_name, map_name, x, y);
-                let map_file_buf = mpqs.read_file(&map_path).unwrap();
-                let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
-                let ParsedAdt::Root(adt) = adt else { panic!() };
-
-                data.extend(
-                    adt_to_meshes(
-                        &adt,
-                        map_name,
-                        wdt.mphd.flags.contains(MphdFlags::ADT_HAS_BIG_ALPHA),
-                        &mut texture_handles_map,
-                        images_res,
-                        mpqs,
-                    )
-                    .into_iter()
-                    .flatten(),
-                );
+    let load_distance = terrain.view_distance + ADT_HALF_DIAGONAL;
+    let unload_distance_squared = (load_distance + STREAM_BUFFER).powi(2);
+    let mut adts_to_load = Vec::new();
+    for y in 0..ADT_GRID_SIZE {
+        for x in 0..ADT_GRID_SIZE {
+            if !terrain.wdt.main.entries[y][x].has_adt()
+                || terrain.loaded_adts.contains_key(&(x, y))
+            {
+                continue;
+            }
+            let distance_squared = adt_center(x, y).distance_squared(camera_position);
+            if distance_squared <= load_distance.powi(2) {
+                adts_to_load.push((distance_squared, x, y));
             }
         }
+    }
+    adts_to_load.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
 
-        Self { data }
+    let adts_to_unload = terrain
+        .loaded_adts
+        .iter()
+        .filter_map(|(&(x, y), _)| {
+            (adt_center(x, y).distance_squared(camera_position) > unload_distance_squared)
+                .then_some((x, y))
+        })
+        .collect::<Vec<_>>();
+
+    for coordinates in adts_to_unload {
+        let loaded_adt = terrain.loaded_adts.remove(&coordinates).unwrap();
+        for entity in loaded_adt.entities {
+            commands.entity(entity).despawn();
+        }
+        for mesh in loaded_adt.meshes {
+            meshes.remove(mesh.id());
+        }
+        for material in loaded_adt.materials {
+            terrain_materials.remove(material.id());
+        }
+        for alpha_texture in loaded_adt.alpha_textures {
+            images.remove(alpha_texture.id());
+        }
     }
 
-    pub fn spawn(
-        self,
-        commands: &mut Commands,
-        terrain_materials: &mut ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
-        meshes: &mut ResMut<Assets<Mesh>>,
-        images_res: &mut ResMut<Assets<Image>>,
-    ) {
-        let mut materials_map: HashMap<
-            ([Option<TerrainTextureLayer>; 4], Handle<Image>),
-            Handle<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
-        > = HashMap::new();
+    for (_, x, y) in adts_to_load {
+        let map_path = format!(
+            "World\\Maps\\{}\\{}_{}_{}.adt",
+            terrain.map_name, terrain.map_name, x, y
+        );
+        let map_file_buf = mpqs.mpqs.read_file(&map_path).unwrap();
+        let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
+        let ParsedAdt::Root(adt) = adt else { panic!() };
+        let map_name = terrain.map_name.clone();
+        let has_big_alpha = terrain.has_big_alpha;
+        let chunk_data = adt_to_meshes(
+            &adt,
+            &map_name,
+            has_big_alpha,
+            &mut terrain.texture_handles,
+            &mut images,
+            &mut mpqs.mpqs,
+        );
+        let generated_center = chunk_data
+            .iter()
+            .flatten()
+            .fold(Vec2::ZERO, |center, chunk| {
+                center + Vec2::new(chunk.position_x, chunk.position_z)
+            })
+            / (ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID) as f32
+            - Vec2::splat(CHUNK_SIZE * 0.5);
+        debug_assert!(
+            generated_center.distance(adt_center(x, y)) < CHUNK_SIZE,
+            "ADT {x}.{y} generated at {generated_center}, outside its streaming cell"
+        );
+        let mut materials_map = HashMap::new();
+        let mut loaded_adt = LoadedAdt {
+            entities: Vec::with_capacity(ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID),
+            meshes: Vec::with_capacity(ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID),
+            materials: Vec::with_capacity(ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID),
+            alpha_textures: Vec::with_capacity(ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID),
+        };
 
-        let mut transparent_image = None;
-
-        let bundles = self
-            .data
-            .into_iter()
-            .map(|v| {
-                let mesh = meshes.add(v.mesh.clone());
-
-                const CHUNK_SIZE: f32 = 33.3334;
-
-                let position = (v.position_x, v.position_y, v.position_z);
-                let material = v.into_material(
-                    &mut materials_map,
-                    terrain_materials,
-                    &mut transparent_image,
-                    images_res,
-                );
-                (
-                    Mesh3d(mesh),
-                    MeshMaterial3d(material),
+        for chunk in chunk_data.into_iter().flatten() {
+            let position = (chunk.position_x, chunk.position_y, chunk.position_z);
+            loaded_adt.alpha_textures.push(chunk.alpha_texture.clone());
+            let mesh = meshes.add(chunk.mesh.clone());
+            let material = chunk.into_material(
+                &mut materials_map,
+                &mut terrain_materials,
+                &mut terrain.transparent_image,
+                &mut images,
+            );
+            let entity = commands
+                .spawn((
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(material.clone()),
                     Transform::from_xyz(position.0, position.1, position.2)
                         .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI))
-                        .with_scale(Vec3 {
-                            x: CHUNK_SIZE / 8.0,
-                            y: 1.0,
-                            z: CHUNK_SIZE / 8.0,
-                        }),
-                    VisibilityRange::abrupt(0.0, 2000.0),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        commands.spawn_batch(bundles);
+                        .with_scale(Vec3::new(CHUNK_SIZE / 8.0, 1.0, CHUNK_SIZE / 8.0)),
+                    VisibilityRange::abrupt(0.0, terrain.view_distance),
+                ))
+                .id();
+            loaded_adt.entities.push(entity);
+            loaded_adt.meshes.push(mesh);
+            loaded_adt.materials.push(material);
+        }
+        terrain.loaded_adts.insert((x, y), loaded_adt);
     }
+}
+
+fn adt_center(x: usize, y: usize) -> Vec2 {
+    Vec2::new((31.5 - x as f32) * ADT_SIZE, (31.5 - y as f32) * ADT_SIZE)
 }
 
 fn adt_to_meshes(
