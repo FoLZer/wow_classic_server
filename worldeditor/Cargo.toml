@@ -19,7 +19,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 confy = "2.0.0"
 dbc_structs = { path = "./dbc_structs" }
 byteorder = "1.5.0"
-bitfield-struct = "0.12.1"
+bitfield-struct = "0.13.0"
 texpresso = "2.0.2"
 image = "0.25.10"
 dbc_reader = { path = "./dbc_reader" }
@@ -40,3 +40,6 @@ wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+
+[profile.dev]
+opt-level = 1

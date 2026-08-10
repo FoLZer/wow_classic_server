@@ -18,10 +18,6 @@ __If you're using this method__, copy `authserver/authserver_config.toml`, `auth
 --------
 Alternatively, you can run `cargo run [--release]` inside `authserver/` or `gameserver/` directories to run the servers without messing with binaries.
 
-Contact
---------
-Development Discord server: [https://discord.gg/4WgSHzr9z4](https://discord.gg/4WgSHzr9z4)
-
 Acknowledgements
 --------
 While we aim to create a custom experience, the further acknowledgement still holds:
