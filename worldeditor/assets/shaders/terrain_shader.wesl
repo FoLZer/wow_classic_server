@@ -31,48 +31,19 @@ import bevy_core_pipeline::oit::draw::oit_draw;
 import bevy_pbr::decal::forward::get_forward_decal_info;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100)
-var layer_1: texture_2d<f32>;
+var terrain_textures: texture_2d_array<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(101)
-var layer_1_sampler: sampler;
+var terrain_sampler: sampler;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(102)
-var layer_2: texture_2d<f32>;
+var alpha_map: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(103)
-var layer_2_sampler: sampler;
-
-@group(constants::MATERIAL_BIND_GROUP) @binding(104)
-var layer_3: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(105)
-var layer_3_sampler: sampler;
-
-@group(constants::MATERIAL_BIND_GROUP) @binding(106)
-var layer_4: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(107)
-var layer_4_sampler: sampler;
-
-@group(constants::MATERIAL_BIND_GROUP) @binding(108)
-var alpha: texture_2d<f32>;
-@group(constants::MATERIAL_BIND_GROUP) @binding(109)
 var alpha_sampler: sampler;
 
-struct IVec2Pad {
-    v1: vec2<i32>,
-    v2: vec2<i32>,
-}
-
-struct AnimationData {
-    animation_directions: array<IVec2Pad, 2>,
-    animation_speed_1: u32,
-    animation_speed_2: u32,
-    animation_speed_3: u32,
-    animation_speed_4: u32,
-}
-
-@group(constants::MATERIAL_BIND_GROUP) @binding(110)
-var<uniform> animation_data: AnimationData;
-
-@group(constants::MATERIAL_BIND_GROUP) @binding(111)
-var<uniform> fix_alpha: u32;
+@group(constants::MATERIAL_BIND_GROUP) @binding(104)
+var layer_map: texture_2d<u32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(105)
+var animation_map: texture_2d<u32>;
 
 @fragment
 fn fragment(
@@ -139,10 +110,14 @@ fn fragment(
 
 fn animation_uv(
     uv: vec2<f32>,
-    animation_direction: vec2<i32>,
-    animation_speed: u32,
+    packed_animation: u32,
     animation_time: f32,
 ) -> vec2<f32> {
+    let animation_speed = packed_animation >> 4u;
+    let animation_direction = vec2<i32>(
+        i32((packed_animation >> 2u) & 3u) - 1,
+        i32(packed_animation & 3u) - 1,
+    );
     let animation_speed_float = f32(animation_speed) / 7.0;
     let animation_direction_float = vec2<f32>(animation_direction);
     return ((animation_direction_float * ((animation_time * animation_speed_float) % 1.0)) + uv) % 1.0;
@@ -150,33 +125,47 @@ fn animation_uv(
 
 fn calculate_color(in: VertexOutput) -> vec4<f32> {
     let animation_time = 1.0;
-    let uv = in.uv % 1.0;
-    let alpha_uv = in.uv / 8.0;
-    var alpha_values = textureSample(alpha, alpha_sampler, alpha_uv).rgb;
-
-    if fix_alpha != 0u {
+    let chunk_coord = vec2<i32>(clamp(floor(in.uv / 8.0), vec2<f32>(0.0), vec2<f32>(15.0)));
+    let chunk_uv = in.uv - vec2<f32>(chunk_coord) * 8.0;
+    let uv = chunk_uv % 1.0;
+    let alpha_half_texel = 0.5 / 16.0;
+    let chunk_alpha_uv = clamp(
+        chunk_uv / 8.0,
+        vec2<f32>(alpha_half_texel),
+        vec2<f32>(1.0 - alpha_half_texel),
+    );
+    let alpha_uv = (vec2<f32>(chunk_coord) + chunk_alpha_uv) / 16.0;
+    let alpha_sample = textureSample(alpha_map, alpha_sampler, alpha_uv);
+    var alpha_values = alpha_sample.rgb;
+    if alpha_sample.a > 0.5 {
         alpha_values *= 0.7;
     }
 
+    let texture_layers = textureLoad(layer_map, chunk_coord, 0);
+    let animations = textureLoad(animation_map, chunk_coord, 0);
     let layer_1_color = textureSample(
-        layer_1,
-        layer_1_sampler,
-        animation_uv(uv, animation_data.animation_directions[0].v1, animation_data.animation_speed_1, animation_time)
+        terrain_textures,
+        terrain_sampler,
+        animation_uv(uv, animations.x, animation_time),
+        i32(texture_layers.x),
     ).rgb;
     let layer_2_color = textureSample(
-        layer_2,
-        layer_2_sampler,
-        animation_uv(uv, animation_data.animation_directions[0].v2, animation_data.animation_speed_2, animation_time)
+        terrain_textures,
+        terrain_sampler,
+        animation_uv(uv, animations.y, animation_time),
+        i32(texture_layers.y),
     ).rgb;
     let layer_3_color = textureSample(
-        layer_3,
-        layer_3_sampler,
-        animation_uv(uv, animation_data.animation_directions[1].v1, animation_data.animation_speed_3, animation_time)
+        terrain_textures,
+        terrain_sampler,
+        animation_uv(uv, animations.z, animation_time),
+        i32(texture_layers.z),
     ).rgb;
     let layer_4_color = textureSample(
-        layer_4,
-        layer_4_sampler,
-        animation_uv(uv, animation_data.animation_directions[1].v2, animation_data.animation_speed_4, animation_time)
+        terrain_textures,
+        terrain_sampler,
+        animation_uv(uv, animations.w, animation_time),
+        i32(texture_layers.w),
     ).rgb;
 
     var rgb = layer_1_color;

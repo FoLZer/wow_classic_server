@@ -28,7 +28,7 @@ struct AppSettings {
 }
 
 fn default_terrain_view_distance() -> f32 {
-    800.0
+    50_000.0
 }
 
 impl Default for AppSettings {
@@ -89,6 +89,12 @@ struct MPQResource {
 fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Res<AppSettings>) {
     commands.spawn((
         Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            near: 10.0,
+            far: 75_000.0,
+            ..Default::default()
+        }),
+        Transform::from_xyz(0.0, 32_000.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
         FreeCamera {
             walk_speed: 50.0,
             run_speed: 600.0,

@@ -1,3 +1,3 @@
 mpq_directory_path = "./Data"
-terrain_view_distance = 800.0
+terrain_view_distance = 50000.0
 log_diagnostics = false
