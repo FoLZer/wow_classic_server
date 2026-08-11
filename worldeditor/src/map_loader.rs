@@ -24,7 +24,7 @@ use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
 };
-use object_loader::{ObjectCache, spawn_adt_objects};
+use object_loader::{AdtObjectPlacements, ObjectCache, spawn_adt_objects};
 
 pub(super) const ADT_CELLS_PER_GRID: usize = 16;
 const ADT_GRID_SIZE: usize = 64;
@@ -33,10 +33,15 @@ const ADT_SIZE: f32 = CHUNK_SIZE * ADT_CELLS_PER_GRID as f32;
 const ADT_HALF_DIAGONAL: f32 = ADT_SIZE * std::f32::consts::FRAC_1_SQRT_2;
 const STREAM_BUFFER: f32 = ADT_SIZE;
 const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
-const ADTS_STARTED_PER_FRAME: usize = 2;
 const MAX_PENDING_ADTS: usize = 32;
 
-pub fn load_map(mpqs: &mut PatchChain, mut commands: Commands, index: usize, view_distance: f32) {
+pub fn load_map(
+    mpqs: &mut PatchChain,
+    mut commands: Commands,
+    index: usize,
+    view_distance: f32,
+    object_view_distance: f32,
+) {
     let map_dbc = {
         info!("Searching for Map.dbc...");
         let map_buf = mpqs.read_file("DBFilesClient\\Map.dbc").unwrap();
@@ -77,6 +82,7 @@ pub fn load_map(mpqs: &mut PatchChain, mut commands: Commands, index: usize, vie
         loading: true,
         metrics: TerrainLoadMetrics::new(),
         view_distance,
+        object_view_distance,
     });
 }
 
@@ -85,6 +91,8 @@ struct LoadedAdt {
     mesh: Handle<Mesh>,
     material: Handle<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
     images: [Handle<Image>; 3],
+    objects: Option<Entity>,
+    object_placements: AdtObjectPlacements,
 }
 
 struct TerrainLoadMetrics {
@@ -125,6 +133,7 @@ pub struct TerrainMap {
     loading: bool,
     metrics: TerrainLoadMetrics,
     view_distance: f32,
+    object_view_distance: f32,
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,17 +227,23 @@ pub fn stream_terrain_chunks(
             &mut terrain,
             &mut mpqs.mpqs,
             &mut terrain_materials,
-            &mut object_materials,
             &mut meshes,
             &mut images,
         );
     }
 
+    stream_adt_objects(
+        &mut commands,
+        &mut terrain,
+        camera_position,
+        &mut mpqs.mpqs,
+        &mut object_materials,
+        &mut meshes,
+        &mut images,
+    );
+
     let available_task_slots = MAX_PENDING_ADTS.saturating_sub(terrain.loading_adts.len());
-    let adts_to_start = adts_to_load
-        .len()
-        .min(ADTS_STARTED_PER_FRAME)
-        .min(available_task_slots);
+    let adts_to_start = adts_to_load.len().min(available_task_slots);
     for (_, x, y) in adts_to_load.iter().take(adts_to_start).copied() {
         let map_path = format!(
             "World\\Maps\\{}\\{}_{}_{}.adt",
@@ -266,7 +281,6 @@ fn finalize_adt(
     terrain: &mut TerrainMap,
     mpqs: &mut PatchChain,
     terrain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
-    object_materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
 ) {
@@ -317,18 +331,7 @@ fn finalize_adt(
         ))
         .observe(select_adt_chunk)
         .id();
-    spawn_adt_objects(
-        commands,
-        entity,
-        &prepared.adt,
-        coordinates,
-        center,
-        mpqs,
-        &mut terrain.object_cache,
-        meshes,
-        object_materials,
-        images,
-    );
+    let object_placements = AdtObjectPlacements::from_adt(&prepared.adt);
     terrain.loaded_adts.insert(
         coordinates,
         LoadedAdt {
@@ -336,6 +339,8 @@ fn finalize_adt(
             mesh,
             material,
             images: [alpha_map, layer_map, animation_map],
+            objects: None,
+            object_placements,
         },
     );
     terrain.metrics.count += 1;
@@ -347,6 +352,59 @@ fn finalize_adt(
             elapsed,
             terrain.metrics.count as f64 / elapsed,
         );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_adt_objects(
+    commands: &mut Commands,
+    terrain: &mut TerrainMap,
+    camera_position: Vec2,
+    mpqs: &mut PatchChain,
+    materials: &mut Assets<StandardMaterial>,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+) {
+    let load_distance = terrain.object_view_distance + ADT_HALF_DIAGONAL;
+    let unload_distance_squared = (load_distance + STREAM_BUFFER).powi(2);
+    let object_adts_to_unload = terrain
+        .loaded_adts
+        .iter_mut()
+        .filter_map(|(&coordinates, loaded_adt)| {
+            (loaded_adt.objects.is_some()
+                && adt_center(coordinates.0, coordinates.1).distance_squared(camera_position)
+                    > unload_distance_squared)
+                .then(|| (coordinates, loaded_adt.objects.take().unwrap()))
+        })
+        .collect::<Vec<_>>();
+    for (_, entity) in object_adts_to_unload {
+        commands.entity(entity).despawn();
+    }
+
+    let object_adts_to_load = terrain
+        .loaded_adts
+        .iter()
+        .filter_map(|(&coordinates, loaded_adt)| {
+            (loaded_adt.objects.is_none()
+                && adt_center(coordinates.0, coordinates.1).distance_squared(camera_position)
+                    <= load_distance.powi(2))
+            .then_some(coordinates)
+        })
+        .collect::<Vec<_>>();
+    for coordinates in object_adts_to_load {
+        let loaded_adt = terrain.loaded_adts.get_mut(&coordinates).unwrap();
+        loaded_adt.objects = Some(spawn_adt_objects(
+            commands,
+            loaded_adt.entity,
+            &loaded_adt.object_placements,
+            coordinates,
+            adt_center(coordinates.0, coordinates.1),
+            mpqs,
+            &mut terrain.object_cache,
+            meshes,
+            materials,
+            images,
+        ));
     }
 }
 

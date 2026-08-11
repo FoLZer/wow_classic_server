@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::Cursor,
+    sync::Arc,
 };
 
 use bevy::{
@@ -44,21 +45,43 @@ struct WmoAsset {
 #[derive(Clone)]
 struct WmoDoodad {
     filename: String,
-    parts: Vec<ObjectPart>,
+    asset: Arc<ObjectAsset>,
     transform: Transform,
 }
 
 #[derive(Default)]
 pub(super) struct ObjectCache {
-    assets: HashMap<String, Option<ObjectAsset>>,
+    assets: HashMap<String, Option<Arc<ObjectAsset>>>,
     textures: HashMap<String, Option<Handle<Image>>>,
+}
+
+pub(super) struct AdtObjectPlacements {
+    models: Vec<String>,
+    model_indices: Vec<u32>,
+    doodad_placements: Vec<DoodadPlacement>,
+    wmos: Vec<String>,
+    wmo_indices: Vec<u32>,
+    wmo_placements: Vec<WmoPlacement>,
+}
+
+impl AdtObjectPlacements {
+    pub(super) fn from_adt(adt: &RootAdt) -> Self {
+        Self {
+            models: adt.models.clone(),
+            model_indices: adt.model_indices.clone(),
+            doodad_placements: adt.doodad_placements.clone(),
+            wmos: adt.wmos.clone(),
+            wmo_indices: adt.wmo_indices.clone(),
+            wmo_placements: adt.wmo_placements.clone(),
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_adt_objects(
     commands: &mut Commands,
     adt_entity: Entity,
-    adt: &RootAdt,
+    adt: &AdtObjectPlacements,
     adt_coordinates: (usize, usize),
     adt_center: Vec2,
     mpqs: &mut PatchChain,
@@ -66,24 +89,28 @@ pub(super) fn spawn_adt_objects(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
-) {
+) -> Entity {
+    let model_filenames = index_filenames(&adt.models);
+    let wmo_filenames = index_filenames(&adt.wmos);
     let mut doodads = Vec::new();
     for placement in &adt.doodad_placements {
         if placement_owner(placement.position) != adt_coordinates {
             continue;
         }
-        let Some(filename) =
-            resolve_filename(&adt.models, &adt.model_indices, placement.name_id as usize)
-        else {
+        let Some(filename) = resolve_filename(
+            &model_filenames,
+            &adt.model_indices,
+            placement.name_id as usize,
+        ) else {
             warn!("Doodad {} references an invalid model", placement.unique_id);
             continue;
         };
-        if let Some(ObjectAsset::M2(parts)) =
-            load_object(filename, mpqs, cache, meshes, materials, images)
+        if let Some(asset) = load_object(filename, mpqs, cache, meshes, materials, images)
+            && matches!(asset.as_ref(), ObjectAsset::M2(_))
         {
             doodads.push((
                 filename.to_owned(),
-                parts,
+                asset,
                 doodad_transform(placement, adt_center),
             ));
         }
@@ -95,13 +122,13 @@ pub(super) fn spawn_adt_objects(
             continue;
         }
         let Some(filename) =
-            resolve_filename(&adt.wmos, &adt.wmo_indices, placement.name_id as usize)
+            resolve_filename(&wmo_filenames, &adt.wmo_indices, placement.name_id as usize)
         else {
             warn!("WMO {} references an invalid model", placement.unique_id);
             continue;
         };
-        if let Some(ObjectAsset::Wmo(asset)) =
-            load_object(filename, mpqs, cache, meshes, materials, images)
+        if let Some(asset) = load_object(filename, mpqs, cache, meshes, materials, images)
+            && matches!(asset.as_ref(), ObjectAsset::Wmo(_))
         {
             wmos.push((
                 filename.to_owned(),
@@ -112,46 +139,66 @@ pub(super) fn spawn_adt_objects(
         }
     }
 
-    commands.entity(adt_entity).with_children(|parent| {
-        for (filename, parts, transform) in doodads {
+    let objects_entity = commands
+        .spawn((
+            Name::new("ADT objects"),
+            Transform::default(),
+            Visibility::default(),
+        ))
+        .id();
+    commands.entity(adt_entity).add_child(objects_entity);
+    commands.entity(objects_entity).with_children(|parent| {
+        for (filename, asset, transform) in doodads {
+            let ObjectAsset::M2(parts) = asset.as_ref() else {
+                continue;
+            };
             parent
                 .spawn((Name::new(filename), transform, Visibility::default()))
                 .with_children(|object| spawn_parts(object, parts));
         }
         for (filename, asset, doodad_set, transform) in wmos {
-            let mut doodads = asset.doodad_sets.first().cloned().unwrap_or_default();
-            if doodad_set != 0 {
-                doodads.extend(
-                    asset
-                        .doodad_sets
-                        .get(doodad_set)
-                        .cloned()
-                        .unwrap_or_default(),
-                );
-            }
+            let ObjectAsset::Wmo(asset) = asset.as_ref() else {
+                continue;
+            };
             parent
                 .spawn((Name::new(filename), transform, Visibility::default()))
                 .with_children(|object| {
-                    spawn_parts(object, asset.parts);
-                    for doodad in doodads {
-                        object
-                            .spawn((
-                                Name::new(doodad.filename),
-                                doodad.transform,
-                                Visibility::default(),
-                            ))
-                            .with_children(|doodad_entity| {
-                                spawn_parts(doodad_entity, doodad.parts);
-                            });
+                    spawn_parts(object, &asset.parts);
+                    if let Some(doodads) = asset.doodad_sets.first() {
+                        spawn_wmo_doodads(object, doodads);
+                    }
+                    if doodad_set != 0
+                        && let Some(doodads) = asset.doodad_sets.get(doodad_set)
+                    {
+                        spawn_wmo_doodads(object, doodads);
                     }
                 });
         }
     });
+    objects_entity
 }
 
-fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: Vec<ObjectPart>) {
+fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: &[ObjectPart]) {
     for part in parts {
-        parent.spawn((Mesh3d(part.mesh), MeshMaterial3d(part.material)));
+        parent.spawn((
+            Mesh3d(part.mesh.clone()),
+            MeshMaterial3d(part.material.clone()),
+        ));
+    }
+}
+
+fn spawn_wmo_doodads(parent: &mut ChildSpawnerCommands, doodads: &[WmoDoodad]) {
+    for doodad in doodads {
+        let ObjectAsset::M2(parts) = doodad.asset.as_ref() else {
+            continue;
+        };
+        parent
+            .spawn((
+                Name::new(doodad.filename.clone()),
+                doodad.transform,
+                Visibility::default(),
+            ))
+            .with_children(|doodad_entity| spawn_parts(doodad_entity, parts));
     }
 }
 
@@ -162,7 +209,7 @@ fn load_object(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
-) -> Option<ObjectAsset> {
+) -> Option<Arc<ObjectAsset>> {
     let key = filename.to_ascii_lowercase();
     if let Some(asset) = cache.assets.get(&key) {
         return asset.clone();
@@ -172,7 +219,8 @@ fn load_object(
         load_wmo(filename, mpqs, cache, meshes, materials, images).map(ObjectAsset::Wmo)
     } else {
         load_m2(filename, mpqs, cache, meshes, materials, images).map(ObjectAsset::M2)
-    };
+    }
+    .map(Arc::new);
     if asset.is_none() {
         warn!("Unable to load world object {filename}");
     }
@@ -755,14 +803,13 @@ fn load_wmo(
                 .filter_map(|index| {
                     let definition = root.doodad_defs.get(index)?;
                     let filename = doodad_names.get(&definition.name_index())?.clone();
-                    let ObjectAsset::M2(parts) =
-                        load_object(&filename, mpqs, cache, meshes, materials, images)?
-                    else {
+                    let asset = load_object(&filename, mpqs, cache, meshes, materials, images)?;
+                    if !matches!(asset.as_ref(), ObjectAsset::M2(_)) {
                         return None;
-                    };
+                    }
                     Some(WmoDoodad {
                         filename,
-                        parts,
+                        asset,
                         transform: wmo_doodad_transform(
                             definition.position,
                             definition.orientation,
@@ -846,20 +893,25 @@ fn build_mesh(
     .with_inserted_indices(Indices::U32(indices))
 }
 
+fn index_filenames(filenames: &[String]) -> HashMap<usize, &str> {
+    let mut offset = 0;
+    filenames
+        .iter()
+        .map(|filename| {
+            let entry = (offset, filename.as_str());
+            offset += filename.len() + 1;
+            entry
+        })
+        .collect()
+}
+
 fn resolve_filename<'a>(
-    filenames: &'a [String],
+    filenames: &HashMap<usize, &'a str>,
     offsets: &[u32],
     name_id: usize,
 ) -> Option<&'a str> {
     let wanted_offset = *offsets.get(name_id)? as usize;
-    let mut offset = 0;
-    for filename in filenames {
-        if offset == wanted_offset {
-            return Some(filename);
-        }
-        offset += filename.len() + 1;
-    }
-    None
+    filenames.get(&wanted_offset).copied()
 }
 
 fn doodad_transform(placement: &DoodadPlacement, center: Vec2) -> Transform {
@@ -925,6 +977,7 @@ mod tests {
     fn resolves_offset_table_entries() {
         let filenames = vec!["first.m2".to_owned(), "folder\\second.m2".to_owned()];
         let offsets = vec![0, 9];
+        let filenames = index_filenames(&filenames);
 
         assert_eq!(
             resolve_filename(&filenames, &offsets, 1),

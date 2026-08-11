@@ -23,6 +23,8 @@ struct AppSettings {
     mpq_directory_path: PathBuf,
     #[serde(default = "default_terrain_view_distance")]
     terrain_view_distance: f32,
+    #[serde(default = "default_object_view_distance")]
+    object_view_distance: f32,
     #[serde(default)]
     log_diagnostics: bool,
 }
@@ -31,11 +33,16 @@ fn default_terrain_view_distance() -> f32 {
     50_000.0
 }
 
+fn default_object_view_distance() -> f32 {
+    3_000.0
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             mpq_directory_path: PathBuf::from_str("./Data").unwrap(),
             terrain_view_distance: default_terrain_view_distance(),
+            object_view_distance: default_object_view_distance(),
             log_diagnostics: false,
         }
     }
@@ -109,6 +116,7 @@ fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Re
         commands,
         0,
         settings.terrain_view_distance,
+        settings.object_view_distance,
     );
 }
 

@@ -164,6 +164,10 @@ fn overview_chunk_geometry(chunk: &McnkChunk) -> TerrainChunkGeometry {
 
     for y in 0..OVERVIEW_VERTICES_PER_SIDE - 1 {
         for x in 0..OVERVIEW_VERTICES_PER_SIDE - 1 {
+            if chunk.header.is_hole_low_res(x, y) {
+                continue;
+            }
+
             let top_left = (y * OVERVIEW_VERTICES_PER_SIDE + x) as u16;
             let top_right = top_left + 1;
             let bottom_left = top_left + OVERVIEW_VERTICES_PER_SIDE as u16;
@@ -199,6 +203,10 @@ fn native_chunk_geometry(chunk: &McnkChunk) -> TerrainChunkGeometry {
         }
 
         for x in 0..8 {
+            if chunk.header.is_hole_low_res(x / 2, y / 2) {
+                continue;
+            }
+
             let index = y * 17 + 9 + x;
             vertices[index] = [x as f32 + 0.5, heights.heights[index], y as f32 + 0.5];
             normals[index] = chunk_normal(normals_chunk, index);

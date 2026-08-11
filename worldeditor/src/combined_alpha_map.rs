@@ -168,7 +168,7 @@ impl CombinedAlphaMap {
                 if offset >= raw.len() {
                     break;
                 }
-                output.extend_from_slice(&raw[offset..(offset+count).min(raw.len())]);
+                output.extend_from_slice(&raw[offset..(offset + count).min(raw.len())]);
                 offset += count;
             }
         }
