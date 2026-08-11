@@ -1,6 +1,7 @@
 mod editor;
 mod geometry;
 mod material;
+mod object_loader;
 
 use std::{collections::HashMap, io::Cursor, time::Instant};
 
@@ -23,6 +24,7 @@ use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
 };
+use object_loader::{ObjectCache, spawn_adt_objects};
 
 pub(super) const ADT_CELLS_PER_GRID: usize = 16;
 const ADT_GRID_SIZE: usize = 64;
@@ -70,6 +72,7 @@ pub fn load_map(mpqs: &mut PatchChain, mut commands: Commands, index: usize, vie
         loading_adts: HashMap::new(),
         texture_cache: HashMap::new(),
         texture_array: None,
+        object_cache: ObjectCache::default(),
         last_update_position: None,
         loading: true,
         metrics: TerrainLoadMetrics::new(),
@@ -117,6 +120,7 @@ pub struct TerrainMap {
     loading_adts: HashMap<(usize, usize), Task<PreparedAdt>>,
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
+    object_cache: ObjectCache,
     last_update_position: Option<Vec2>,
     loading: bool,
     metrics: TerrainLoadMetrics,
@@ -135,6 +139,7 @@ pub fn stream_terrain_chunks(
     mut terrain: ResMut<TerrainMap>,
     mut mpqs: ResMut<MPQResource>,
     mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
+    mut object_materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     editor: Res<TerrainEditor>,
@@ -213,6 +218,7 @@ pub fn stream_terrain_chunks(
             &mut terrain,
             &mut mpqs.mpqs,
             &mut terrain_materials,
+            &mut object_materials,
             &mut meshes,
             &mut images,
         );
@@ -260,6 +266,7 @@ fn finalize_adt(
     terrain: &mut TerrainMap,
     mpqs: &mut PatchChain,
     terrain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
+    object_materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
 ) {
@@ -310,6 +317,18 @@ fn finalize_adt(
         ))
         .observe(select_adt_chunk)
         .id();
+    spawn_adt_objects(
+        commands,
+        entity,
+        &prepared.adt,
+        coordinates,
+        center,
+        mpqs,
+        &mut terrain.object_cache,
+        meshes,
+        object_materials,
+        images,
+    );
     terrain.loaded_adts.insert(
         coordinates,
         LoadedAdt {

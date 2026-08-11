@@ -47,6 +47,7 @@ fn main() {
     let mpqs = PatchChain::from_archives_parallel(vec![
         (config.mpq_directory_path.join("patch-2.MPQ"), 101),
         (config.mpq_directory_path.join("patch.MPQ"), 100),
+        (config.mpq_directory_path.join("interface.MPQ"), 9),
         (config.mpq_directory_path.join("wmo.MPQ"), 8),
         (config.mpq_directory_path.join("texture.MPQ"), 7),
         (config.mpq_directory_path.join("terrain.MPQ"), 6),
@@ -90,7 +91,7 @@ fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Re
     commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
-            near: 10.0,
+            near: 0.1,
             far: 75_000.0,
             ..Default::default()
         }),
@@ -106,7 +107,7 @@ fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Re
     load_map(
         &mut mpqs_res.mpqs,
         commands,
-        1,
+        0,
         settings.terrain_view_distance,
     );
 }
