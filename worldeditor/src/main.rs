@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use wow_mpq::PatchChain;
 
 use crate::{
-    map_loader::{load_map, stream_terrain_chunks},
+    map_loader::{TerrainEditorPlugin, load_map, stream_terrain_chunks},
     terrain_material::TerrainMaterial,
 };
 
@@ -71,7 +71,7 @@ fn main() {
             LogDiagnosticsPlugin::default(),
         ));
     }
-    app.add_plugins(FreeCameraPlugin)
+    app.add_plugins((FreeCameraPlugin, MeshPickingPlugin, TerrainEditorPlugin))
         //.add_plugins(EguiPlugin::default())
         //.add_plugins(WorldInspectorPlugin::new())
         .insert_resource(MPQResource { mpqs })
