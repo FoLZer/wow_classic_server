@@ -339,6 +339,7 @@ struct ObjectBatch {
     texture: Option<String>,
     texture_type: u32,
     alpha_mode: AlphaMode,
+    opacity: f32,
     double_sided: bool,
 }
 
@@ -371,6 +372,17 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                 .map(|texture| texture.filename.string.to_string_lossy())
                 .filter(|filename| !filename.is_empty());
             let material = model.materials.get(batch.material_index as usize);
+            let opacity = model
+                .raw_data
+                .transparency_lookup_table
+                .get(batch.texture_weight_combo_index as usize)
+                .and_then(|animation_index| {
+                    model.raw_data.transparency_animation_data.iter().find(
+                        |animation| animation.animation_index == *animation_index as usize,
+                    )
+                })
+                .and_then(|animation| fixed_i16_alpha(&animation.values))
+                .unwrap_or(1.0);
             Some(ObjectBatch {
                 indices: indices.get(start..end)?.to_vec(),
                 texture,
@@ -378,7 +390,11 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                     .textures
                     .get(texture_index)
                     .map_or(0, |texture| texture.texture_type as u32),
-                alpha_mode: alpha_mode(material.map_or(0, |material| material.blend_mode.bits())),
+                alpha_mode: alpha_mode_with_opacity(
+                    material.map_or(0, |material| material.blend_mode.bits()),
+                    opacity,
+                ),
+                opacity,
                 double_sided: material.is_some_and(|material| material.flags.bits() & 0x04 != 0),
             })
         })
@@ -408,10 +424,13 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     const VERTICES_DESCRIPTOR_OFFSET: usize = 68;
     const VIEWS_DESCRIPTOR_OFFSET: usize = 76;
     const TEXTURES_DESCRIPTOR_OFFSET: usize = 92;
+    const TRANSPARENCY_ANIMATIONS_DESCRIPTOR_OFFSET: usize = 100;
     const RENDER_FLAGS_DESCRIPTOR_OFFSET: usize = 132;
     const TEXTURE_LOOKUP_DESCRIPTOR_OFFSET: usize = 148;
+    const TRANSPARENCY_LOOKUP_DESCRIPTOR_OFFSET: usize = 164;
     const CLASSIC_VERTEX_SIZE: usize = 48;
     const SKIN_BATCH_SIZE: usize = 24;
+    const TRANSPARENCY_ANIMATION_SIZE: usize = 28;
 
     if data.get(..4) != Some(b"MD20") {
         return Err("not a legacy MD20 model".to_owned());
@@ -470,6 +489,21 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     let (texture_lookup_count, texture_lookup_offset) =
         read_array_descriptor(data, TEXTURE_LOOKUP_DESCRIPTOR_OFFSET)?;
     let texture_lookup = read_u16_array(data, texture_lookup_offset, texture_lookup_count)?;
+    let (transparency_animation_count, transparency_animation_offset) =
+        read_array_descriptor(data, TRANSPARENCY_ANIMATIONS_DESCRIPTOR_OFFSET)?;
+    checked_array_range(
+        data,
+        transparency_animation_offset,
+        transparency_animation_count,
+        TRANSPARENCY_ANIMATION_SIZE,
+    )?;
+    let (transparency_lookup_count, transparency_lookup_offset) =
+        read_array_descriptor(data, TRANSPARENCY_LOOKUP_DESCRIPTOR_OFFSET)?;
+    let transparency_lookup = read_u16_array(
+        data,
+        transparency_lookup_offset,
+        transparency_lookup_count,
+    )?;
     let (render_flag_count, render_flag_offset) =
         read_array_descriptor(data, RENDER_FLAGS_DESCRIPTOR_OFFSET)?;
     checked_array_range(data, render_flag_offset, render_flag_count, 4)?;
@@ -493,6 +527,15 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
             let material_offset = render_flag_offset + material_index.checked_mul(4)?;
             let flags = read_u16(data, material_offset).ok()?;
             let blend_mode = read_u16(data, material_offset + 2).ok()?;
+            let texture_weight_combo_index = read_u16(data, offset + 20).ok()? as usize;
+            let opacity = classic_m2_opacity(
+                data,
+                &transparency_lookup,
+                transparency_animation_offset,
+                transparency_animation_count,
+                texture_weight_combo_index,
+            )
+            .unwrap_or(1.0);
             Some(ObjectBatch {
                 indices: indices.get(triangle_start..end)?.to_vec(),
                 texture: textures
@@ -501,7 +544,8 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                 texture_type: textures
                     .get(texture_index)
                     .map_or(0, |texture| texture.texture_type),
-                alpha_mode: alpha_mode(blend_mode),
+                alpha_mode: alpha_mode_with_opacity(blend_mode, opacity),
+                opacity,
                 double_sided: flags & 0x04 != 0,
             })
         })
@@ -627,6 +671,7 @@ fn build_object_parts(
             texture: None,
             texture_type: 0,
             alpha_mode: AlphaMode::Opaque,
+            opacity: 1.0,
             double_sided: false,
         });
     }
@@ -642,9 +687,9 @@ fn build_object_parts(
                 .and_then(|filename| load_object_texture(filename, mpqs, cache, images));
             let mut material = StandardMaterial {
                 base_color: if texture.is_some() {
-                    Color::WHITE
+                    Color::WHITE.with_alpha(batch.opacity)
                 } else {
-                    fallback_color
+                    fallback_color.with_alpha(batch.opacity)
                 },
                 base_color_texture: texture,
                 alpha_mode: batch.alpha_mode,
@@ -722,8 +767,48 @@ fn alpha_mode(blend_mode: u16) -> AlphaMode {
     match blend_mode {
         0 => AlphaMode::Opaque,
         1 => AlphaMode::Mask(0.5),
+        2 => AlphaMode::Blend,
+        3 | 4 | 7 => AlphaMode::Add,
+        5 | 6 => AlphaMode::Multiply,
         _ => AlphaMode::Blend,
     }
+}
+
+fn alpha_mode_with_opacity(blend_mode: u16, opacity: f32) -> AlphaMode {
+    match alpha_mode(blend_mode) {
+        AlphaMode::Opaque if opacity < 1.0 => AlphaMode::Blend,
+        alpha_mode => alpha_mode,
+    }
+}
+
+fn classic_m2_opacity(
+    data: &[u8],
+    transparency_lookup: &[u16],
+    animation_offset: usize,
+    animation_count: usize,
+    texture_weight_combo_index: usize,
+) -> Option<f32> {
+    const TRANSPARENCY_ANIMATION_SIZE: usize = 28;
+    const VALUES_DESCRIPTOR_OFFSET: usize = 20;
+
+    let animation_index = *transparency_lookup.get(texture_weight_combo_index)? as usize;
+    if animation_index >= animation_count {
+        return None;
+    }
+    let animation = animation_offset.checked_add(
+        animation_index.checked_mul(TRANSPARENCY_ANIMATION_SIZE)?,
+    )?;
+    let (value_count, value_offset) =
+        read_array_descriptor(data, animation + VALUES_DESCRIPTOR_OFFSET).ok()?;
+    (value_count > 0)
+        .then(|| data.get(value_offset..value_offset + 2))
+        .flatten()
+        .and_then(fixed_i16_alpha)
+}
+
+fn fixed_i16_alpha(values: &[u8]) -> Option<f32> {
+    let value = i16::from_le_bytes(values.get(..2)?.try_into().ok()?);
+    Some((f32::from(value) / f32::from(i16::MAX)).clamp(0.0, 1.0))
 }
 
 fn load_wmo(
@@ -807,6 +892,7 @@ fn load_wmo(
                     texture: root.textures.get(texture_index).cloned(),
                     texture_type: 0,
                     alpha_mode: alpha_mode(material.blend_mode as u16),
+                    opacity: 1.0,
                     double_sided: material.flags & 0x04 != 0,
                 })
             })
@@ -1010,6 +1096,27 @@ fn m2_fallback_filename(filename: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn converts_wow_object_blend_modes() {
+        assert_eq!(alpha_mode(0), AlphaMode::Opaque);
+        assert_eq!(alpha_mode(1), AlphaMode::Mask(0.5));
+        assert_eq!(alpha_mode(2), AlphaMode::Blend);
+        assert_eq!(alpha_mode(3), AlphaMode::Add);
+        assert_eq!(alpha_mode(4), AlphaMode::Add);
+        assert_eq!(alpha_mode(5), AlphaMode::Multiply);
+        assert_eq!(alpha_mode(6), AlphaMode::Multiply);
+        assert_eq!(alpha_mode(7), AlphaMode::Add);
+        assert_eq!(alpha_mode_with_opacity(0, 0.0), AlphaMode::Blend);
+        assert_eq!(alpha_mode_with_opacity(0, 1.0), AlphaMode::Opaque);
+    }
+
+    #[test]
+    fn decodes_m2_fixed_point_opacity() {
+        assert_eq!(fixed_i16_alpha(&[0, 0]), Some(0.0));
+        assert_eq!(fixed_i16_alpha(&i16::MAX.to_le_bytes()), Some(1.0));
+        assert!((fixed_i16_alpha(&1638_i16.to_le_bytes()).unwrap() - 0.05).abs() < 0.0001);
+    }
 
     #[test]
     fn resolves_offset_table_entries() {
