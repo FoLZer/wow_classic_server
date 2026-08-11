@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Cursor};
+use std::{collections::HashMap, io::Cursor, time::Instant};
 
 use bevy::{
     asset::RenderAssetUsages,
@@ -8,7 +8,9 @@ use bevy::{
     pbr::ExtendedMaterial,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
+use rayon::prelude::*;
 use wow_adt::{McnkChunk, ParsedAdt, RootAdt, parse_adt};
 use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
@@ -26,7 +28,8 @@ const ADT_SIZE: f32 = CHUNK_SIZE * ADT_CELLS_PER_GRID as f32;
 const ADT_HALF_DIAGONAL: f32 = ADT_SIZE * std::f32::consts::FRAC_1_SQRT_2;
 const STREAM_BUFFER: f32 = ADT_SIZE;
 const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
-const ADTS_LOADED_PER_FRAME: usize = 1;
+const ADTS_STARTED_PER_FRAME: usize = 2;
+const MAX_PENDING_ADTS: usize = 32;
 const SOURCE_ALPHA_MAP_SIZE: usize = 64;
 const ALPHA_MAP_SIZE: usize = 16;
 
@@ -66,10 +69,12 @@ pub fn load_map(mpqs: &mut PatchChain, mut commands: Commands, index: usize, vie
         wdt,
         map_name: directory.to_owned(),
         loaded_adts: HashMap::new(),
+        loading_adts: HashMap::new(),
         texture_cache: HashMap::new(),
         texture_array: None,
         last_update_position: None,
         loading: true,
+        metrics: TerrainLoadMetrics::new(),
         view_distance,
     });
 }
@@ -88,16 +93,48 @@ struct CachedTerrainTexture {
     mipmaps: Vec<Vec<u8>>,
 }
 
+struct TerrainLoadMetrics {
+    count: usize,
+    started_at: Instant,
+    completion_reported: bool,
+}
+
+impl TerrainLoadMetrics {
+    fn new() -> Self {
+        Self {
+            count: 0,
+            started_at: Instant::now(),
+            completion_reported: false,
+        }
+    }
+}
+
+struct PreparedMaterialMaps {
+    alpha_map: Image,
+    local_layers: Vec<u16>,
+    animation_map: Image,
+}
+
+struct PreparedAdt {
+    x: usize,
+    y: usize,
+    adt: RootAdt,
+    mesh: Mesh,
+    material_maps: PreparedMaterialMaps,
+}
+
 #[derive(Resource)]
 pub struct TerrainMap {
     wdt: WdtFile,
     map_name: String,
     has_big_alpha: bool,
     loaded_adts: HashMap<(usize, usize), LoadedAdt>,
+    loading_adts: HashMap<(usize, usize), Task<PreparedAdt>>,
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
     last_update_position: Option<Vec2>,
     loading: bool,
+    metrics: TerrainLoadMetrics,
     view_distance: f32,
 }
 
@@ -139,6 +176,7 @@ pub fn stream_terrain_chunks(
         for x in 0..ADT_GRID_SIZE {
             if !terrain.wdt.main.entries[y][x].has_adt()
                 || terrain.loaded_adts.contains_key(&(x, y))
+                || terrain.loading_adts.contains_key(&(x, y))
             {
                 continue;
             }
@@ -169,17 +207,18 @@ pub fn stream_terrain_chunks(
         }
     }
 
-    terrain.loading = adts_to_load.len() > ADTS_LOADED_PER_FRAME;
-    for (_, x, y) in adts_to_load.into_iter().take(ADTS_LOADED_PER_FRAME) {
-        let map_path = format!(
-            "World\\Maps\\{}\\{}_{}_{}.adt",
-            terrain.map_name, terrain.map_name, x, y
-        );
-        let map_file_buf = mpqs.mpqs.read_file(&map_path).unwrap();
-        let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
-        let ParsedAdt::Root(adt) = adt else { panic!() };
-        let center = adt_center(x, y);
-        let mesh = meshes.add(adt_to_mesh(&adt, center));
+    terrain.loading_adts.retain(|&(x, y), _| {
+        adt_center(x, y).distance_squared(camera_position) <= unload_distance_squared
+    });
+
+    let ready_adts = terrain
+        .loading_adts
+        .iter_mut()
+        .filter_map(|(&coordinates, task)| check_ready(task).map(|adt| (coordinates, adt)))
+        .collect::<Vec<_>>();
+
+    for (coordinates, prepared) in ready_adts {
+        terrain.loading_adts.remove(&coordinates);
         let map_name = terrain.map_name.clone();
         let texture_array = {
             let TerrainMap {
@@ -188,7 +227,7 @@ pub fn stream_terrain_chunks(
                 ..
             } = &mut *terrain;
             update_texture_array(
-                &adt,
+                &prepared.adt,
                 &map_name,
                 texture_cache,
                 texture_array,
@@ -196,28 +235,33 @@ pub fn stream_terrain_chunks(
                 &mut images,
             )
         };
-        let (alpha_map, layer_map, animation_map) =
-            adt_material_maps(&adt, terrain.has_big_alpha, &terrain.texture_cache);
-        let alpha_map = images.add(alpha_map);
+        let layer_map = global_layer_map(
+            prepared.material_maps.local_layers,
+            &prepared.adt,
+            &terrain.texture_cache,
+        );
+        let alpha_map = images.add(prepared.material_maps.alpha_map);
         let layer_map = images.add(layer_map);
-        let animation_map = images.add(animation_map);
+        let animation_map = images.add(prepared.material_maps.animation_map);
+        let mesh = meshes.add(prepared.mesh);
         let material = terrain_materials.add(ExtendedMaterial {
             base: StandardMaterial {
                 base_color: Color::WHITE,
                 ..Default::default()
             },
             extension: TerrainMaterial {
-                textures: texture_array.clone(),
+                textures: texture_array,
                 alpha_map: alpha_map.clone(),
                 layer_map: layer_map.clone(),
                 animation_map: animation_map.clone(),
             },
         });
+        let center = adt_center(prepared.x, prepared.y);
         let entity = commands
             .spawn((
                 TerrainAdt {
-                    x: x as u8,
-                    y: y as u8,
+                    x: prepared.x as u8,
+                    y: prepared.y as u8,
                 },
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
@@ -229,7 +273,7 @@ pub fn stream_terrain_chunks(
             ))
             .id();
         terrain.loaded_adts.insert(
-            (x, y),
+            coordinates,
             LoadedAdt {
                 entity,
                 mesh,
@@ -237,6 +281,59 @@ pub fn stream_terrain_chunks(
                 images: [alpha_map, layer_map, animation_map],
             },
         );
+
+        terrain.metrics.count += 1;
+        if terrain.metrics.count.is_multiple_of(100) {
+            let elapsed = terrain.metrics.started_at.elapsed().as_secs_f64();
+            info!(
+                "Loaded {} ADTs in {:.2}s ({:.1} ADTs/s)",
+                terrain.metrics.count,
+                elapsed,
+                terrain.metrics.count as f64 / elapsed,
+            );
+        }
+    }
+
+    let available_task_slots = MAX_PENDING_ADTS.saturating_sub(terrain.loading_adts.len());
+    let adts_to_start = adts_to_load
+        .len()
+        .min(ADTS_STARTED_PER_FRAME)
+        .min(available_task_slots);
+    for (_, x, y) in adts_to_load.iter().take(adts_to_start).copied() {
+        let map_path = format!(
+            "World\\Maps\\{}\\{}_{}_{}.adt",
+            terrain.map_name, terrain.map_name, x, y
+        );
+        let map_file_buf = mpqs.mpqs.read_file(&map_path).unwrap();
+        let has_big_alpha = terrain.has_big_alpha;
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
+            let ParsedAdt::Root(adt) = adt else { panic!() };
+            let adt = *adt;
+            let mesh = adt_to_mesh(&adt, adt_center(x, y));
+            let material_maps = adt_material_maps(&adt, has_big_alpha);
+            PreparedAdt {
+                x,
+                y,
+                adt,
+                mesh,
+                material_maps,
+            }
+        });
+        terrain.loading_adts.insert((x, y), task);
+        terrain.metrics.completion_reported = false;
+    }
+
+    terrain.loading = adts_to_load.len() > adts_to_start || !terrain.loading_adts.is_empty();
+    if !terrain.loading && !terrain.metrics.completion_reported {
+        let elapsed = terrain.metrics.started_at.elapsed().as_secs_f64();
+        info!(
+            "Finished loading {} ADTs in {:.2}s ({:.1} ADTs/s)",
+            terrain.metrics.count,
+            elapsed,
+            terrain.metrics.count as f64 / elapsed,
+        );
+        terrain.metrics.completion_reported = true;
     }
 }
 
@@ -244,11 +341,7 @@ fn adt_center(x: usize, y: usize) -> Vec2 {
     Vec2::new((31.5 - x as f32) * ADT_SIZE, (31.5 - y as f32) * ADT_SIZE)
 }
 
-fn adt_material_maps(
-    adt: &RootAdt,
-    has_big_alpha: bool,
-    texture_cache: &HashMap<String, CachedTerrainTexture>,
-) -> (Image, Image, Image) {
+fn adt_material_maps(adt: &RootAdt, has_big_alpha: bool) -> PreparedMaterialMaps {
     const ATLAS_SIZE: usize = ADT_CELLS_PER_GRID * ALPHA_MAP_SIZE;
     const DIRECTIONS: [IVec2; 8] = [
         IVec2::new(0, 1),
@@ -265,9 +358,10 @@ fn adt_material_maps(
     let mut layer_values = vec![0_u16; ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID * 4];
     let mut animation_data = vec![0; ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID * 4];
 
-    for chunk_x in 0..ADT_CELLS_PER_GRID {
-        for chunk_y in 0..ADT_CELLS_PER_GRID {
-            let chunk = &adt.mcnk_chunks[chunk_x * ADT_CELLS_PER_GRID + chunk_y];
+    let chunk_materials = adt
+        .mcnk_chunks
+        .par_iter()
+        .map(|chunk| {
             let chunk_alpha = CombinedAlphaMap::new(
                 chunk,
                 has_big_alpha,
@@ -275,25 +369,24 @@ fn adt_material_maps(
             )
             .into_vec();
             let fix_alpha = u8::from(chunk.header.flags.do_not_fix_alpha_map()) * u8::MAX;
+            let mut alpha = vec![0; ALPHA_MAP_SIZE * ALPHA_MAP_SIZE * 4];
             for row in 0..ALPHA_MAP_SIZE {
                 for column in 0..ALPHA_MAP_SIZE {
-                    let target = ((chunk_x * ALPHA_MAP_SIZE + row) * ATLAS_SIZE
-                        + chunk_y * ALPHA_MAP_SIZE
-                        + column)
-                        * 4;
+                    let target = (row * ALPHA_MAP_SIZE + column) * 4;
                     let source_scale = SOURCE_ALPHA_MAP_SIZE / ALPHA_MAP_SIZE;
                     let source_row = row * source_scale + source_scale / 2;
                     let source_column = column * source_scale + source_scale / 2;
                     for channel in 0..3 {
                         let source =
                             ((source_row * SOURCE_ALPHA_MAP_SIZE + source_column) * 4) + channel;
-                        alpha_data[target + channel] = chunk_alpha[source];
+                        alpha[target + channel] = chunk_alpha[source];
                     }
-                    alpha_data[target + 3] = fix_alpha;
+                    alpha[target + 3] = fix_alpha;
                 }
             }
 
-            let metadata_offset = (chunk_x * ADT_CELLS_PER_GRID + chunk_y) * 4;
+            let mut layers = [0_u16; 4];
+            let mut animations = [0_u8; 4];
             for layer_index in 0..4 {
                 let Some(layer) = chunk
                     .layers
@@ -302,23 +395,35 @@ fn adt_material_maps(
                 else {
                     continue;
                 };
-                let filepath = &adt.textures[layer.texture_id as usize];
-                let texture_layer = texture_cache
-                    .get(filepath)
-                    .map_or(0, |texture| texture.layer);
-                assert!(
-                    texture_layer <= u16::MAX as u32,
-                    "World has too many textures"
-                );
-                layer_values[metadata_offset + layer_index] = texture_layer as u16;
+                layers[layer_index] = layer.texture_id as u16 + 1;
 
                 if layer.flags.animation_enabled() {
                     let direction = DIRECTIONS[layer.flags.animation_rotation() as usize];
                     let speed = layer.flags.animation_speed().min(15) as u8;
-                    animation_data[metadata_offset + layer_index] =
+                    animations[layer_index] =
                         (speed << 4) | (((direction.x + 1) as u8) << 2) | (direction.y + 1) as u8;
                 }
             }
+
+            (alpha, layers, animations)
+        })
+        .collect::<Vec<_>>();
+
+    for chunk_x in 0..ADT_CELLS_PER_GRID {
+        for chunk_y in 0..ADT_CELLS_PER_GRID {
+            let chunk_index = chunk_x * ADT_CELLS_PER_GRID + chunk_y;
+            let (alpha, layers, animations) = &chunk_materials[chunk_index];
+            for row in 0..ALPHA_MAP_SIZE {
+                let source_start = row * ALPHA_MAP_SIZE * 4;
+                let target_start =
+                    ((chunk_x * ALPHA_MAP_SIZE + row) * ATLAS_SIZE + chunk_y * ALPHA_MAP_SIZE) * 4;
+                alpha_data[target_start..target_start + ALPHA_MAP_SIZE * 4]
+                    .copy_from_slice(&alpha[source_start..source_start + ALPHA_MAP_SIZE * 4]);
+            }
+
+            let metadata_offset = chunk_index * 4;
+            layer_values[metadata_offset..metadata_offset + 4].copy_from_slice(layers);
+            animation_data[metadata_offset..metadata_offset + 4].copy_from_slice(animations);
         }
     }
 
@@ -344,17 +449,6 @@ fn adt_material_maps(
         height: ADT_CELLS_PER_GRID as u32,
         ..Default::default()
     };
-    let layer_data = layer_values
-        .into_iter()
-        .flat_map(u16::to_le_bytes)
-        .collect();
-    let layer_map = Image::new(
-        metadata_extent,
-        TextureDimension::D2,
-        layer_data,
-        TextureFormat::Rgba16Uint,
-        RenderAssetUsages::RENDER_WORLD,
-    );
     let animation_map = Image::new(
         metadata_extent,
         TextureDimension::D2,
@@ -363,7 +457,42 @@ fn adt_material_maps(
         RenderAssetUsages::RENDER_WORLD,
     );
 
-    (alpha_map, layer_map, animation_map)
+    PreparedMaterialMaps {
+        alpha_map,
+        local_layers: layer_values,
+        animation_map,
+    }
+}
+
+fn global_layer_map(
+    local_layers: Vec<u16>,
+    adt: &RootAdt,
+    texture_cache: &HashMap<String, CachedTerrainTexture>,
+) -> Image {
+    let layer_data = local_layers
+        .into_iter()
+        .map(|local_layer| {
+            if local_layer == 0 {
+                return 0;
+            }
+            let filepath = &adt.textures[local_layer as usize - 1];
+            texture_cache
+                .get(filepath)
+                .map_or(0, |texture| texture.layer as u16)
+        })
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    Image::new(
+        Extent3d {
+            width: ADT_CELLS_PER_GRID as u32,
+            height: ADT_CELLS_PER_GRID as u32,
+            ..Default::default()
+        },
+        TextureDimension::D2,
+        layer_data,
+        TextureFormat::Rgba16Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    )
 }
 
 fn update_texture_array(

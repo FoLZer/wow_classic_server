@@ -10423,6 +10423,7 @@ dependencies = [
  "image",
  "log",
  "log4rs",
+ "rayon",
  "serde",
  "texpresso",
  "wow-adt",
