@@ -27,6 +27,8 @@ struct AppSettings {
     object_view_distance: f32,
     #[serde(default)]
     log_diagnostics: bool,
+    #[serde(default = "default_focus_wmo_camera_on_start")]
+    focus_wmo_camera_on_start: bool,
 }
 
 fn default_terrain_view_distance() -> f32 {
@@ -37,6 +39,10 @@ fn default_object_view_distance() -> f32 {
     3_000.0
 }
 
+fn default_focus_wmo_camera_on_start() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -44,6 +50,7 @@ impl Default for AppSettings {
             terrain_view_distance: default_terrain_view_distance(),
             object_view_distance: default_object_view_distance(),
             log_diagnostics: false,
+            focus_wmo_camera_on_start: default_focus_wmo_camera_on_start(),
         }
     }
 }
@@ -95,29 +102,36 @@ struct MPQResource {
 }
 
 fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Res<AppSettings>) {
-    commands.spawn((
-        Camera3d::default(),
-        Projection::Perspective(PerspectiveProjection {
-            near: 0.1,
-            far: 75_000.0,
-            ..Default::default()
-        }),
-        Transform::from_xyz(0.0, 32_000.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
-        FreeCamera {
-            walk_speed: 50.0,
-            run_speed: 600.0,
-            ..Default::default()
-        },
-        Msaa::Off,
-    ));
+    let camera = commands
+        .spawn((
+            Camera3d::default(),
+            Projection::Perspective(PerspectiveProjection {
+                near: 0.1,
+                far: 75_000.0,
+                ..Default::default()
+            }),
+            Transform::from_xyz(0.0, 32_000.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
+            FreeCamera {
+                walk_speed: 50.0,
+                run_speed: 600.0,
+                ..Default::default()
+            },
+            Msaa::Off,
+        ))
+        .id();
 
-    load_map(
+    let wmo_camera_transform = load_map(
         &mut mpqs_res.mpqs,
-        commands,
+        &mut commands,
         0,
         settings.terrain_view_distance,
         settings.object_view_distance,
     );
+    if settings.focus_wmo_camera_on_start
+        && let Some(wmo_camera_transform) = wmo_camera_transform
+    {
+        commands.entity(camera).insert(wmo_camera_transform);
+    }
 }
 
 // Some file names appear to be uppercased inside mpqs, this function tries to handle this case

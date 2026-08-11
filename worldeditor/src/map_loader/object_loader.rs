@@ -162,20 +162,46 @@ pub(super) fn spawn_adt_objects(
             };
             parent
                 .spawn((Name::new(filename), transform, Visibility::default()))
-                .with_children(|object| {
-                    spawn_parts(object, &asset.parts);
-                    if let Some(doodads) = asset.doodad_sets.first() {
-                        spawn_wmo_doodads(object, doodads);
-                    }
-                    if doodad_set != 0
-                        && let Some(doodads) = asset.doodad_sets.get(doodad_set)
-                    {
-                        spawn_wmo_doodads(object, doodads);
-                    }
-                });
+                .with_children(|object| spawn_wmo_contents(object, asset, doodad_set));
         }
     });
     objects_entity
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn spawn_world_wmo(
+    commands: &mut Commands,
+    filename: &str,
+    position: [f32; 3],
+    rotation: [f32; 3],
+    doodad_set: u16,
+    scale: u16,
+    mpqs: &mut PatchChain,
+    cache: &mut ObjectCache,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+) -> Option<Entity> {
+    let asset = load_object(filename, mpqs, cache, meshes, materials, images)?;
+    let ObjectAsset::Wmo(asset) = asset.as_ref() else {
+        return None;
+    };
+    let scale = if scale == 0 {
+        1.0
+    } else {
+        f32::from(scale) / 1024.0
+    };
+    let entity = commands
+        .spawn((
+            Name::new(filename.to_owned()),
+            placement_transform(position, rotation, scale, Vec2::ZERO),
+            Visibility::default(),
+        ))
+        .id();
+    commands
+        .entity(entity)
+        .with_children(|parent| spawn_wmo_contents(parent, asset, doodad_set as usize));
+    Some(entity)
 }
 
 fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: &[ObjectPart]) {
@@ -184,6 +210,18 @@ fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: &[ObjectPart]) {
             Mesh3d(part.mesh.clone()),
             MeshMaterial3d(part.material.clone()),
         ));
+    }
+}
+
+fn spawn_wmo_contents(parent: &mut ChildSpawnerCommands, asset: &WmoAsset, doodad_set: usize) {
+    spawn_parts(parent, &asset.parts);
+    if let Some(doodads) = asset.doodad_sets.first() {
+        spawn_wmo_doodads(parent, doodads);
+    }
+    if doodad_set != 0
+        && let Some(doodads) = asset.doodad_sets.get(doodad_set)
+    {
+        spawn_wmo_doodads(parent, doodads);
     }
 }
 

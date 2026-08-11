@@ -24,7 +24,7 @@ use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
 };
-use object_loader::{AdtObjectPlacements, ObjectCache, spawn_adt_objects};
+use object_loader::{AdtObjectPlacements, ObjectCache, spawn_adt_objects, spawn_world_wmo};
 
 pub(super) const ADT_CELLS_PER_GRID: usize = 16;
 const ADT_GRID_SIZE: usize = 64;
@@ -37,11 +37,11 @@ const MAX_PENDING_ADTS: usize = 32;
 
 pub fn load_map(
     mpqs: &mut PatchChain,
-    mut commands: Commands,
+    commands: &mut Commands,
     index: usize,
     view_distance: f32,
     object_view_distance: f32,
-) {
+) -> Option<Transform> {
     let map_dbc = {
         info!("Searching for Map.dbc...");
         let map_buf = mpqs.read_file("DBFilesClient\\Map.dbc").unwrap();
@@ -61,13 +61,24 @@ pub fn load_map(
         Ok(value) => value,
         Err(wow_mpq::Error::FileNotFound(_)) => {
             error!("WDT wasn't found for map {}", directory);
-            return;
+            return None;
         }
         Err(error) => panic!("{error:?}"),
     };
     let wdt = WdtReader::new(&mut Cursor::new(wdt_file_buf), WowVersion::Classic)
         .read()
         .unwrap();
+    let world_wmos = collect_world_wmos(&wdt);
+    let wmo_camera_transform = wdt
+        .is_wmo_only()
+        .then(|| world_wmo_camera_transform(&world_wmos))
+        .flatten();
+    if wmo_camera_transform.is_some() {
+        info!(
+            "Map {directory} uses {} world WMO placements",
+            world_wmos.len()
+        );
+    }
 
     commands.insert_resource(TerrainMap {
         has_big_alpha: wdt.mphd.flags.contains(MphdFlags::ADT_HAS_BIG_ALPHA),
@@ -78,12 +89,15 @@ pub fn load_map(
         texture_cache: HashMap::new(),
         texture_array: None,
         object_cache: ObjectCache::default(),
+        world_wmos,
+        world_wmos_loaded: false,
         last_update_position: None,
         loading: true,
         metrics: TerrainLoadMetrics::new(),
         view_distance,
         object_view_distance,
     });
+    wmo_camera_transform
 }
 
 struct LoadedAdt {
@@ -119,6 +133,16 @@ struct PreparedAdt {
     material_maps: PreparedMaterialMaps,
 }
 
+struct WorldWmo {
+    filename: String,
+    position: [f32; 3],
+    rotation: [f32; 3],
+    lower_bounds: [f32; 3],
+    upper_bounds: [f32; 3],
+    doodad_set: u16,
+    scale: u16,
+}
+
 #[derive(Resource)]
 pub struct TerrainMap {
     wdt: WdtFile,
@@ -129,6 +153,8 @@ pub struct TerrainMap {
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
     object_cache: ObjectCache,
+    world_wmos: Vec<WorldWmo>,
+    world_wmos_loaded: bool,
     last_update_position: Option<Vec2>,
     loading: bool,
     metrics: TerrainLoadMetrics,
@@ -232,6 +258,18 @@ pub fn stream_terrain_chunks(
         );
     }
 
+    if !terrain.world_wmos_loaded {
+        spawn_world_wmos(
+            &mut commands,
+            &mut terrain,
+            &mut mpqs.mpqs,
+            &mut object_materials,
+            &mut meshes,
+            &mut images,
+        );
+        terrain.world_wmos_loaded = true;
+    }
+
     stream_adt_objects(
         &mut commands,
         &mut terrain,
@@ -271,6 +309,148 @@ pub fn stream_terrain_chunks(
 
     terrain.loading = adts_to_load.len() > adts_to_start || !terrain.loading_adts.is_empty();
     report_loading_progress(&mut terrain);
+}
+
+fn collect_world_wmos(wdt: &WdtFile) -> Vec<WorldWmo> {
+    let (Some(mwmo), Some(modf)) = (wdt.mwmo.as_ref(), wdt.modf.as_ref()) else {
+        return Vec::new();
+    };
+
+    modf.entries
+        .iter()
+        .filter_map(|placement| {
+            let Some(filename) = mwmo.filenames.get(placement.id as usize) else {
+                warn!(
+                    "WDT WMO {} references missing MWMO entry {}",
+                    placement.unique_id, placement.id
+                );
+                return None;
+            };
+            Some(WorldWmo {
+                filename: filename.clone(),
+                position: placement.position,
+                rotation: placement.rotation,
+                lower_bounds: placement.lower_bounds,
+                upper_bounds: placement.upper_bounds,
+                doodad_set: placement.doodad_set,
+                scale: placement.scale,
+            })
+        })
+        .collect()
+}
+
+fn world_wmo_camera_transform(world_wmos: &[WorldWmo]) -> Option<Transform> {
+    let (mut lower_bounds, mut upper_bounds) = world_wmo_bounds(world_wmos.first()?);
+    for world_wmo in &world_wmos[1..] {
+        let (wmo_lower_bounds, wmo_upper_bounds) = world_wmo_bounds(world_wmo);
+        lower_bounds = lower_bounds.min(wmo_lower_bounds);
+        upper_bounds = upper_bounds.max(wmo_upper_bounds);
+    }
+
+    let target = (lower_bounds + upper_bounds) * 0.5;
+    let distance = (upper_bounds - lower_bounds).length().max(1_000.0);
+    Some(
+        Transform::from_translation(target + Vec3::new(distance, distance * 0.6, distance))
+            .looking_at(target, Vec3::Y),
+    )
+}
+
+fn world_wmo_bounds(world_wmo: &WorldWmo) -> (Vec3, Vec3) {
+    let first_corner = wmo_position_to_world(world_wmo.lower_bounds);
+    let second_corner = wmo_position_to_world(world_wmo.upper_bounds);
+    let lower_bounds = first_corner.min(second_corner);
+    let upper_bounds = first_corner.max(second_corner);
+    (lower_bounds, upper_bounds)
+}
+
+fn wmo_position_to_world(position: [f32; 3]) -> Vec3 {
+    let map_half_size = ADT_GRID_SIZE as f32 * ADT_SIZE * 0.5;
+    Vec3::new(
+        map_half_size - position[0],
+        position[1],
+        map_half_size - position[2],
+    )
+}
+
+fn spawn_world_wmos(
+    commands: &mut Commands,
+    terrain: &mut TerrainMap,
+    mpqs: &mut PatchChain,
+    materials: &mut Assets<StandardMaterial>,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+) {
+    let (world_wmos, object_cache) = (&terrain.world_wmos, &mut terrain.object_cache);
+    for world_wmo in world_wmos {
+        spawn_world_wmo(
+            commands,
+            &world_wmo.filename,
+            world_wmo.position,
+            world_wmo.rotation,
+            world_wmo.doodad_set,
+            world_wmo.scale,
+            mpqs,
+            object_cache,
+            meshes,
+            materials,
+            images,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wow_wdt::chunks::{ModfChunk, ModfEntry, MwmoChunk};
+
+    use super::*;
+
+    #[test]
+    fn collects_wdt_world_wmo_placements() {
+        let mut wdt = WdtFile::new(WowVersion::Classic);
+        wdt.mwmo = Some(MwmoChunk {
+            filenames: vec!["World\\Wmo\\first.wmo".to_owned(), "second.wmo".to_owned()],
+        });
+        wdt.modf = Some(ModfChunk {
+            entries: vec![ModfEntry {
+                id: 1,
+                position: [1.0, 2.0, 3.0],
+                rotation: [4.0, 5.0, 6.0],
+                doodad_set: 2,
+                scale: 1024,
+                ..Default::default()
+            }],
+        });
+
+        let world_wmos = collect_world_wmos(&wdt);
+
+        assert_eq!(world_wmos.len(), 1);
+        assert_eq!(world_wmos[0].filename, "second.wmo");
+        assert_eq!(world_wmos[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(world_wmos[0].rotation, [4.0, 5.0, 6.0]);
+        assert_eq!(world_wmos[0].doodad_set, 2);
+        assert_eq!(world_wmos[0].scale, 1024);
+    }
+
+    #[test]
+    fn frames_the_camera_around_world_wmo_bounds() {
+        let world_wmo = WorldWmo {
+            filename: "test.wmo".to_owned(),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            lower_bounds: [100.0, 10.0, 200.0],
+            upper_bounds: [300.0, 110.0, 400.0],
+            doodad_set: 0,
+            scale: 1024,
+        };
+
+        let transform = world_wmo_camera_transform(&[world_wmo]).unwrap();
+        let map_half_size = ADT_GRID_SIZE as f32 * ADT_SIZE * 0.5;
+
+        assert_eq!(
+            transform.translation,
+            Vec3::new(map_half_size + 800.0, 660.0, map_half_size + 700.0)
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

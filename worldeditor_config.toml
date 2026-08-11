@@ -1,1 +1,2 @@
 mpq_directory_path = "./worldeditor/Data"
+focus_wmo_camera_on_start = true

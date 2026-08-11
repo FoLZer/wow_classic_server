@@ -227,8 +227,8 @@ pub(super) fn update_texture_array(
         changed = true;
     }
 
-    if !changed {
-        return texture_array.as_ref().unwrap().clone();
+    if !changed && let Some(texture_array) = texture_array.as_ref() {
+        return texture_array.clone();
     }
 
     let mut ordered_textures = cache.values().collect::<Vec<_>>();
@@ -262,11 +262,14 @@ pub(super) fn update_texture_array(
         }
     }
 
+    let layer_count = (cache.len() as u32 + 1).max(2);
+    data.resize(data.len() * layer_count as usize / (cache.len() + 1), 0);
+
     let mut image = Image::new_uninit(
         Extent3d {
             width,
             height,
-            depth_or_array_layers: cache.len() as u32 + 1,
+            depth_or_array_layers: layer_count,
         },
         TextureDimension::D2,
         TextureFormat::Rgba8UnormSrgb,
