@@ -174,12 +174,11 @@ pub fn stream_terrain_chunks(
     }
     adts_to_load.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
 
-    let selected_coordinates = editor.selected_coordinates();
     let adts_to_unload = terrain
         .loaded_adts
         .iter()
         .filter_map(|(&(x, y), _)| {
-            (selected_coordinates != Some((x, y))
+            (!editor.retains_adt((x, y))
                 && adt_center(x, y).distance_squared(camera_position) > unload_distance_squared)
                 .then_some((x, y))
         })
