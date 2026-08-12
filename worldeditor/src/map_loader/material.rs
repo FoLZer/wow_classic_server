@@ -190,7 +190,7 @@ pub(super) fn update_texture_array(
     map_name: &str,
     cache: &mut HashMap<String, CachedTerrainTexture>,
     texture_array: &mut Option<Handle<Image>>,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     images: &mut Assets<Image>,
 ) -> Handle<Image> {
     let mut changed = false;

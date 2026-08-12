@@ -10,7 +10,7 @@ members = [
     "gameserver/gameobjects",
     "gameserver/common",
     "worldeditor",
-    #"worldeditor/mpq",
+    "worldeditor/mpq",
     "worldeditor/dbc_structs",
     "worldeditor/dbd_reader",
     "worldeditor/dbc_reader"

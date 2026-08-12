@@ -83,7 +83,7 @@ pub(super) fn spawn_adt_objects(
     adt: &AdtObjectPlacements,
     adt_coordinates: (usize, usize),
     adt_center: Vec2,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -174,7 +174,7 @@ pub(super) fn spawn_world_wmo(
     rotation: [f32; 3],
     doodad_set: u16,
     scale: u16,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -240,7 +240,7 @@ fn spawn_wmo_doodads(parent: &mut ChildSpawnerCommands, doodads: &[WmoDoodad]) {
 
 fn load_object(
     filename: &str,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -273,7 +273,7 @@ fn placement_owner(position: [f32; 3]) -> (usize, usize) {
 
 fn load_m2(
     filename: &str,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -656,7 +656,7 @@ fn read_f32(data: &[u8], offset: usize) -> Result<f32, String> {
 fn build_object_parts(
     mut mesh_data: M2MeshData,
     fallback_color: Color,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -711,7 +711,7 @@ fn build_object_parts(
 
 fn load_object_texture(
     filename: &str,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     images: &mut Assets<Image>,
 ) -> Option<Handle<Image>> {
@@ -809,7 +809,7 @@ fn fixed_i16_alpha(values: &[u8]) -> Option<f32> {
 
 fn load_wmo(
     filename: &str,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,

@@ -77,7 +77,7 @@ pub(super) fn select_adt_chunk(
     mut adt_entities: Query<(&TerrainAdt, &mut Mesh3d)>,
     mut editor: ResMut<TerrainEditor>,
     mut terrain: ResMut<TerrainMap>,
-    mut mpqs: ResMut<MPQResource>,
+    mpqs: Res<MPQResource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -119,7 +119,7 @@ pub(super) fn select_adt_chunk(
             "World\\Maps\\{}\\{}_{}_{}.adt",
             terrain.map_name, terrain.map_name, coordinates.0, coordinates.1
         );
-        let Ok(map_file_buf) = mpqs.mpqs.read_file(&map_path) else {
+        let Ok(map_file_buf) = mpqs.mpqs.read_file_concurrent(&map_path) else {
             return;
         };
         let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {
@@ -165,7 +165,7 @@ pub(super) fn select_adt_chunk(
             neighbor_coordinates,
             &mut editor,
             &mut terrain,
-            &mut mpqs.mpqs,
+            &mpqs.mpqs,
             &mut adt_entities,
             &mut meshes,
         );
@@ -252,7 +252,7 @@ fn ensure_editable_neighbor(
     coordinates: (usize, usize),
     editor: &mut TerrainEditor,
     terrain: &mut TerrainMap,
-    mpqs: &mut wow_mpq::PatchChain,
+    mpqs: &wow_mpq::PatchChain,
     adt_entities: &mut Query<(&TerrainAdt, &mut Mesh3d)>,
     meshes: &mut Assets<Mesh>,
 ) {
@@ -267,7 +267,7 @@ fn ensure_editable_neighbor(
         "World\\Maps\\{}\\{}_{}_{}.adt",
         map_name, map_name, coordinates.0, coordinates.1
     );
-    let Ok(map_file_buf) = mpqs.read_file(&map_path) else {
+    let Ok(map_file_buf) = mpqs.read_file_concurrent(&map_path) else {
         return;
     };
     let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {

@@ -3,7 +3,7 @@ mod map_loader;
 mod render_controls;
 mod terrain_material;
 
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use bevy::{
     diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
@@ -100,7 +100,9 @@ fn main() {
     app.add_plugins((FreeCameraPlugin, MeshPickingPlugin, TerrainEditorPlugin))
         //.add_plugins(EguiPlugin::default())
         //.add_plugins(WorldInspectorPlugin::new())
-        .insert_resource(MPQResource { mpqs })
+        .insert_resource(MPQResource {
+            mpqs: Arc::new(mpqs),
+        })
         .insert_resource(render_settings)
         .insert_resource(config)
         .add_systems(Startup, (setup, setup_render_controls))
@@ -118,10 +120,10 @@ fn main() {
 
 #[derive(Resource)]
 struct MPQResource {
-    pub mpqs: PatchChain,
+    pub mpqs: Arc<PatchChain>,
 }
 
-fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Res<AppSettings>) {
+fn setup(mut commands: Commands, mpqs_res: Res<MPQResource>, settings: Res<AppSettings>) {
     let camera = commands
         .spawn((
             Camera3d::default(),
@@ -140,7 +142,7 @@ fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Re
         ))
         .id();
 
-    let wmo_camera_transform = load_map(&mut mpqs_res.mpqs, &mut commands, 0);
+    let wmo_camera_transform = load_map(&mpqs_res.mpqs, &mut commands, 0);
     if settings.focus_wmo_camera_on_start
         && let Some(wmo_camera_transform) = wmo_camera_transform
     {
@@ -149,8 +151,8 @@ fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Re
 }
 
 // Some file names appear to be uppercased inside mpqs, this function tries to handle this case
-pub fn mpq_read_file(mpqs: &mut PatchChain, filepath: &str) -> Result<Vec<u8>, wow_mpq::Error> {
-    match mpqs.read_file(filepath) {
+pub fn mpq_read_file(mpqs: &PatchChain, filepath: &str) -> Result<Vec<u8>, wow_mpq::Error> {
+    match mpqs.read_file_concurrent(filepath) {
         Ok(v) => Ok(v),
         Err(wow_mpq::Error::FileNotFound(_)) => {
             let filepath = {
@@ -166,7 +168,7 @@ pub fn mpq_read_file(mpqs: &mut PatchChain, filepath: &str) -> Result<Vec<u8>, w
                     filepath.to_uppercase()
                 }
             };
-            mpqs.read_file(&filepath)
+            mpqs.read_file_concurrent(&filepath)
         }
         Err(e) => Err(e),
     }

@@ -35,10 +35,10 @@ const STREAM_BUFFER: f32 = ADT_SIZE;
 const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
 const MAX_PENDING_ADTS: usize = 32;
 
-pub fn load_map(mpqs: &mut PatchChain, commands: &mut Commands, index: usize) -> Option<Transform> {
+pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Option<Transform> {
     let map_dbc = {
         info!("Searching for Map.dbc...");
-        let map_buf = mpqs.read_file("DBFilesClient\\Map.dbc").unwrap();
+        let map_buf = mpqs.read_file_concurrent("DBFilesClient\\Map.dbc").unwrap();
         dbc_reader::read_dbc::<_, dbc_structs::Map>(&mut Cursor::new(map_buf)).unwrap()
     };
 
@@ -51,7 +51,7 @@ pub fn load_map(mpqs: &mut PatchChain, commands: &mut Commands, index: usize) ->
     );
 
     let wdt_file_path = format!("World\\Maps\\{}\\{}.wdt", directory, directory);
-    let wdt_file_buf = match mpqs.read_file(&wdt_file_path) {
+    let wdt_file_buf = match mpqs.read_file_concurrent(&wdt_file_path) {
         Ok(value) => value,
         Err(wow_mpq::Error::FileNotFound(_)) => {
             error!("WDT wasn't found for map {}", directory);
@@ -165,7 +165,7 @@ pub fn stream_terrain_chunks(
     mut commands: Commands,
     camera: Query<&GlobalTransform, With<Camera3d>>,
     mut terrain: ResMut<TerrainMap>,
-    mut mpqs: ResMut<MPQResource>,
+    mpqs: Res<MPQResource>,
     mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
     mut object_materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -248,7 +248,7 @@ pub fn stream_terrain_chunks(
             coordinates,
             &mut commands,
             &mut terrain,
-            &mut mpqs.mpqs,
+            &mpqs.mpqs,
             &mut terrain_materials,
             &mut meshes,
             &mut images,
@@ -260,7 +260,7 @@ pub fn stream_terrain_chunks(
         spawn_world_wmos(
             &mut commands,
             &mut terrain,
-            &mut mpqs.mpqs,
+            &mpqs.mpqs,
             &mut object_materials,
             &mut meshes,
             &mut images,
@@ -273,7 +273,7 @@ pub fn stream_terrain_chunks(
         &mut commands,
         &mut terrain,
         camera_position,
-        &mut mpqs.mpqs,
+        &mpqs.mpqs,
         &mut object_materials,
         &mut meshes,
         &mut images,
@@ -287,9 +287,10 @@ pub fn stream_terrain_chunks(
             "World\\Maps\\{}\\{}_{}_{}.adt",
             terrain.map_name, terrain.map_name, x, y
         );
-        let map_file_buf = mpqs.mpqs.read_file(&map_path).unwrap();
         let has_big_alpha = terrain.has_big_alpha;
+        let mpqs = mpqs.mpqs.clone();
         let task = AsyncComputeTaskPool::get().spawn(async move {
+            let map_file_buf = mpqs.read_file_async(&map_path).await.unwrap();
             let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
             let ParsedAdt::Root(adt) = adt else { panic!() };
             let adt = *adt;
@@ -375,7 +376,7 @@ fn wmo_position_to_world(position: [f32; 3]) -> Vec3 {
 fn spawn_world_wmos(
     commands: &mut Commands,
     terrain: &mut TerrainMap,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
@@ -469,7 +470,7 @@ fn finalize_adt(
     coordinates: (usize, usize),
     commands: &mut Commands,
     terrain: &mut TerrainMap,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     terrain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
@@ -556,7 +557,7 @@ fn stream_adt_objects(
     commands: &mut Commands,
     terrain: &mut TerrainMap,
     camera_position: Vec2,
-    mpqs: &mut PatchChain,
+    mpqs: &PatchChain,
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
