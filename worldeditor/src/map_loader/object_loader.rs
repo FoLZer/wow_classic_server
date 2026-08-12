@@ -80,7 +80,6 @@ impl AdtObjectPlacements {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_adt_objects(
     commands: &mut Commands,
-    adt_entity: Entity,
     adt: &AdtObjectPlacements,
     adt_coordinates: (usize, usize),
     adt_center: Vec2,
@@ -142,11 +141,10 @@ pub(super) fn spawn_adt_objects(
     let objects_entity = commands
         .spawn((
             Name::new("ADT objects"),
-            Transform::default(),
+            adt_object_root_transform(adt_center),
             Visibility::default(),
         ))
         .id();
-    commands.entity(adt_entity).add_child(objects_entity);
     commands.entity(objects_entity).with_children(|parent| {
         for (filename, asset, transform) in doodads {
             let ObjectAsset::M2(parts) = asset.as_ref() else {
@@ -377,9 +375,11 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                 .transparency_lookup_table
                 .get(batch.texture_weight_combo_index as usize)
                 .and_then(|animation_index| {
-                    model.raw_data.transparency_animation_data.iter().find(
-                        |animation| animation.animation_index == *animation_index as usize,
-                    )
+                    model
+                        .raw_data
+                        .transparency_animation_data
+                        .iter()
+                        .find(|animation| animation.animation_index == *animation_index as usize)
                 })
                 .and_then(|animation| fixed_i16_alpha(&animation.values))
                 .unwrap_or(1.0);
@@ -499,11 +499,8 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     )?;
     let (transparency_lookup_count, transparency_lookup_offset) =
         read_array_descriptor(data, TRANSPARENCY_LOOKUP_DESCRIPTOR_OFFSET)?;
-    let transparency_lookup = read_u16_array(
-        data,
-        transparency_lookup_offset,
-        transparency_lookup_count,
-    )?;
+    let transparency_lookup =
+        read_u16_array(data, transparency_lookup_offset, transparency_lookup_count)?;
     let (render_flag_count, render_flag_offset) =
         read_array_descriptor(data, RENDER_FLAGS_DESCRIPTOR_OFFSET)?;
     checked_array_range(data, render_flag_offset, render_flag_count, 4)?;
@@ -795,9 +792,8 @@ fn classic_m2_opacity(
     if animation_index >= animation_count {
         return None;
     }
-    let animation = animation_offset.checked_add(
-        animation_index.checked_mul(TRANSPARENCY_ANIMATION_SIZE)?,
-    )?;
+    let animation =
+        animation_offset.checked_add(animation_index.checked_mul(TRANSPARENCY_ANIMATION_SIZE)?)?;
     let (value_count, value_offset) =
         read_array_descriptor(data, animation + VALUES_DESCRIPTOR_OFFSET).ok()?;
     (value_count > 0)
@@ -1077,6 +1073,10 @@ fn placement_transform(
     }
 }
 
+fn adt_object_root_transform(center: Vec2) -> Transform {
+    Transform::from_xyz(center.x, 0.0, center.y)
+}
+
 fn wow_to_bevy(x: f32, y: f32, z: f32) -> [f32; 3] {
     [y, z, x]
 }
@@ -1148,6 +1148,18 @@ mod tests {
         assert!(
             (transform.rotation * Vec3::X).abs_diff_eq(Vec3::NEG_X, 0.0001),
             "zero placement rotation must correct the model basis"
+        );
+    }
+
+    #[test]
+    fn adt_object_root_restores_world_position() {
+        let center = Vec2::new(MAP_HALF_SIZE - 150.0, MAP_HALF_SIZE - 80.0);
+        let local = placement_transform([100.0, 200.0, 30.0], [0.0; 3], 1.0, center);
+        let world_translation = adt_object_root_transform(center).transform_point(local.translation);
+
+        assert_eq!(
+            world_translation,
+            Vec3::new(MAP_HALF_SIZE - 100.0, 200.0, MAP_HALF_SIZE - 30.0)
         );
     }
 

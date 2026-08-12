@@ -15,7 +15,7 @@ use wow_adt::{ParsedAdt, RootAdt, parse_adt};
 use wow_mpq::PatchChain;
 use wow_wdt::{WdtFile, WdtReader, chunks::MphdFlags, version::WowVersion};
 
-use crate::{MPQResource, terrain_material::TerrainMaterial};
+use crate::{MPQResource, render_controls::RenderSettings, terrain_material::TerrainMaterial};
 
 pub use editor::TerrainEditorPlugin;
 use editor::{TerrainEditor, select_adt_chunk};
@@ -35,13 +35,7 @@ const STREAM_BUFFER: f32 = ADT_SIZE;
 const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
 const MAX_PENDING_ADTS: usize = 32;
 
-pub fn load_map(
-    mpqs: &mut PatchChain,
-    commands: &mut Commands,
-    index: usize,
-    view_distance: f32,
-    object_view_distance: f32,
-) -> Option<Transform> {
+pub fn load_map(mpqs: &mut PatchChain, commands: &mut Commands, index: usize) -> Option<Transform> {
     let map_dbc = {
         info!("Searching for Map.dbc...");
         let map_buf = mpqs.read_file("DBFilesClient\\Map.dbc").unwrap();
@@ -94,8 +88,6 @@ pub fn load_map(
         last_update_position: None,
         loading: true,
         metrics: TerrainLoadMetrics::new(),
-        view_distance,
-        object_view_distance,
     });
     wmo_camera_transform
 }
@@ -158,8 +150,6 @@ pub struct TerrainMap {
     last_update_position: Option<Vec2>,
     loading: bool,
     metrics: TerrainLoadMetrics,
-    view_distance: f32,
-    object_view_distance: f32,
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +157,9 @@ pub struct TerrainAdt {
     pub x: u8,
     pub y: u8,
 }
+
+#[derive(Component)]
+pub struct RenderedObject;
 
 pub fn stream_terrain_chunks(
     mut commands: Commands,
@@ -178,6 +171,7 @@ pub fn stream_terrain_chunks(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     editor: Res<TerrainEditor>,
+    render_settings: Res<RenderSettings>,
 ) {
     let Ok(camera_transform) = camera.single() else {
         return;
@@ -187,7 +181,7 @@ pub fn stream_terrain_chunks(
     let camera_moved = terrain.last_update_position.is_none_or(|position| {
         position.distance_squared(camera_position) >= STREAM_UPDATE_DISTANCE.powi(2)
     });
-    if !camera_moved && !terrain.loading {
+    if !camera_moved && !terrain.loading && !render_settings.is_changed() {
         return;
     }
     if camera_moved {
@@ -195,7 +189,7 @@ pub fn stream_terrain_chunks(
         terrain.loading = true;
     }
 
-    let load_distance = terrain.view_distance + ADT_HALF_DIAGONAL;
+    let load_distance = render_settings.adt_distance + ADT_HALF_DIAGONAL;
     let unload_distance_squared = (load_distance + STREAM_BUFFER).powi(2);
     let mut adts_to_load = Vec::new();
     for y in 0..ADT_GRID_SIZE {
@@ -226,6 +220,9 @@ pub fn stream_terrain_chunks(
 
     for coordinates in adts_to_unload {
         let loaded_adt = terrain.loaded_adts.remove(&coordinates).unwrap();
+        if let Some(objects) = loaded_adt.objects {
+            commands.entity(objects).despawn();
+        }
         commands.entity(loaded_adt.entity).despawn();
         meshes.remove(loaded_adt.mesh.id());
         terrain_materials.remove(loaded_adt.material.id());
@@ -255,6 +252,7 @@ pub fn stream_terrain_chunks(
             &mut terrain_materials,
             &mut meshes,
             &mut images,
+            &render_settings,
         );
     }
 
@@ -266,6 +264,7 @@ pub fn stream_terrain_chunks(
             &mut object_materials,
             &mut meshes,
             &mut images,
+            &render_settings,
         );
         terrain.world_wmos_loaded = true;
     }
@@ -278,6 +277,7 @@ pub fn stream_terrain_chunks(
         &mut object_materials,
         &mut meshes,
         &mut images,
+        &render_settings,
     );
 
     let available_task_slots = MAX_PENDING_ADTS.saturating_sub(terrain.loading_adts.len());
@@ -379,10 +379,11 @@ fn spawn_world_wmos(
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
+    render_settings: &RenderSettings,
 ) {
     let (world_wmos, object_cache) = (&terrain.world_wmos, &mut terrain.object_cache);
     for world_wmo in world_wmos {
-        spawn_world_wmo(
+        if let Some(entity) = spawn_world_wmo(
             commands,
             &world_wmo.filename,
             world_wmo.position,
@@ -394,7 +395,16 @@ fn spawn_world_wmos(
             meshes,
             materials,
             images,
-        );
+        ) {
+            commands.entity(entity).insert((
+                RenderedObject,
+                if render_settings.render_objects {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                },
+            ));
+        }
     }
 }
 
@@ -463,6 +473,7 @@ fn finalize_adt(
     terrain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
+    render_settings: &RenderSettings,
 ) {
     let map_name = terrain.map_name.clone();
     let texture_array = update_texture_array(
@@ -506,7 +517,12 @@ fn finalize_adt(
             Transform::from_xyz(center.x, 0.0, center.y),
             VisibilityRange {
                 use_aabb: true,
-                ..VisibilityRange::abrupt(0.0, terrain.view_distance)
+                ..VisibilityRange::abrupt(0.0, render_settings.adt_distance)
+            },
+            if render_settings.render_adts {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
             },
         ))
         .observe(select_adt_chunk)
@@ -544,8 +560,9 @@ fn stream_adt_objects(
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
+    render_settings: &RenderSettings,
 ) {
-    let load_distance = terrain.object_view_distance + ADT_HALF_DIAGONAL;
+    let load_distance = render_settings.object_distance + ADT_HALF_DIAGONAL;
     let unload_distance_squared = (load_distance + STREAM_BUFFER).powi(2);
     let object_adts_to_unload = terrain
         .loaded_adts
@@ -575,7 +592,6 @@ fn stream_adt_objects(
         let loaded_adt = terrain.loaded_adts.get_mut(&coordinates).unwrap();
         loaded_adt.objects = Some(spawn_adt_objects(
             commands,
-            loaded_adt.entity,
             &loaded_adt.object_placements,
             coordinates,
             adt_center(coordinates.0, coordinates.1),
@@ -584,6 +600,14 @@ fn stream_adt_objects(
             meshes,
             materials,
             images,
+        ));
+        commands.entity(loaded_adt.objects.unwrap()).insert((
+            RenderedObject,
+            if render_settings.render_objects {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            },
         ));
     }
 }

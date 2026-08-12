@@ -1,5 +1,6 @@
 mod combined_alpha_map;
 mod map_loader;
+mod render_controls;
 mod terrain_material;
 
 use std::{path::PathBuf, str::FromStr};
@@ -15,6 +16,10 @@ use wow_mpq::PatchChain;
 
 use crate::{
     map_loader::{TerrainEditorPlugin, load_map, stream_terrain_chunks},
+    render_controls::{
+        RenderSettings, apply_render_visibility, setup_render_controls, update_render_controls,
+        update_slider_visuals,
+    },
     terrain_material::TerrainMaterial,
 };
 
@@ -57,6 +62,12 @@ impl Default for AppSettings {
 
 fn main() {
     let config: AppSettings = confy::load_path("./worldeditor_config.toml").unwrap();
+    let render_settings = RenderSettings {
+        render_adts: true,
+        render_objects: true,
+        adt_distance: config.terrain_view_distance,
+        object_distance: config.object_view_distance,
+    };
 
     let mpqs = PatchChain::from_archives_parallel(vec![
         (config.mpq_directory_path.join("patch-2.MPQ"), 101),
@@ -90,9 +101,18 @@ fn main() {
         //.add_plugins(EguiPlugin::default())
         //.add_plugins(WorldInspectorPlugin::new())
         .insert_resource(MPQResource { mpqs })
+        .insert_resource(render_settings)
         .insert_resource(config)
-        .add_systems(Startup, setup)
-        .add_systems(Update, stream_terrain_chunks)
+        .add_systems(Startup, (setup, setup_render_controls))
+        .add_systems(
+            Update,
+            (
+                update_render_controls,
+                update_slider_visuals,
+                apply_render_visibility.after(update_render_controls),
+                stream_terrain_chunks.after(update_render_controls),
+            ),
+        )
         .run();
 }
 
@@ -120,13 +140,7 @@ fn setup(mut commands: Commands, mut mpqs_res: ResMut<MPQResource>, settings: Re
         ))
         .id();
 
-    let wmo_camera_transform = load_map(
-        &mut mpqs_res.mpqs,
-        &mut commands,
-        0,
-        settings.terrain_view_distance,
-        settings.object_view_distance,
-    );
+    let wmo_camera_transform = load_map(&mut mpqs_res.mpqs, &mut commands, 0);
     if settings.focus_wmo_camera_on_start
         && let Some(wmo_camera_transform) = wmo_camera_transform
     {
