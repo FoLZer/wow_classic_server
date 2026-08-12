@@ -14,8 +14,8 @@ bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", featu
     "free_camera",
 ] }
 log4rs = "1.4.0"
-log = { version = "0.4.29" }
-serde = { version = "1.0.228", features = ["derive"] }
+log = { version = "0.4.33" }
+serde = { version = "1.0.229", features = ["derive"] }
 confy = "2.0.0"
 dbc_structs = { path = "./dbc_structs" }
 byteorder = "1.5.0"

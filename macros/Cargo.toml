@@ -9,6 +9,6 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = "2.0.111"
+syn = "3.0.3"
 quote = "*"
 proc-macro2 = "*"

@@ -6,6 +6,6 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
-rkyv = "0.8.15"
-serde = { version = "1.0.228", features = ["derive"] }
-tokio = "1.50.0"
+rkyv = "0.8.18"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = "1.53.1"
