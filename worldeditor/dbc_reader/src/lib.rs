@@ -1,4 +1,3 @@
-#![feature(ascii_char)]
 #![feature(fn_traits)]
 #![feature(iterator_try_collect)]
 #![feature(cursor_split)]

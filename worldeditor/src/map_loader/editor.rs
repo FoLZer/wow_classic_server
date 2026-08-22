@@ -13,8 +13,8 @@ use wow_adt::{ParsedAdt, RootAdt, parse_adt};
 use crate::MPQResource;
 
 use super::{
-    CHUNK_SIZE, TerrainAdt, TerrainMap,
-    geometry::{EDIT_HEIGHTMAP_SIZE, adt_center, adt_to_edit_mesh, heightmap_point_world},
+    AdtPosition, CHUNK_SIZE, TerrainMap,
+    geometry::{EDIT_HEIGHTMAP_SIZE, adt_to_mesh, heightmap_point_world},
 };
 
 pub struct TerrainEditorPlugin;
@@ -33,7 +33,8 @@ struct DirtyTerrainMeshes(HashSet<Handle<Mesh>>);
 #[derive(Resource, Default)]
 pub(crate) struct TerrainEditor {
     selected: Option<SelectedTerrainChunk>,
-    edited_adts: HashMap<(usize, usize), RootAdt>,
+    edited_adts: HashMap<AdtPosition, RootAdt>,
+
     point_mesh: Option<Handle<Mesh>>,
     point_material: Option<Handle<StandardMaterial>>,
     active_point_material: Option<Handle<StandardMaterial>>,
@@ -41,17 +42,85 @@ pub(crate) struct TerrainEditor {
 }
 
 impl TerrainEditor {
-    pub(super) fn retains_adt(&self, coordinates: (usize, usize)) -> bool {
+    pub(super) fn retains_adt(&self, coordinates: AdtPosition) -> bool {
         self.selected
             .as_ref()
             .is_some_and(|selected| selected.coordinates == coordinates)
             || self.edited_adts.contains_key(&coordinates)
     }
+
+    fn ensure_point_assets_loaded(
+        &mut self,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<StandardMaterial>,
+    ) -> HeightMapPointAssets {
+        let point_mesh = self
+            .point_mesh
+            .get_or_insert_with(|| meshes.add(Sphere::new(1.0)))
+            .clone();
+        let point_material = self
+            .point_material
+            .get_or_insert_with(|| {
+                materials.add(StandardMaterial {
+                    base_color: YELLOW.into(),
+                    unlit: true,
+                    ..Default::default()
+                })
+            })
+            .clone();
+        let active_point_material = self
+            .active_point_material
+            .get_or_insert_with(|| {
+                materials.add(StandardMaterial {
+                    base_color: ORANGE.into(),
+                    unlit: true,
+                    ..Default::default()
+                })
+            })
+            .clone();
+
+        HeightMapPointAssets {
+            point_mesh,
+            point_material,
+            active_point_material,
+        }
+    }
+
+    fn get_adt(
+        &mut self,
+        position: AdtPosition,
+        terrain_map: &TerrainMap,
+        mpqs: &MPQResource,
+    ) -> Option<RootAdt> {
+        if let Some(adt) = self.edited_adts.remove(&position) {
+            Some(adt)
+        } else {
+            let map_path = format!(
+                "World\\Maps\\{}\\{}_{}_{}.adt",
+                terrain_map.map_name, terrain_map.map_name, position.x, position.y
+            );
+            let Ok(map_file_buf) = mpqs.mpqs.read_file_concurrent(&map_path) else {
+                return None;
+            };
+            let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {
+                return None;
+            };
+            Some(*adt)
+        }
+    }
+}
+
+#[derive(Default)]
+#[allow(unused)]
+pub struct HeightMapPointAssets {
+    point_mesh: Handle<Mesh>,
+    point_material: Handle<StandardMaterial>,
+    active_point_material: Handle<StandardMaterial>,
 }
 
 struct SelectedTerrainChunk {
     adt: RootAdt,
-    coordinates: (usize, usize),
+    coordinates: AdtPosition,
     chunk_index: usize,
     edit_mesh: Handle<Mesh>,
     point_entities: Vec<Entity>,
@@ -60,7 +129,7 @@ struct SelectedTerrainChunk {
 
 #[derive(Clone, Copy)]
 struct SeamVertex {
-    coordinates: (usize, usize),
+    coordinates: AdtPosition,
     chunk_index: usize,
     vertex_index: usize,
 }
@@ -71,24 +140,12 @@ struct HeightMapPoint {
     vertex_index: usize,
 }
 
-pub(super) fn select_adt_chunk(
-    mut click: On<Pointer<Click>>,
-    mut commands: Commands,
-    mut adt_entities: Query<(&TerrainAdt, &mut Mesh3d)>,
-    mut editor: ResMut<TerrainEditor>,
-    mut terrain: ResMut<TerrainMap>,
-    mpqs: Res<MPQResource>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+fn clear_adt_selection(
+    commands: &mut Commands,
+    editor: &mut TerrainEditor,
+    terrain: &mut TerrainMap,
+    meshes: &mut Assets<Mesh>,
 ) {
-    if click.button != PointerButton::Primary || click.count != 2 {
-        return;
-    }
-    let Some(hit_position) = click.hit.position else {
-        return;
-    };
-    click.propagate(false);
-
     if let Some(previous) = editor.selected.take() {
         for point_entity in previous.point_entities {
             commands.entity(point_entity).despawn();
@@ -104,33 +161,40 @@ pub(super) fn select_adt_chunk(
             .insert(previous.coordinates, previous.adt);
         editor.active_point = None;
     }
+}
+
+pub(super) fn select_adt_chunk(
+    mut click: On<Pointer<Click>>,
+    mut commands: Commands,
+    mut adt_entities: Query<(&AdtPosition, &mut Mesh3d)>,
+    mut editor: ResMut<TerrainEditor>,
+    mut terrain: ResMut<TerrainMap>,
+    mpqs: Res<MPQResource>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if click.button != PointerButton::Primary || click.count != 2 {
+        return;
+    }
+    let Some(hit_position) = click.hit.position else {
+        return;
+    };
+    click.propagate(false);
+
+    clear_adt_selection(&mut commands, &mut editor, &mut terrain, &mut meshes);
 
     let Ok((adt_coordinates, mut entity_mesh)) = adt_entities.get_mut(click.entity) else {
         return;
     };
-    let coordinates = (adt_coordinates.x as usize, adt_coordinates.y as usize);
-    if !terrain.loaded_adts.contains_key(&coordinates) {
+    let adt_coordinates = *adt_coordinates;
+
+    if !terrain.loaded_adts.contains_key(&adt_coordinates) {
         return;
     }
-    let adt = if let Some(adt) = editor.edited_adts.remove(&coordinates) {
-        adt
-    } else {
-        let map_path = format!(
-            "World\\Maps\\{}\\{}_{}_{}.adt",
-            terrain.map_name, terrain.map_name, coordinates.0, coordinates.1
-        );
-        let Ok(map_file_buf) = mpqs.mpqs.read_file_concurrent(&map_path) else {
-            return;
-        };
-        let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {
-            return;
-        };
-        *adt
+    let Some(adt) = editor.get_adt(adt_coordinates, &terrain, &mpqs) else {
+        return;
     };
-    let edit_mesh = meshes.add(adt_to_edit_mesh(
-        &adt,
-        adt_center(coordinates.0, coordinates.1),
-    ));
+    let edit_mesh = meshes.add(adt_to_mesh(&adt, adt_coordinates.center()));
     entity_mesh.0 = edit_mesh.clone();
     let chunk_index = adt
         .mcnk_chunks
@@ -152,14 +216,14 @@ pub(super) fn select_adt_chunk(
         .map(|(index, _)| index)
         .unwrap();
 
-    if let Some(loaded_adt) = terrain.loaded_adts.get_mut(&coordinates) {
+    if let Some(loaded_adt) = terrain.loaded_adts.get_mut(&adt_coordinates) {
         if loaded_adt.mesh != edit_mesh {
             meshes.remove(loaded_adt.mesh.id());
             loaded_adt.mesh = edit_mesh.clone();
         }
     }
 
-    let neighbor_coordinates = neighboring_adts_for_chunk(&adt, coordinates, chunk_index);
+    let neighbor_coordinates = neighboring_adts_for_chunk(&adt, adt_coordinates, chunk_index);
     for neighbor_coordinates in neighbor_coordinates {
         ensure_editable_neighbor(
             neighbor_coordinates,
@@ -170,29 +234,9 @@ pub(super) fn select_adt_chunk(
             &mut meshes,
         );
     }
-    let seam_links = build_seam_links(&adt, coordinates, chunk_index, &editor.edited_adts);
+    let seam_links = build_seam_links(&adt, adt_coordinates, chunk_index, &editor.edited_adts);
 
-    let point_mesh = editor
-        .point_mesh
-        .get_or_insert_with(|| meshes.add(Sphere::new(1.0)))
-        .clone();
-    let point_material = editor
-        .point_material
-        .get_or_insert_with(|| {
-            materials.add(StandardMaterial {
-                base_color: YELLOW.into(),
-                unlit: true,
-                ..Default::default()
-            })
-        })
-        .clone();
-    editor.active_point_material.get_or_insert_with(|| {
-        materials.add(StandardMaterial {
-            base_color: ORANGE.into(),
-            unlit: true,
-            ..Default::default()
-        })
-    });
+    let point_assets = editor.ensure_point_assets_loaded(&mut meshes, &mut materials);
 
     let point_entities = (0..EDIT_HEIGHTMAP_SIZE)
         .map(|vertex_index| {
@@ -202,8 +246,8 @@ pub(super) fn select_adt_chunk(
                         chunk_index,
                         vertex_index,
                     },
-                    Mesh3d(point_mesh.clone()),
-                    MeshMaterial3d(point_material.clone()),
+                    Mesh3d(point_assets.point_mesh.clone()),
+                    MeshMaterial3d(point_assets.point_material.clone()),
                     Transform::from_translation(heightmap_point_world(
                         &adt.mcnk_chunks[chunk_index],
                         vertex_index,
@@ -218,7 +262,7 @@ pub(super) fn select_adt_chunk(
 
     editor.selected = Some(SelectedTerrainChunk {
         adt,
-        coordinates,
+        coordinates: adt_coordinates,
         chunk_index,
         edit_mesh,
         point_entities,
@@ -228,9 +272,9 @@ pub(super) fn select_adt_chunk(
 
 fn neighboring_adts_for_chunk(
     adt: &RootAdt,
-    coordinates: (usize, usize),
+    coordinates: AdtPosition,
     chunk_index: usize,
-) -> HashSet<(usize, usize)> {
+) -> HashSet<AdtPosition> {
     let mut neighbors = HashSet::new();
     let chunk = &adt.mcnk_chunks[chunk_index];
     for vertex_index in 0..EDIT_HEIGHTMAP_SIZE {
@@ -249,11 +293,11 @@ fn neighboring_adts_for_chunk(
 }
 
 fn ensure_editable_neighbor(
-    coordinates: (usize, usize),
+    coordinates: AdtPosition,
     editor: &mut TerrainEditor,
     terrain: &mut TerrainMap,
     mpqs: &wow_mpq::PatchChain,
-    adt_entities: &mut Query<(&TerrainAdt, &mut Mesh3d)>,
+    adt_entities: &mut Query<(&AdtPosition, &mut Mesh3d)>,
     meshes: &mut Assets<Mesh>,
 ) {
     if editor.edited_adts.contains_key(&coordinates) {
@@ -265,7 +309,7 @@ fn ensure_editable_neighbor(
     };
     let map_path = format!(
         "World\\Maps\\{}\\{}_{}_{}.adt",
-        map_name, map_name, coordinates.0, coordinates.1
+        map_name, map_name, coordinates.x, coordinates.y
     );
     let Ok(map_file_buf) = mpqs.read_file_concurrent(&map_path) else {
         return;
@@ -273,24 +317,20 @@ fn ensure_editable_neighbor(
     let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {
         return;
     };
-    let adt = *adt;
-    let edit_mesh = meshes.add(adt_to_edit_mesh(
-        &adt,
-        adt_center(coordinates.0, coordinates.1),
-    ));
+    let edit_mesh = meshes.add(adt_to_mesh(&adt, coordinates.center()));
     meshes.remove(loaded_adt.mesh.id());
     loaded_adt.mesh = edit_mesh.clone();
     if let Ok((_, mut mesh)) = adt_entities.get_mut(loaded_adt.entity) {
         mesh.0 = edit_mesh;
     }
-    editor.edited_adts.insert(coordinates, adt);
+    editor.edited_adts.insert(coordinates, *adt);
 }
 
 fn build_seam_links(
     selected_adt: &RootAdt,
-    selected_coordinates: (usize, usize),
+    selected_coordinates: AdtPosition,
     selected_chunk_index: usize,
-    edited_adts: &HashMap<(usize, usize), RootAdt>,
+    edited_adts: &HashMap<AdtPosition, RootAdt>,
 ) -> HashMap<usize, Vec<SeamVertex>> {
     let mut links = HashMap::new();
     for vertex_index in 0..EDIT_HEIGHTMAP_SIZE {
@@ -333,22 +373,24 @@ fn build_seam_links(
 fn select_height_point(
     mut press: On<Pointer<Press>>,
     mut editor: ResMut<TerrainEditor>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut points: Query<&mut MeshMaterial3d<StandardMaterial>, With<HeightMapPoint>>,
 ) {
     if press.button != PointerButton::Primary {
         return;
     }
     press.propagate(false);
+
+    let point_assets = editor.ensure_point_assets_loaded(&mut meshes, &mut materials);
+
     if let Some(previous) = editor.active_point
         && let Ok(mut material) = points.get_mut(previous)
-        && let Some(point_material) = &editor.point_material
     {
-        material.0 = point_material.clone();
+        material.0 = point_assets.point_material;
     }
-    if let Ok(mut material) = points.get_mut(press.entity)
-        && let Some(active_material) = &editor.active_point_material
-    {
-        material.0 = active_material.clone();
+    if let Ok(mut material) = points.get_mut(press.entity) {
+        material.0 = point_assets.active_point_material.clone();
     }
     editor.active_point = Some(press.entity);
 }
@@ -416,7 +458,7 @@ fn drag_height_point(
             })
     };
 
-    let mut linked_vertices: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
+    let mut linked_vertices: HashMap<AdtPosition, Vec<(usize, usize)>> = HashMap::new();
     for link in links {
         linked_vertices
             .entry(link.coordinates)
@@ -497,19 +539,20 @@ fn matching_seam_vertices(adt: &RootAdt, seam_position: Vec2) -> Vec<(usize, usi
 }
 
 fn adjacent_adts_at_position(
-    selected_coordinates: (usize, usize),
+    selected_coordinates: AdtPosition,
     seam_position: Vec2,
-) -> Vec<(usize, usize)> {
+) -> Vec<AdtPosition> {
     const ADT_SIZE: f32 = CHUNK_SIZE * 16.0;
     const EDGE_EPSILON: f32 = 0.01;
     let mut coordinates = Vec::with_capacity(4);
-    for x in selected_coordinates.0.saturating_sub(1)..=(selected_coordinates.0 + 1).min(63) {
-        for y in selected_coordinates.1.saturating_sub(1)..=(selected_coordinates.1 + 1).min(63) {
-            let center = adt_center(x, y);
+    for x in selected_coordinates.y.saturating_sub(1)..=(selected_coordinates.x + 1).min(63) {
+        for y in selected_coordinates.x.saturating_sub(1)..=(selected_coordinates.y + 1).min(63) {
+            let pos = AdtPosition { x, y };
+            let center = pos.center();
             if (seam_position.x - center.x).abs() <= ADT_SIZE * 0.5 + EDGE_EPSILON
                 && (seam_position.y - center.y).abs() <= ADT_SIZE * 0.5 + EDGE_EPSILON
             {
-                coordinates.push((x, y));
+                coordinates.push(pos);
             }
         }
     }
@@ -538,52 +581,6 @@ fn apply_world_height(
         for &(chunk_index, vertex_index) in vertices {
             positions[chunk_index * EDIT_HEIGHTMAP_SIZE + vertex_index][1] = world_height;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_outer_heightmap_vertices_are_seam_points() {
-        for index in 0..9 {
-            assert!(is_chunk_edge_vertex(index));
-        }
-        for index in 8 * 17..EDIT_HEIGHTMAP_SIZE {
-            assert!(is_chunk_edge_vertex(index));
-        }
-        assert!(is_chunk_edge_vertex(17));
-        assert!(is_chunk_edge_vertex(25));
-        assert!(!is_chunk_edge_vertex(9));
-        assert!(!is_chunk_edge_vertex(21));
-        assert!(!is_chunk_edge_vertex(135));
-    }
-
-    #[test]
-    fn adt_boundary_positions_include_both_tiles() {
-        let selected = (32, 32);
-        let selected_center = adt_center(selected.0, selected.1);
-        let seam = selected_center + Vec2::new(CHUNK_SIZE * 8.0, 0.0);
-        let adjacent = adjacent_adts_at_position(selected, seam);
-
-        assert!(adjacent.contains(&selected));
-        assert!(adjacent.contains(&(31, 32)));
-        assert_eq!(adjacent.len(), 2);
-    }
-
-    #[test]
-    fn adt_corner_positions_include_four_tiles() {
-        let selected = (32, 32);
-        let selected_center = adt_center(selected.0, selected.1);
-        let corner = selected_center + Vec2::splat(CHUNK_SIZE * 8.0);
-        let adjacent = adjacent_adts_at_position(selected, corner);
-
-        assert_eq!(adjacent.len(), 4);
-        assert!(adjacent.contains(&(31, 31)));
-        assert!(adjacent.contains(&(31, 32)));
-        assert!(adjacent.contains(&(32, 31)));
-        assert!(adjacent.contains(&selected));
     }
 }
 
@@ -628,5 +625,49 @@ fn scale_height_points(
             _ => distance / viewport_height,
         };
         transform.scale = Vec3::splat((world_units_per_pixel * 4.0).clamp(0.08, 20.0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_outer_heightmap_vertices_are_seam_points() {
+        for index in 0..9 {
+            assert!(is_chunk_edge_vertex(index));
+        }
+        for index in 8 * 17..EDIT_HEIGHTMAP_SIZE {
+            assert!(is_chunk_edge_vertex(index));
+        }
+        assert!(is_chunk_edge_vertex(17));
+        assert!(is_chunk_edge_vertex(25));
+        assert!(!is_chunk_edge_vertex(9));
+        assert!(!is_chunk_edge_vertex(21));
+        assert!(!is_chunk_edge_vertex(135));
+    }
+
+    #[test]
+    fn adt_boundary_positions_include_both_tiles() {
+        let selected = AdtPosition { x: 32, y: 32 };
+        let seam = selected.center() + Vec2::new(CHUNK_SIZE * 8.0, 0.0);
+        let adjacent = adjacent_adts_at_position(selected, seam);
+
+        assert!(adjacent.contains(&selected));
+        assert!(adjacent.contains(&AdtPosition { x: 31, y: 32 }));
+        assert_eq!(adjacent.len(), 2);
+    }
+
+    #[test]
+    fn adt_corner_positions_include_four_tiles() {
+        let selected = AdtPosition { x: 32, y: 32 };
+        let corner = selected.center() + Vec2::splat(CHUNK_SIZE * 8.0);
+        let adjacent = adjacent_adts_at_position(selected, corner);
+
+        assert_eq!(adjacent.len(), 4);
+        assert!(adjacent.contains(&AdtPosition { x: 31, y: 31 }));
+        assert!(adjacent.contains(&AdtPosition { x: 31, y: 32 }));
+        assert!(adjacent.contains(&AdtPosition { x: 32, y: 31 }));
+        assert!(adjacent.contains(&selected));
     }
 }

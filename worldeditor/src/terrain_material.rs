@@ -20,8 +20,4 @@ impl MaterialExtension for TerrainMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/terrain_shader.wesl".into()
     }
-
-    //fn prepass_fragment_shader() -> ShaderRef {
-    //    "shaders/terrain_shader.wesl".into()
-    //}
 }

@@ -7,10 +7,6 @@ use wow_adt::{McnkChunk, RootAdt};
 
 use super::{ADT_CELLS_PER_GRID, CHUNK_SIZE};
 
-const OVERVIEW_VERTICES_PER_SIDE: usize = 5;
-const OVERVIEW_HEIGHTMAP_SIZE: usize = OVERVIEW_VERTICES_PER_SIDE * OVERVIEW_VERTICES_PER_SIDE;
-const OVERVIEW_INDICES_PER_CHUNK: usize =
-    (OVERVIEW_VERTICES_PER_SIDE - 1) * (OVERVIEW_VERTICES_PER_SIDE - 1) * 2 * 3;
 pub(super) const EDIT_HEIGHTMAP_SIZE: usize = 145;
 const EDIT_INDICES_PER_CHUNK: usize = 8 * 8 * 4 * 3;
 
@@ -22,41 +18,7 @@ struct TerrainChunkGeometry {
     position: Vec3,
 }
 
-pub(super) fn adt_center(x: usize, y: usize) -> Vec2 {
-    const ADT_SIZE: f32 = CHUNK_SIZE * ADT_CELLS_PER_GRID as f32;
-    Vec2::new((31.5 - x as f32) * ADT_SIZE, (31.5 - y as f32) * ADT_SIZE)
-}
-
-pub(super) fn adt_to_overview_mesh(adt: &RootAdt, center: Vec2) -> Mesh {
-    let chunk_count = ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID;
-    let mut vertices = Vec::with_capacity(chunk_count * OVERVIEW_HEIGHTMAP_SIZE);
-    let mut normals = Vec::with_capacity(chunk_count * OVERVIEW_HEIGHTMAP_SIZE);
-    let mut uvs = Vec::with_capacity(chunk_count * OVERVIEW_HEIGHTMAP_SIZE);
-    let mut indices = Vec::with_capacity(chunk_count * OVERVIEW_INDICES_PER_CHUNK);
-    let horizontal_scale = CHUNK_SIZE / 8.0;
-
-    for chunk_x in 0..ADT_CELLS_PER_GRID {
-        for chunk_y in 0..ADT_CELLS_PER_GRID {
-            let geometry =
-                overview_chunk_geometry(&adt.mcnk_chunks[chunk_x * ADT_CELLS_PER_GRID + chunk_y]);
-            append_chunk_geometry(
-                geometry,
-                center,
-                chunk_x,
-                chunk_y,
-                horizontal_scale,
-                &mut vertices,
-                &mut normals,
-                &mut uvs,
-                &mut indices,
-            );
-        }
-    }
-
-    build_mesh(vertices, normals, uvs, indices)
-}
-
-pub(super) fn adt_to_edit_mesh(adt: &RootAdt, center: Vec2) -> Mesh {
+pub(super) fn adt_to_mesh(adt: &RootAdt, center: Vec2) -> Mesh {
     let chunk_count = ADT_CELLS_PER_GRID * ADT_CELLS_PER_GRID;
     let mut vertices = Vec::with_capacity(chunk_count * EDIT_HEIGHTMAP_SIZE);
     let mut normals = Vec::with_capacity(chunk_count * EDIT_HEIGHTMAP_SIZE);
@@ -67,7 +29,7 @@ pub(super) fn adt_to_edit_mesh(adt: &RootAdt, center: Vec2) -> Mesh {
     for chunk_x in 0..ADT_CELLS_PER_GRID {
         for chunk_y in 0..ADT_CELLS_PER_GRID {
             let geometry =
-                native_chunk_geometry(&adt.mcnk_chunks[chunk_x * ADT_CELLS_PER_GRID + chunk_y]);
+                generate_chunk_geometry(&adt.mcnk_chunks[chunk_x * ADT_CELLS_PER_GRID + chunk_y]);
             append_chunk_geometry(
                 geometry,
                 center,
@@ -143,50 +105,7 @@ fn build_mesh(
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
 }
 
-fn overview_chunk_geometry(chunk: &McnkChunk) -> TerrainChunkGeometry {
-    let heights = chunk.heights.as_ref().unwrap();
-    let normals_chunk = chunk.normals.as_ref().unwrap();
-    let mut vertices = Vec::with_capacity(OVERVIEW_HEIGHTMAP_SIZE);
-    let mut normals = Vec::with_capacity(OVERVIEW_HEIGHTMAP_SIZE);
-    let mut uvs = Vec::with_capacity(OVERVIEW_HEIGHTMAP_SIZE);
-    let mut indices = Vec::with_capacity(OVERVIEW_INDICES_PER_CHUNK);
-
-    for grid_y in 0..OVERVIEW_VERTICES_PER_SIDE {
-        for grid_x in 0..OVERVIEW_VERTICES_PER_SIDE {
-            let x = grid_x * 2;
-            let y = grid_y * 2;
-            let source_index = y * 17 + x;
-            vertices.push([x as f32, heights.heights[source_index], y as f32]);
-            normals.push(chunk_normal(normals_chunk, source_index));
-            uvs.push([x as f32, y as f32]);
-        }
-    }
-
-    for y in 0..OVERVIEW_VERTICES_PER_SIDE - 1 {
-        for x in 0..OVERVIEW_VERTICES_PER_SIDE - 1 {
-            if chunk.header.is_hole_low_res(x, y) {
-                continue;
-            }
-
-            let top_left = (y * OVERVIEW_VERTICES_PER_SIDE + x) as u16;
-            let top_right = top_left + 1;
-            let bottom_left = top_left + OVERVIEW_VERTICES_PER_SIDE as u16;
-            let bottom_right = bottom_left + 1;
-            indices.extend_from_slice(&[
-                top_left,
-                bottom_left,
-                top_right,
-                top_right,
-                bottom_left,
-                bottom_right,
-            ]);
-        }
-    }
-
-    chunk_geometry_result(chunk, vertices, normals, uvs, indices)
-}
-
-fn native_chunk_geometry(chunk: &McnkChunk) -> TerrainChunkGeometry {
+fn generate_chunk_geometry(chunk: &McnkChunk) -> TerrainChunkGeometry {
     let heights = chunk.heights.as_ref().unwrap();
     let normals_chunk = chunk.normals.as_ref().unwrap();
     let mut vertices = vec![[0.0; 3]; EDIT_HEIGHTMAP_SIZE];
@@ -240,24 +159,6 @@ fn native_chunk_geometry(chunk: &McnkChunk) -> TerrainChunkGeometry {
         uvs[index] = [x as f32, 8.0];
     }
 
-    chunk_geometry_result(chunk, vertices, normals, uvs, indices)
-}
-
-fn chunk_normal(normals: &wow_adt::chunks::McnrChunk, index: usize) -> [f32; 3] {
-    [
-        -normals.normals[index].z as f32 / 127.0,
-        normals.normals[index].y as f32 / 127.0,
-        -normals.normals[index].x as f32 / 127.0,
-    ]
-}
-
-fn chunk_geometry_result(
-    chunk: &McnkChunk,
-    vertices: Vec<[f32; 3]>,
-    normals: Vec<[f32; 3]>,
-    uvs: Vec<[f32; 2]>,
-    indices: Vec<u16>,
-) -> TerrainChunkGeometry {
     TerrainChunkGeometry {
         vertices,
         normals,
@@ -269,6 +170,14 @@ fn chunk_geometry_result(
             chunk.header.position[0],
         ),
     }
+}
+
+fn chunk_normal(normals: &wow_adt::chunks::McnrChunk, index: usize) -> [f32; 3] {
+    [
+        -normals.normals[index].z as f32 / 127.0,
+        normals.normals[index].y as f32 / 127.0,
+        -normals.normals[index].x as f32 / 127.0,
+    ]
 }
 
 pub(super) fn heightmap_point_world(chunk: &McnkChunk, vertex_index: usize) -> Vec3 {

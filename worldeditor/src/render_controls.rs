@@ -10,7 +10,7 @@ use bevy::{
     },
 };
 
-use crate::map_loader::{RenderedObject, TerrainAdt};
+use crate::map_loader::{AdtPosition, RenderedObject};
 
 const PANEL: Color = Color::srgba(0.055, 0.065, 0.075, 0.94);
 const TEXT: Color = Color::srgb(0.91, 0.93, 0.94);
@@ -143,6 +143,7 @@ fn spawn_checkbox<M: Component>(
             CheckboxMark,
             Text::new(if checked { "x" } else { "" }),
             TextFont::from_font_size(14.0),
+            TextLayout::justify(Justify::Center),
             TextColor(TEXT),
             Node {
                 width: px(18),
@@ -339,7 +340,7 @@ pub fn apply_render_visibility(
     settings: Res<RenderSettings>,
     mut adts: Query<
         (&mut Visibility, &mut VisibilityRange),
-        (With<TerrainAdt>, Without<RenderedObject>),
+        (With<AdtPosition>, Without<RenderedObject>),
     >,
     mut objects: Query<&mut Visibility, With<RenderedObject>>,
 ) {

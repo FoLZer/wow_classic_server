@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::Cursor,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use bevy::{
@@ -12,22 +12,36 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use byteorder::{ByteOrder, LittleEndian};
+use dashmap::DashMap;
 use wow_adt::{DoodadPlacement, RootAdt, WmoPlacement};
 use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_m2::parse_m2;
 use wow_mpq::PatchChain;
 use wow_wmo::{ParsedWmo, discover_wmo_chunks, parse_wmo};
 
-use crate::mpq_read_file;
+use crate::{map_loader::AdtPosition, mpq_read_file};
 
 use super::{ADT_CELLS_PER_GRID, ADT_GRID_SIZE, ADT_SIZE, CHUNK_SIZE};
 
 const MAP_HALF_SIZE: f32 = ADT_GRID_SIZE as f32 * ADT_CELLS_PER_GRID as f32 * CHUNK_SIZE * 0.5;
 
+enum PreparedObjectAsset {
+    M2(Vec<PreparedObjectPart>),
+    Wmo(PreparedWmoAsset),
+}
+
 #[derive(Clone)]
 enum ObjectAsset {
     M2(Vec<ObjectPart>),
     Wmo(WmoAsset),
+}
+
+struct PreparedObjectPart {
+    mesh: Mutex<Option<Mesh>>,
+    texture_key: Option<String>,
+    double_sided: bool,
+    opacity: f32,
+    alpha_mode: AlphaMode,
 }
 
 #[derive(Clone)]
@@ -36,10 +50,21 @@ struct ObjectPart {
     material: Handle<StandardMaterial>,
 }
 
+struct PreparedWmoAsset {
+    parts: Vec<PreparedObjectPart>,
+    doodad_sets: Vec<Vec<PreparedWmoDoodad>>,
+}
+
 #[derive(Clone)]
 struct WmoAsset {
     parts: Vec<ObjectPart>,
     doodad_sets: Vec<Vec<WmoDoodad>>,
+}
+
+struct PreparedWmoDoodad {
+    filename: String,
+    asset: Arc<PreparedObjectAsset>,
+    transform: Transform,
 }
 
 #[derive(Clone)]
@@ -50,11 +75,18 @@ struct WmoDoodad {
 }
 
 #[derive(Default)]
+pub(super) struct PreparedObjectCache {
+    assets: DashMap<String, Option<Arc<PreparedObjectAsset>>>,
+    textures: DashMap<String, Option<Image>>,
+}
+
+#[derive(Default)]
 pub(super) struct ObjectCache {
     assets: HashMap<String, Option<Arc<ObjectAsset>>>,
     textures: HashMap<String, Option<Handle<Image>>>,
 }
 
+#[derive(Clone)]
 pub(super) struct AdtObjectPlacements {
     models: Vec<String>,
     model_indices: Vec<u32>,
@@ -77,66 +109,62 @@ impl AdtObjectPlacements {
     }
 }
 
+pub(super) struct ObjectsLoadResult {
+    doodads: Vec<(String, Arc<PreparedObjectAsset>, Transform)>,
+    wmos: Vec<(String, Arc<PreparedObjectAsset>, usize, Transform)>,
+}
+
+pub(super) struct WorldWmoPlacement {
+    pub filename: String,
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+    pub doodad_set: u16,
+    pub scale: u16,
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(super) fn spawn_adt_objects(
+pub(super) fn spawn_prepared_adt_objects(
     commands: &mut Commands,
-    adt: &AdtObjectPlacements,
-    adt_coordinates: (usize, usize),
+    objects: ObjectsLoadResult,
     adt_center: Vec2,
-    mpqs: &PatchChain,
+    prepared_cache: &PreparedObjectCache,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
 ) -> Entity {
-    let model_filenames = index_filenames(&adt.models);
-    let wmo_filenames = index_filenames(&adt.wmos);
-    let mut doodads = Vec::new();
-    for placement in &adt.doodad_placements {
-        if placement_owner(placement.position) != adt_coordinates {
-            continue;
-        }
-        let Some(filename) = resolve_filename(
-            &model_filenames,
-            &adt.model_indices,
-            placement.name_id as usize,
-        ) else {
-            warn!("Doodad {} references an invalid model", placement.unique_id);
-            continue;
-        };
-        if let Some(asset) = load_object(filename, mpqs, cache, meshes, materials, images)
-            && matches!(asset.as_ref(), ObjectAsset::M2(_))
-        {
-            doodads.push((
-                filename.to_owned(),
+    let doodads = objects
+        .doodads
+        .into_iter()
+        .filter_map(|(filename, asset, transform)| {
+            finalize_object_asset(
+                &filename,
                 asset,
-                doodad_transform(placement, adt_center),
-            ));
-        }
-    }
-
-    let mut wmos = Vec::new();
-    for placement in &adt.wmo_placements {
-        if placement_owner(placement.position) != adt_coordinates {
-            continue;
-        }
-        let Some(filename) =
-            resolve_filename(&wmo_filenames, &adt.wmo_indices, placement.name_id as usize)
-        else {
-            warn!("WMO {} references an invalid model", placement.unique_id);
-            continue;
-        };
-        if let Some(asset) = load_object(filename, mpqs, cache, meshes, materials, images)
-            && matches!(asset.as_ref(), ObjectAsset::Wmo(_))
-        {
-            wmos.push((
-                filename.to_owned(),
+                prepared_cache,
+                cache,
+                meshes,
+                materials,
+                images,
+            )
+            .map(|asset| (filename, asset, transform))
+        })
+        .collect::<Vec<_>>();
+    let wmos = objects
+        .wmos
+        .into_iter()
+        .filter_map(|(filename, asset, doodad_set, transform)| {
+            finalize_object_asset(
+                &filename,
                 asset,
-                placement.doodad_set as usize,
-                wmo_transform(placement, adt_center),
-            ));
-        }
-    }
+                prepared_cache,
+                cache,
+                meshes,
+                materials,
+                images,
+            )
+            .map(|asset| (filename, asset, doodad_set, transform))
+        })
+        .collect::<Vec<_>>();
 
     let objects_entity = commands
         .spawn((
@@ -166,40 +194,96 @@ pub(super) fn spawn_adt_objects(
     objects_entity
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn spawn_world_wmo(
-    commands: &mut Commands,
-    filename: &str,
-    position: [f32; 3],
-    rotation: [f32; 3],
-    doodad_set: u16,
-    scale: u16,
+pub(super) fn load_adt_objects(
+    adt: &AdtObjectPlacements,
+    adt_coordinates: AdtPosition,
+    adt_center: Vec2,
     mpqs: &PatchChain,
-    cache: &mut ObjectCache,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    images: &mut Assets<Image>,
-) -> Option<Entity> {
-    let asset = load_object(filename, mpqs, cache, meshes, materials, images)?;
-    let ObjectAsset::Wmo(asset) = asset.as_ref() else {
-        return None;
-    };
-    let scale = if scale == 0 {
-        1.0
-    } else {
-        f32::from(scale) / 1024.0
-    };
-    let entity = commands
-        .spawn((
-            Name::new(filename.to_owned()),
-            placement_transform(position, rotation, scale, Vec2::ZERO),
-            Visibility::default(),
-        ))
-        .id();
-    commands
-        .entity(entity)
-        .with_children(|parent| spawn_wmo_contents(parent, asset, doodad_set as usize));
-    Some(entity)
+    cache: &PreparedObjectCache,
+) -> ObjectsLoadResult {
+    let model_filenames = index_filenames(&adt.models);
+    let wmo_filenames = index_filenames(&adt.wmos);
+    let mut doodads = Vec::new();
+    for placement in &adt.doodad_placements {
+        if placement_owner(placement.position) != adt_coordinates {
+            continue;
+        }
+        let Some(filename) = resolve_filename(
+            &model_filenames,
+            &adt.model_indices,
+            placement.name_id as usize,
+        ) else {
+            warn!("Doodad {} references an invalid model", placement.unique_id);
+            continue;
+        };
+        if let Some(asset) = load_object(filename, mpqs, cache)
+            && matches!(asset.as_ref(), PreparedObjectAsset::M2(_))
+        {
+            doodads.push((
+                filename.to_owned(),
+                asset,
+                doodad_transform(placement, adt_center),
+            ));
+        }
+    }
+
+    let mut wmos = Vec::new();
+    for placement in &adt.wmo_placements {
+        if placement_owner(placement.position) != adt_coordinates {
+            continue;
+        }
+        let Some(filename) =
+            resolve_filename(&wmo_filenames, &adt.wmo_indices, placement.name_id as usize)
+        else {
+            warn!("WMO {} references an invalid model", placement.unique_id);
+            continue;
+        };
+        if let Some(asset) = load_object(filename, mpqs, cache)
+            && matches!(asset.as_ref(), PreparedObjectAsset::Wmo(_))
+        {
+            wmos.push((
+                filename.to_owned(),
+                asset,
+                placement.doodad_set as usize,
+                wmo_transform(placement, adt_center),
+            ));
+        }
+    }
+
+    ObjectsLoadResult { doodads, wmos }
+}
+
+pub(super) fn load_world_wmos(
+    placements: Vec<WorldWmoPlacement>,
+    mpqs: &PatchChain,
+    cache: &PreparedObjectCache,
+) -> ObjectsLoadResult {
+    let wmos = placements
+        .into_iter()
+        .filter_map(|placement| {
+            let asset = load_object(&placement.filename, mpqs, cache)?;
+            if !matches!(asset.as_ref(), PreparedObjectAsset::Wmo(_)) {
+                return None;
+            }
+            let scale = if placement.scale == 0 {
+                1.0
+            } else {
+                f32::from(placement.scale) / 1024.0
+            };
+            let transform =
+                placement_transform(placement.position, placement.rotation, scale, Vec2::ZERO);
+            Some((
+                placement.filename,
+                asset,
+                placement.doodad_set as usize,
+                transform,
+            ))
+        })
+        .collect();
+    ObjectsLoadResult {
+        doodads: Vec::new(),
+        wmos,
+    }
 }
 
 fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: &[ObjectPart]) {
@@ -238,9 +322,11 @@ fn spawn_wmo_doodads(parent: &mut ChildSpawnerCommands, doodads: &[WmoDoodad]) {
     }
 }
 
-fn load_object(
+#[allow(clippy::too_many_arguments)]
+fn finalize_object_asset(
     filename: &str,
-    mpqs: &PatchChain,
+    prepared: Arc<PreparedObjectAsset>,
+    prepared_cache: &PreparedObjectCache,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
@@ -251,10 +337,120 @@ fn load_object(
         return asset.clone();
     }
 
+    let asset = match prepared.as_ref() {
+        PreparedObjectAsset::M2(parts) => ObjectAsset::M2(finalize_object_parts(
+            parts,
+            Color::srgb(0.32, 0.48, 0.24),
+            prepared_cache,
+            cache,
+            meshes,
+            materials,
+            images,
+        )),
+        PreparedObjectAsset::Wmo(wmo) => {
+            let parts = finalize_object_parts(
+                &wmo.parts,
+                Color::srgb(0.48, 0.45, 0.39),
+                prepared_cache,
+                cache,
+                meshes,
+                materials,
+                images,
+            );
+            let doodad_sets = wmo
+                .doodad_sets
+                .iter()
+                .map(|doodads| {
+                    doodads
+                        .iter()
+                        .filter_map(|doodad| {
+                            finalize_object_asset(
+                                &doodad.filename,
+                                doodad.asset.clone(),
+                                prepared_cache,
+                                cache,
+                                meshes,
+                                materials,
+                                images,
+                            )
+                            .map(|asset| WmoDoodad {
+                                filename: doodad.filename.clone(),
+                                asset,
+                                transform: doodad.transform,
+                            })
+                        })
+                        .collect()
+                })
+                .collect();
+            ObjectAsset::Wmo(WmoAsset { parts, doodad_sets })
+        }
+    };
+    let asset = Arc::new(asset);
+    cache.assets.insert(key, Some(asset.clone()));
+    Some(asset)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finalize_object_parts(
+    parts: &[PreparedObjectPart],
+    fallback_color: Color,
+    prepared_cache: &PreparedObjectCache,
+    cache: &mut ObjectCache,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+) -> Vec<ObjectPart> {
+    parts
+        .iter()
+        .filter_map(|part| {
+            let texture = part.texture_key.as_deref().and_then(|key| {
+                if let Some(texture) = cache.textures.get(key) {
+                    return texture.clone();
+                }
+                let texture = prepared_cache
+                    .textures
+                    .get_mut(key)
+                    .and_then(|mut v| v.take())
+                    .map(|image| images.add(image));
+                cache.textures.insert(key.to_owned(), texture.clone());
+                texture
+            });
+            let mut material = StandardMaterial {
+                base_color: if texture.is_some() {
+                    Color::WHITE.with_alpha(part.opacity)
+                } else {
+                    fallback_color.with_alpha(part.opacity)
+                },
+                base_color_texture: texture,
+                alpha_mode: part.alpha_mode,
+                unlit: true,
+                ..default()
+            };
+            if part.double_sided {
+                material.cull_mode = None;
+            }
+            Some(ObjectPart {
+                mesh: meshes.add(part.mesh.lock().unwrap().take()?),
+                material: materials.add(material),
+            })
+        })
+        .collect()
+}
+
+fn load_object(
+    filename: &str,
+    mpqs: &PatchChain,
+    cache: &PreparedObjectCache,
+) -> Option<Arc<PreparedObjectAsset>> {
+    let key = filename.to_ascii_lowercase();
+    if let Some(asset) = cache.assets.get(&key) {
+        return asset.clone();
+    }
+
     let asset = if key.ends_with(".wmo") {
-        load_wmo(filename, mpqs, cache, meshes, materials, images).map(ObjectAsset::Wmo)
+        load_wmo(filename, mpqs, cache).map(PreparedObjectAsset::Wmo)
     } else {
-        load_m2(filename, mpqs, cache, meshes, materials, images).map(ObjectAsset::M2)
+        load_m2(filename, mpqs, cache).map(PreparedObjectAsset::M2)
     }
     .map(Arc::new);
     if asset.is_none() {
@@ -264,21 +460,18 @@ fn load_object(
     asset
 }
 
-fn placement_owner(position: [f32; 3]) -> (usize, usize) {
-    (
-        (position[0] / ADT_SIZE).floor() as usize,
-        (position[2] / ADT_SIZE).floor() as usize,
-    )
+fn placement_owner(position: [f32; 3]) -> AdtPosition {
+    AdtPosition {
+        x: (position[0] / ADT_SIZE).floor() as usize,
+        y: (position[2] / ADT_SIZE).floor() as usize,
+    }
 }
 
 fn load_m2(
     filename: &str,
     mpqs: &PatchChain,
-    cache: &mut ObjectCache,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    images: &mut Assets<Image>,
-) -> Option<Vec<ObjectPart>> {
+    cache: &PreparedObjectCache,
+) -> Option<Vec<PreparedObjectPart>> {
     let data = match mpq_read_file(mpqs, filename) {
         Ok(data) => data,
         Err(error) => {
@@ -313,15 +506,7 @@ fn load_m2(
     if !unresolved_types.is_empty() {
         debug!("M2 {filename} has unresolved replacement textures {unresolved_types:?}");
     }
-    Some(build_object_parts(
-        mesh_data,
-        Color::srgb(0.32, 0.48, 0.24),
-        mpqs,
-        cache,
-        meshes,
-        materials,
-        images,
-    ))
+    Some(build_object_parts(mesh_data, mpqs, cache))
 }
 
 struct M2MeshData {
@@ -655,13 +840,9 @@ fn read_f32(data: &[u8], offset: usize) -> Result<f32, String> {
 #[allow(clippy::too_many_arguments)]
 fn build_object_parts(
     mut mesh_data: M2MeshData,
-    fallback_color: Color,
     mpqs: &PatchChain,
-    cache: &mut ObjectCache,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    images: &mut Assets<Image>,
-) -> Vec<ObjectPart> {
+    cache: &PreparedObjectCache,
+) -> Vec<PreparedObjectPart> {
     if mesh_data.batches.is_empty() {
         mesh_data.batches.push(ObjectBatch {
             indices: mesh_data.indices.clone(),
@@ -681,43 +862,27 @@ fn build_object_parts(
             let texture = batch
                 .texture
                 .as_deref()
-                .and_then(|filename| load_object_texture(filename, mpqs, cache, images));
-            let mut material = StandardMaterial {
-                base_color: if texture.is_some() {
-                    Color::WHITE.with_alpha(batch.opacity)
-                } else {
-                    fallback_color.with_alpha(batch.opacity)
-                },
-                base_color_texture: texture,
-                alpha_mode: batch.alpha_mode,
-                unlit: true,
-                ..default()
-            };
-            if batch.double_sided {
-                material.cull_mode = None;
-            }
-            ObjectPart {
-                mesh: meshes.add(build_mesh(
+                .map(|filename| load_object_texture(filename, mpqs, cache));
+            PreparedObjectPart {
+                mesh: Mutex::new(Some(build_mesh(
                     mesh_data.positions.clone(),
                     mesh_data.normals.clone(),
                     mesh_data.uvs.clone(),
                     batch.indices,
-                )),
-                material: materials.add(material),
+                ))),
+                texture_key: texture,
+                double_sided: batch.double_sided,
+                opacity: batch.opacity,
+                alpha_mode: batch.alpha_mode,
             }
         })
         .collect()
 }
 
-fn load_object_texture(
-    filename: &str,
-    mpqs: &PatchChain,
-    cache: &mut ObjectCache,
-    images: &mut Assets<Image>,
-) -> Option<Handle<Image>> {
+fn load_object_texture(filename: &str, mpqs: &PatchChain, cache: &PreparedObjectCache) -> String {
     let key = filename.to_ascii_lowercase();
-    if let Some(texture) = cache.textures.get(&key) {
-        return texture.clone();
+    if cache.textures.contains_key(&key) {
+        return key;
     }
 
     let texture = mpq_read_file(mpqs, filename)
@@ -754,10 +919,10 @@ fn load_object_texture(
                 mipmap_filter: ImageFilterMode::Linear,
                 ..default()
             });
-            images.add(image)
+            image
         });
-    cache.textures.insert(key, texture.clone());
-    texture
+    cache.textures.insert(key.clone(), texture);
+    key
 }
 
 fn alpha_mode(blend_mode: u16) -> AlphaMode {
@@ -810,11 +975,8 @@ fn fixed_i16_alpha(values: &[u8]) -> Option<f32> {
 fn load_wmo(
     filename: &str,
     mpqs: &PatchChain,
-    cache: &mut ObjectCache,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    images: &mut Assets<Image>,
-) -> Option<WmoAsset> {
+    cache: &PreparedObjectCache,
+) -> Option<PreparedWmoAsset> {
     let root_data = mpq_read_file(mpqs, filename).ok()?;
     let doodad_names = wmo_doodad_names(&root_data);
     let ParsedWmo::Root(root) = parse_wmo(&mut Cursor::new(&root_data)).ok()? else {
@@ -901,12 +1063,8 @@ fn load_wmo(
                 indices,
                 batches,
             },
-            Color::srgb(0.48, 0.45, 0.39),
             mpqs,
             cache,
-            meshes,
-            materials,
-            images,
         ));
     }
 
@@ -923,11 +1081,11 @@ fn load_wmo(
                 .filter_map(|index| {
                     let definition = root.doodad_defs.get(index)?;
                     let filename = doodad_names.get(&definition.name_index())?.clone();
-                    let asset = load_object(&filename, mpqs, cache, meshes, materials, images)?;
-                    if !matches!(asset.as_ref(), ObjectAsset::M2(_)) {
+                    let asset = load_object(&filename, mpqs, cache)?;
+                    if !matches!(asset.as_ref(), PreparedObjectAsset::M2(_)) {
                         return None;
                     }
-                    Some(WmoDoodad {
+                    Some(PreparedWmoDoodad {
                         filename,
                         asset,
                         transform: wmo_doodad_transform(
@@ -941,7 +1099,7 @@ fn load_wmo(
         })
         .collect();
 
-    (!object_parts.is_empty()).then_some(WmoAsset {
+    (!object_parts.is_empty()).then_some(PreparedWmoAsset {
         parts: object_parts,
         doodad_sets,
     })
@@ -1155,7 +1313,8 @@ mod tests {
     fn adt_object_root_restores_world_position() {
         let center = Vec2::new(MAP_HALF_SIZE - 150.0, MAP_HALF_SIZE - 80.0);
         let local = placement_transform([100.0, 200.0, 30.0], [0.0; 3], 1.0, center);
-        let world_translation = adt_object_root_transform(center).transform_point(local.translation);
+        let world_translation =
+            adt_object_root_transform(center).transform_point(local.translation);
 
         assert_eq!(
             world_translation,
@@ -1172,8 +1331,14 @@ mod tests {
 
     #[test]
     fn placement_owner_uses_origin_tile() {
-        assert_eq!(placement_owner([0.0, 10.0, 0.0]), (0, 0));
-        assert_eq!(placement_owner([ADT_SIZE, 10.0, ADT_SIZE * 2.0]), (1, 2));
+        assert_eq!(
+            placement_owner([0.0, 10.0, 0.0]),
+            AdtPosition { x: 0, y: 0 }
+        );
+        assert_eq!(
+            placement_owner([ADT_SIZE, 10.0, ADT_SIZE * 2.0]),
+            AdtPosition { x: 1, y: 2 }
+        );
     }
 
     #[test]

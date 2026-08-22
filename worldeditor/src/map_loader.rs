@@ -3,7 +3,7 @@ mod geometry;
 mod material;
 mod object_loader;
 
-use std::{collections::HashMap, io::Cursor, time::Instant};
+use std::{collections::HashMap, io::Cursor, sync::Arc, time::Instant};
 
 use bevy::{
     camera::visibility::VisibilityRange,
@@ -15,16 +15,26 @@ use wow_adt::{ParsedAdt, RootAdt, parse_adt};
 use wow_mpq::PatchChain;
 use wow_wdt::{WdtFile, WdtReader, chunks::MphdFlags, version::WowVersion};
 
-use crate::{MPQResource, render_controls::RenderSettings, terrain_material::TerrainMaterial};
+use crate::{
+    MPQResource,
+    map_loader::{
+        geometry::adt_to_mesh,
+        object_loader::{
+            ObjectsLoadResult, PreparedObjectCache, WorldWmoPlacement, load_adt_objects,
+            load_world_wmos, spawn_prepared_adt_objects,
+        },
+    },
+    render_controls::RenderSettings,
+    terrain_material::TerrainMaterial,
+};
 
 pub use editor::TerrainEditorPlugin;
 use editor::{TerrainEditor, select_adt_chunk};
-use geometry::{adt_center, adt_to_overview_mesh};
 use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
 };
-use object_loader::{AdtObjectPlacements, ObjectCache, spawn_adt_objects, spawn_world_wmo};
+use object_loader::{AdtObjectPlacements, ObjectCache};
 
 pub(super) const ADT_CELLS_PER_GRID: usize = 16;
 const ADT_GRID_SIZE: usize = 64;
@@ -34,6 +44,7 @@ const ADT_HALF_DIAGONAL: f32 = ADT_SIZE * std::f32::consts::FRAC_1_SQRT_2;
 const STREAM_BUFFER: f32 = ADT_SIZE;
 const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
 const MAX_PENDING_ADTS: usize = 32;
+const MAX_PENDING_OBJECT_ADTS: usize = 1;
 
 pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Option<Transform> {
     let map_dbc = {
@@ -80,10 +91,13 @@ pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Opt
         map_name: directory.to_owned(),
         loaded_adts: HashMap::new(),
         loading_adts: HashMap::new(),
+        loading_objects: HashMap::new(),
         texture_cache: HashMap::new(),
         texture_array: None,
         object_cache: ObjectCache::default(),
+        prepared_object_cache: Arc::new(PreparedObjectCache::default()),
         world_wmos,
+        loading_world_wmos: None,
         world_wmos_loaded: false,
         last_update_position: None,
         loading: true,
@@ -118,8 +132,7 @@ impl TerrainLoadMetrics {
 }
 
 struct PreparedAdt {
-    x: usize,
-    y: usize,
+    pos: AdtPosition,
     adt: RootAdt,
     mesh: Mesh,
     material_maps: PreparedMaterialMaps,
@@ -140,22 +153,35 @@ pub struct TerrainMap {
     wdt: WdtFile,
     map_name: String,
     has_big_alpha: bool,
-    loaded_adts: HashMap<(usize, usize), LoadedAdt>,
-    loading_adts: HashMap<(usize, usize), Task<PreparedAdt>>,
+    loaded_adts: HashMap<AdtPosition, LoadedAdt>,
+    loading_adts: HashMap<AdtPosition, Task<PreparedAdt>>,
+    loading_objects: HashMap<AdtPosition, Task<ObjectsLoadResult>>,
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
     object_cache: ObjectCache,
+    prepared_object_cache: Arc<PreparedObjectCache>,
     world_wmos: Vec<WorldWmo>,
+    loading_world_wmos: Option<Task<ObjectsLoadResult>>,
     world_wmos_loaded: bool,
     last_update_position: Option<Vec2>,
     loading: bool,
     metrics: TerrainLoadMetrics,
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TerrainAdt {
-    pub x: u8,
-    pub y: u8,
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AdtPosition {
+    pub x: usize,
+    pub y: usize,
+}
+
+impl AdtPosition {
+    pub fn center(&self) -> Vec2 {
+        const ADT_SIZE: f32 = CHUNK_SIZE * ADT_CELLS_PER_GRID as f32;
+        Vec2::new(
+            (31.5 - self.x as f32) * ADT_SIZE,
+            (31.5 - self.y as f32) * ADT_SIZE,
+        )
+    }
 }
 
 #[derive(Component)]
@@ -181,7 +207,12 @@ pub fn stream_terrain_chunks(
     let camera_moved = terrain.last_update_position.is_none_or(|position| {
         position.distance_squared(camera_position) >= STREAM_UPDATE_DISTANCE.powi(2)
     });
-    if !camera_moved && !terrain.loading && !render_settings.is_changed() {
+    if !camera_moved
+        && !terrain.loading
+        && terrain.loading_objects.is_empty()
+        && terrain.world_wmos_loaded
+        && !render_settings.is_changed()
+    {
         return;
     }
     if camera_moved {
@@ -194,13 +225,14 @@ pub fn stream_terrain_chunks(
     let mut adts_to_load = Vec::new();
     for y in 0..ADT_GRID_SIZE {
         for x in 0..ADT_GRID_SIZE {
+            let pos = AdtPosition { x, y };
             if !terrain.wdt.main.entries[y][x].has_adt()
-                || terrain.loaded_adts.contains_key(&(x, y))
-                || terrain.loading_adts.contains_key(&(x, y))
+                || terrain.loaded_adts.contains_key(&pos)
+                || terrain.loading_adts.contains_key(&pos)
             {
                 continue;
             }
-            let distance_squared = adt_center(x, y).distance_squared(camera_position);
+            let distance_squared = pos.center().distance_squared(camera_position);
             if distance_squared <= load_distance.powi(2) {
                 adts_to_load.push((distance_squared, x, y));
             }
@@ -211,14 +243,15 @@ pub fn stream_terrain_chunks(
     let adts_to_unload = terrain
         .loaded_adts
         .iter()
-        .filter_map(|(&(x, y), _)| {
-            (!editor.retains_adt((x, y))
-                && adt_center(x, y).distance_squared(camera_position) > unload_distance_squared)
-                .then_some((x, y))
+        .filter_map(|(&pos, _)| {
+            (!editor.retains_adt(pos)
+                && pos.center().distance_squared(camera_position) > unload_distance_squared)
+                .then_some(pos)
         })
         .collect::<Vec<_>>();
 
     for coordinates in adts_to_unload {
+        terrain.loading_objects.remove(&coordinates);
         let loaded_adt = terrain.loaded_adts.remove(&coordinates).unwrap();
         if let Some(objects) = loaded_adt.objects {
             commands.entity(objects).despawn();
@@ -231,8 +264,8 @@ pub fn stream_terrain_chunks(
         }
     }
 
-    terrain.loading_adts.retain(|&(x, y), _| {
-        adt_center(x, y).distance_squared(camera_position) <= unload_distance_squared
+    terrain.loading_adts.retain(|&pos, _| {
+        pos.center().distance_squared(camera_position) <= unload_distance_squared
     });
 
     let ready_adts = terrain
@@ -256,36 +289,35 @@ pub fn stream_terrain_chunks(
         );
     }
 
-    if !terrain.world_wmos_loaded {
-        spawn_world_wmos(
-            &mut commands,
-            &mut terrain,
-            &mpqs.mpqs,
-            &mut object_materials,
-            &mut meshes,
-            &mut images,
-            &render_settings,
-        );
-        terrain.world_wmos_loaded = true;
-    }
-
-    stream_adt_objects(
+    stream_world_wmos(
         &mut commands,
         &mut terrain,
-        camera_position,
         &mpqs.mpqs,
         &mut object_materials,
         &mut meshes,
         &mut images,
         &render_settings,
     );
+    if terrain.world_wmos_loaded {
+        stream_adt_objects(
+            &mut commands,
+            &mut terrain,
+            camera_position,
+            &mpqs.mpqs,
+            &mut object_materials,
+            &mut meshes,
+            &mut images,
+            &render_settings,
+        );
+    }
 
     let available_task_slots = MAX_PENDING_ADTS.saturating_sub(terrain.loading_adts.len());
     let adts_to_start = adts_to_load.len().min(available_task_slots);
     for (_, x, y) in adts_to_load.iter().take(adts_to_start).copied() {
+        let pos = AdtPosition { x, y };
         let map_path = format!(
             "World\\Maps\\{}\\{}_{}_{}.adt",
-            terrain.map_name, terrain.map_name, x, y
+            terrain.map_name, terrain.map_name, pos.x, pos.y
         );
         let has_big_alpha = terrain.has_big_alpha;
         let mpqs = mpqs.mpqs.clone();
@@ -294,17 +326,16 @@ pub fn stream_terrain_chunks(
             let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
             let ParsedAdt::Root(adt) = adt else { panic!() };
             let adt = *adt;
-            let mesh = adt_to_overview_mesh(&adt, adt_center(x, y));
+            let mesh = adt_to_mesh(&adt, pos.center());
             let material_maps = prepare_material_maps(&adt, has_big_alpha);
             PreparedAdt {
-                x,
-                y,
+                pos,
                 adt,
                 mesh,
                 material_maps,
             }
         });
-        terrain.loading_adts.insert((x, y), task);
+        terrain.loading_adts.insert(pos, task);
         terrain.metrics.completion_reported = false;
     }
 
@@ -373,39 +404,62 @@ fn wmo_position_to_world(position: [f32; 3]) -> Vec3 {
     )
 }
 
-fn spawn_world_wmos(
+fn stream_world_wmos(
     commands: &mut Commands,
     terrain: &mut TerrainMap,
-    mpqs: &PatchChain,
+    mpqs: &Arc<PatchChain>,
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     render_settings: &RenderSettings,
 ) {
-    let (world_wmos, object_cache) = (&terrain.world_wmos, &mut terrain.object_cache);
-    for world_wmo in world_wmos {
-        if let Some(entity) = spawn_world_wmo(
+    if terrain.world_wmos_loaded {
+        return;
+    }
+
+    let ready = terrain.loading_world_wmos.as_mut().and_then(check_ready);
+    if let Some(objects) = ready {
+        terrain.loading_world_wmos = None;
+        let entity = spawn_prepared_adt_objects(
             commands,
-            &world_wmo.filename,
-            world_wmo.position,
-            world_wmo.rotation,
-            world_wmo.doodad_set,
-            world_wmo.scale,
-            mpqs,
-            object_cache,
+            objects,
+            Vec2::ZERO,
+            &terrain.prepared_object_cache,
+            &mut terrain.object_cache,
             meshes,
             materials,
             images,
-        ) {
-            commands.entity(entity).insert((
-                RenderedObject,
-                if render_settings.render_objects {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                },
-            ));
-        }
+        );
+        commands.entity(entity).insert((
+            RenderedObject,
+            if render_settings.render_objects {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            },
+        ));
+        terrain.world_wmos_loaded = true;
+        return;
+    }
+
+    if terrain.loading_world_wmos.is_none() {
+        let placements = terrain
+            .world_wmos
+            .iter()
+            .map(|world_wmo| WorldWmoPlacement {
+                filename: world_wmo.filename.clone(),
+                position: world_wmo.position,
+                rotation: world_wmo.rotation,
+                doodad_set: world_wmo.doodad_set,
+                scale: world_wmo.scale,
+            })
+            .collect();
+        let mpqs = mpqs.clone();
+        let object_cache = terrain.prepared_object_cache.clone();
+        terrain.loading_world_wmos = Some(
+            AsyncComputeTaskPool::get()
+                .spawn(async move { load_world_wmos(placements, &mpqs, &object_cache) }),
+        );
     }
 }
 
@@ -467,7 +521,7 @@ mod tests {
 #[allow(clippy::too_many_arguments)]
 fn finalize_adt(
     prepared: PreparedAdt,
-    coordinates: (usize, usize),
+    coordinates: AdtPosition,
     commands: &mut Commands,
     terrain: &mut TerrainMap,
     mpqs: &PatchChain,
@@ -506,13 +560,10 @@ fn finalize_adt(
             animation_map: animation_map.clone(),
         },
     });
-    let center = adt_center(prepared.x, prepared.y);
+    let center = prepared.pos.center();
     let entity = commands
         .spawn((
-            TerrainAdt {
-                x: prepared.x as u8,
-                y: prepared.y as u8,
-            },
+            prepared.pos,
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material.clone()),
             Transform::from_xyz(center.x, 0.0, center.y),
@@ -557,7 +608,7 @@ fn stream_adt_objects(
     commands: &mut Commands,
     terrain: &mut TerrainMap,
     camera_position: Vec2,
-    mpqs: &PatchChain,
+    mpqs: &Arc<PatchChain>,
     materials: &mut Assets<StandardMaterial>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
@@ -570,8 +621,7 @@ fn stream_adt_objects(
         .iter_mut()
         .filter_map(|(&coordinates, loaded_adt)| {
             (loaded_adt.objects.is_some()
-                && adt_center(coordinates.0, coordinates.1).distance_squared(camera_position)
-                    > unload_distance_squared)
+                && coordinates.center().distance_squared(camera_position) > unload_distance_squared)
                 .then(|| (coordinates, loaded_adt.objects.take().unwrap()))
         })
         .collect::<Vec<_>>();
@@ -579,24 +629,31 @@ fn stream_adt_objects(
         commands.entity(entity).despawn();
     }
 
-    let object_adts_to_load = terrain
-        .loaded_adts
-        .iter()
-        .filter_map(|(&coordinates, loaded_adt)| {
-            (loaded_adt.objects.is_none()
-                && adt_center(coordinates.0, coordinates.1).distance_squared(camera_position)
-                    <= load_distance.powi(2))
-            .then_some(coordinates)
-        })
+    terrain.loading_objects.retain(|coordinates, _| {
+        terrain.loaded_adts.contains_key(coordinates)
+            && coordinates.center().distance_squared(camera_position) <= unload_distance_squared
+    });
+
+    let ready_objects = terrain
+        .loading_objects
+        .iter_mut()
+        .filter_map(|(&coordinates, task)| check_ready(task).map(|objects| (coordinates, objects)))
         .collect::<Vec<_>>();
-    for coordinates in object_adts_to_load {
-        let loaded_adt = terrain.loaded_adts.get_mut(&coordinates).unwrap();
-        loaded_adt.objects = Some(spawn_adt_objects(
+    for (coordinates, objects) in ready_objects {
+        terrain.loading_objects.remove(&coordinates);
+        let Some(loaded_adt) = terrain.loaded_adts.get_mut(&coordinates) else {
+            continue;
+        };
+        if loaded_adt.objects.is_some()
+            || coordinates.center().distance_squared(camera_position) > unload_distance_squared
+        {
+            continue;
+        }
+        loaded_adt.objects = Some(spawn_prepared_adt_objects(
             commands,
-            &loaded_adt.object_placements,
-            coordinates,
-            adt_center(coordinates.0, coordinates.1),
-            mpqs,
+            objects,
+            coordinates.center(),
+            &terrain.prepared_object_cache,
             &mut terrain.object_cache,
             meshes,
             materials,
@@ -610,6 +667,38 @@ fn stream_adt_objects(
                 Visibility::Hidden
             },
         ));
+    }
+
+    let mut object_adts_to_load = terrain
+        .loaded_adts
+        .iter()
+        .filter_map(|(&coordinates, loaded_adt)| {
+            (loaded_adt.objects.is_none()
+                && !terrain.loading_objects.contains_key(&coordinates)
+                && coordinates.center().distance_squared(camera_position) <= load_distance.powi(2))
+            .then_some((
+                coordinates.center().distance_squared(camera_position),
+                coordinates,
+            ))
+        })
+        .collect::<Vec<_>>();
+    object_adts_to_load.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
+    let available_task_slots =
+        MAX_PENDING_OBJECT_ADTS.saturating_sub(terrain.loading_objects.len());
+    for (_, coordinates) in object_adts_to_load.into_iter().take(available_task_slots) {
+        let object_placements = terrain.loaded_adts[&coordinates].object_placements.clone();
+        let mpqs = mpqs.clone();
+        let object_cache = terrain.prepared_object_cache.clone();
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            load_adt_objects(
+                &object_placements,
+                coordinates,
+                coordinates.center(),
+                &mpqs,
+                &object_cache,
+            )
+        });
+        terrain.loading_objects.insert(coordinates, task);
     }
 }
 

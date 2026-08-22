@@ -24,38 +24,23 @@ use crate::{
 };
 
 #[derive(Deserialize, Serialize, Resource)]
+#[serde(default)]
 struct AppSettings {
     mpq_directory_path: PathBuf,
-    #[serde(default = "default_terrain_view_distance")]
     terrain_view_distance: f32,
-    #[serde(default = "default_object_view_distance")]
     object_view_distance: f32,
-    #[serde(default)]
     log_diagnostics: bool,
-    #[serde(default = "default_focus_wmo_camera_on_start")]
     focus_wmo_camera_on_start: bool,
-}
-
-fn default_terrain_view_distance() -> f32 {
-    50_000.0
-}
-
-fn default_object_view_distance() -> f32 {
-    3_000.0
-}
-
-fn default_focus_wmo_camera_on_start() -> bool {
-    true
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             mpq_directory_path: PathBuf::from_str("./Data").unwrap(),
-            terrain_view_distance: default_terrain_view_distance(),
-            object_view_distance: default_object_view_distance(),
+            terrain_view_distance: 50_000.0,
+            object_view_distance: 3_000.0,
             log_diagnostics: false,
-            focus_wmo_camera_on_start: default_focus_wmo_camera_on_start(),
+            focus_wmo_camera_on_start: true,
         }
     }
 }

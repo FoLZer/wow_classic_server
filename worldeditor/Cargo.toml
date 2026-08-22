@@ -43,3 +43,4 @@ wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-m2 = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-wmo = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+dashmap = "6.2.1"
