@@ -28,8 +28,9 @@ use crate::{
     terrain_material::TerrainMaterial,
 };
 
+pub(crate) use editor::TerrainEditor;
 pub use editor::TerrainEditorPlugin;
-use editor::{TerrainEditor, select_adt_chunk};
+use editor::select_adt_chunk;
 use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
@@ -463,61 +464,6 @@ fn stream_world_wmos(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use wow_wdt::chunks::{ModfChunk, ModfEntry, MwmoChunk};
-
-    use super::*;
-
-    #[test]
-    fn collects_wdt_world_wmo_placements() {
-        let mut wdt = WdtFile::new(WowVersion::Classic);
-        wdt.mwmo = Some(MwmoChunk {
-            filenames: vec!["World\\Wmo\\first.wmo".to_owned(), "second.wmo".to_owned()],
-        });
-        wdt.modf = Some(ModfChunk {
-            entries: vec![ModfEntry {
-                id: 1,
-                position: [1.0, 2.0, 3.0],
-                rotation: [4.0, 5.0, 6.0],
-                doodad_set: 2,
-                scale: 1024,
-                ..Default::default()
-            }],
-        });
-
-        let world_wmos = collect_world_wmos(&wdt);
-
-        assert_eq!(world_wmos.len(), 1);
-        assert_eq!(world_wmos[0].filename, "second.wmo");
-        assert_eq!(world_wmos[0].position, [1.0, 2.0, 3.0]);
-        assert_eq!(world_wmos[0].rotation, [4.0, 5.0, 6.0]);
-        assert_eq!(world_wmos[0].doodad_set, 2);
-        assert_eq!(world_wmos[0].scale, 1024);
-    }
-
-    #[test]
-    fn frames_the_camera_around_world_wmo_bounds() {
-        let world_wmo = WorldWmo {
-            filename: "test.wmo".to_owned(),
-            position: [0.0; 3],
-            rotation: [0.0; 3],
-            lower_bounds: [100.0, 10.0, 200.0],
-            upper_bounds: [300.0, 110.0, 400.0],
-            doodad_set: 0,
-            scale: 1024,
-        };
-
-        let transform = world_wmo_camera_transform(&[world_wmo]).unwrap();
-        let map_half_size = ADT_GRID_SIZE as f32 * ADT_SIZE * 0.5;
-
-        assert_eq!(
-            transform.translation,
-            Vec3::new(map_half_size + 800.0, 660.0, map_half_size + 700.0)
-        );
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn finalize_adt(
     prepared: PreparedAdt,
@@ -712,5 +658,60 @@ fn report_loading_progress(terrain: &mut TerrainMap) {
             terrain.metrics.count as f64 / elapsed,
         );
         terrain.metrics.completion_reported = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wow_wdt::chunks::{ModfChunk, ModfEntry, MwmoChunk};
+
+    use super::*;
+
+    #[test]
+    fn collects_wdt_world_wmo_placements() {
+        let mut wdt = WdtFile::new(WowVersion::Classic);
+        wdt.mwmo = Some(MwmoChunk {
+            filenames: vec!["World\\Wmo\\first.wmo".to_owned(), "second.wmo".to_owned()],
+        });
+        wdt.modf = Some(ModfChunk {
+            entries: vec![ModfEntry {
+                id: 1,
+                position: [1.0, 2.0, 3.0],
+                rotation: [4.0, 5.0, 6.0],
+                doodad_set: 2,
+                scale: 1024,
+                ..Default::default()
+            }],
+        });
+
+        let world_wmos = collect_world_wmos(&wdt);
+
+        assert_eq!(world_wmos.len(), 1);
+        assert_eq!(world_wmos[0].filename, "second.wmo");
+        assert_eq!(world_wmos[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(world_wmos[0].rotation, [4.0, 5.0, 6.0]);
+        assert_eq!(world_wmos[0].doodad_set, 2);
+        assert_eq!(world_wmos[0].scale, 1024);
+    }
+
+    #[test]
+    fn frames_the_camera_around_world_wmo_bounds() {
+        let world_wmo = WorldWmo {
+            filename: "test.wmo".to_owned(),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            lower_bounds: [100.0, 10.0, 200.0],
+            upper_bounds: [300.0, 110.0, 400.0],
+            doodad_set: 0,
+            scale: 1024,
+        };
+
+        let transform = world_wmo_camera_transform(&[world_wmo]).unwrap();
+        let map_half_size = ADT_GRID_SIZE as f32 * ADT_SIZE * 0.5;
+
+        assert_eq!(
+            transform.translation,
+            Vec3::new(map_half_size + 800.0, 660.0, map_half_size + 700.0)
+        );
     }
 }

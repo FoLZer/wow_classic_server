@@ -7,10 +7,17 @@ use bevy::{
     color::palettes::css::{ORANGE, YELLOW},
     mesh::VertexAttributeValues,
     prelude::*,
+    ui_widgets::SliderValue,
 };
 use wow_adt::{ParsedAdt, RootAdt, parse_adt};
 
-use crate::MPQResource;
+use crate::{
+    MPQResource,
+    combined_alpha_map::CombinedAlphaMap,
+    render_controls::{
+        AlphaSlider, EditMode, RenderSettings, TextureControl, UiRoot, ensure_texture_control,
+    },
+};
 
 use super::{
     AdtPosition, CHUNK_SIZE, TerrainMap,
@@ -23,7 +30,15 @@ impl Plugin for TerrainEditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TerrainEditor>()
             .init_resource::<DirtyTerrainMeshes>()
-            .add_systems(Update, (draw_selected_chunk_outline, scale_height_points));
+            .add_systems(
+                Update,
+                (
+                    sync_edit_mode,
+                    apply_alpha_slider_changes,
+                    draw_selected_chunk_outline,
+                    scale_edit_points,
+                ),
+            );
     }
 }
 
@@ -34,14 +49,22 @@ struct DirtyTerrainMeshes(HashSet<Handle<Mesh>>);
 pub(crate) struct TerrainEditor {
     selected: Option<SelectedTerrainChunk>,
     edited_adts: HashMap<AdtPosition, RootAdt>,
+    edited_alpha_maps: HashMap<(AdtPosition, usize), Vec<u8>>,
 
     point_mesh: Option<Handle<Mesh>>,
     point_material: Option<Handle<StandardMaterial>>,
     active_point_material: Option<Handle<StandardMaterial>>,
     active_point: Option<Entity>,
+    active_mode: EditMode,
 }
 
 impl TerrainEditor {
+    pub(crate) fn has_active_alpha_point(&self) -> bool {
+        self.selected
+            .as_ref()
+            .is_some_and(|selected| selected.active_alpha_point.is_some())
+    }
+
     pub(super) fn retains_adt(&self, coordinates: AdtPosition) -> bool {
         self.selected
             .as_ref()
@@ -125,6 +148,8 @@ struct SelectedTerrainChunk {
     edit_mesh: Handle<Mesh>,
     point_entities: Vec<Entity>,
     seam_links: HashMap<usize, Vec<SeamVertex>>,
+    alpha_map: Vec<u8>,
+    active_alpha_point: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Copy)]
@@ -138,6 +163,12 @@ struct SeamVertex {
 struct HeightMapPoint {
     chunk_index: usize,
     vertex_index: usize,
+}
+
+#[derive(Component)]
+struct AlphaMapPoint {
+    row: usize,
+    column: usize,
 }
 
 fn clear_adt_selection(
@@ -159,6 +190,10 @@ fn clear_adt_selection(
         editor
             .edited_adts
             .insert(previous.coordinates, previous.adt);
+        editor.edited_alpha_maps.insert(
+            (previous.coordinates, previous.chunk_index),
+            previous.alpha_map,
+        );
         editor.active_point = None;
     }
 }
@@ -172,6 +207,10 @@ pub(super) fn select_adt_chunk(
     mpqs: Res<MPQResource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    texture_controls: Query<(Entity, &TextureControl)>,
+    ui_root_query: Query<(Entity, &UiRoot)>,
+    mut images: ResMut<Assets<Image>>,
+    settings: Res<RenderSettings>,
 ) {
     if click.button != PointerButton::Primary || click.count != 2 {
         return;
@@ -237,28 +276,38 @@ pub(super) fn select_adt_chunk(
     let seam_links = build_seam_links(&adt, adt_coordinates, chunk_index, &editor.edited_adts);
 
     let point_assets = editor.ensure_point_assets_loaded(&mut meshes, &mut materials);
+    let point_entities = spawn_edit_points(
+        &mut commands,
+        &adt,
+        chunk_index,
+        settings.edit_mode,
+        &point_assets,
+    );
+    let alpha_map = editor
+        .edited_alpha_maps
+        .remove(&(adt_coordinates, chunk_index))
+        .unwrap_or_else(|| {
+            CombinedAlphaMap::new(
+                &adt.mcnk_chunks[chunk_index],
+                terrain.has_big_alpha,
+                !adt.mcnk_chunks[chunk_index]
+                    .header
+                    .flags
+                    .do_not_fix_alpha_map(),
+            )
+            .into_vec()
+        });
+    editor.active_mode = settings.edit_mode;
 
-    let point_entities = (0..EDIT_HEIGHTMAP_SIZE)
-        .map(|vertex_index| {
-            commands
-                .spawn((
-                    HeightMapPoint {
-                        chunk_index,
-                        vertex_index,
-                    },
-                    Mesh3d(point_assets.point_mesh.clone()),
-                    MeshMaterial3d(point_assets.point_material.clone()),
-                    Transform::from_translation(heightmap_point_world(
-                        &adt.mcnk_chunks[chunk_index],
-                        vertex_index,
-                    )),
-                ))
-                .observe(select_height_point)
-                .observe(drag_height_point)
-                .observe(finish_height_drag)
-                .id()
-        })
-        .collect();
+    ensure_texture_control(
+        &mut commands,
+        &texture_controls,
+        &ui_root_query,
+        &adt,
+        chunk_index,
+        &mpqs.mpqs,
+        &mut images,
+    );
 
     editor.selected = Some(SelectedTerrainChunk {
         adt,
@@ -267,7 +316,204 @@ pub(super) fn select_adt_chunk(
         edit_mesh,
         point_entities,
         seam_links,
+        alpha_map,
+        active_alpha_point: None,
     });
+}
+
+fn spawn_edit_points(
+    commands: &mut Commands,
+    adt: &RootAdt,
+    chunk_index: usize,
+    mode: EditMode,
+    assets: &HeightMapPointAssets,
+) -> Vec<Entity> {
+    match mode {
+        EditMode::Heightmap => (0..EDIT_HEIGHTMAP_SIZE)
+            .map(|vertex_index| {
+                commands
+                    .spawn((
+                        HeightMapPoint {
+                            chunk_index,
+                            vertex_index,
+                        },
+                        Mesh3d(assets.point_mesh.clone()),
+                        MeshMaterial3d(assets.point_material.clone()),
+                        Transform::from_translation(heightmap_point_world(
+                            &adt.mcnk_chunks[chunk_index],
+                            vertex_index,
+                        )),
+                    ))
+                    .observe(select_height_point)
+                    .observe(drag_height_point)
+                    .observe(finish_height_drag)
+                    .id()
+            })
+            .collect(),
+        EditMode::AlphaMap => (0..16)
+            .flat_map(|row| (0..16).map(move |column| (row, column)))
+            .map(|(row, column)| {
+                commands
+                    .spawn((
+                        AlphaMapPoint { row, column },
+                        Mesh3d(assets.point_mesh.clone()),
+                        MeshMaterial3d(assets.point_material.clone()),
+                        Transform::from_translation(alpha_point_world(
+                            &adt.mcnk_chunks[chunk_index],
+                            row,
+                            column,
+                        )),
+                    ))
+                    .observe(select_alpha_point)
+                    .id()
+            })
+            .collect(),
+    }
+}
+
+fn sync_edit_mode(
+    mut commands: Commands,
+    settings: Res<RenderSettings>,
+    mut editor: ResMut<TerrainEditor>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if editor.active_mode == settings.edit_mode || editor.selected.is_none() {
+        return;
+    }
+    let old_entities = editor
+        .selected
+        .as_mut()
+        .map(|selected| std::mem::take(&mut selected.point_entities))
+        .unwrap_or_default();
+    for entity in old_entities {
+        commands.entity(entity).despawn();
+    }
+    editor.active_point = None;
+    let assets = editor.ensure_point_assets_loaded(&mut meshes, &mut materials);
+    let point_entities = {
+        let selected = editor.selected.as_ref().unwrap();
+        spawn_edit_points(
+            &mut commands,
+            &selected.adt,
+            selected.chunk_index,
+            settings.edit_mode,
+            &assets,
+        )
+    };
+    let selected = editor.selected.as_mut().unwrap();
+    selected.point_entities = point_entities;
+    selected.active_alpha_point = None;
+    editor.active_mode = settings.edit_mode;
+}
+
+fn select_alpha_point(
+    mut press: On<Pointer<Press>>,
+    mut commands: Commands,
+    mut editor: ResMut<TerrainEditor>,
+    alpha_points: Query<&AlphaMapPoint>,
+    mut point_materials: Query<&mut MeshMaterial3d<StandardMaterial>, With<AlphaMapPoint>>,
+    sliders: Query<(Entity, &AlphaSlider)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if press.button != PointerButton::Primary {
+        return;
+    }
+    let Ok(point) = alpha_points.get(press.entity) else {
+        return;
+    };
+    press.propagate(false);
+    let (row, column) = (point.row, point.column);
+    let assets = editor.ensure_point_assets_loaded(&mut meshes, &mut materials);
+    if let Some(previous) = editor.active_point
+        && let Ok(mut material) = point_materials.get_mut(previous)
+    {
+        material.0 = assets.point_material;
+    }
+    if let Ok(mut material) = point_materials.get_mut(press.entity) {
+        material.0 = assets.active_point_material;
+    }
+    let Some(selected) = editor.selected.as_mut() else {
+        return;
+    };
+    selected.active_alpha_point = Some((row, column));
+    let source_row = row * 4 + 2;
+    let source_column = column * 4 + 2;
+    let source_pixel = (source_row * 64 + source_column) * 4;
+    for (entity, slider) in &sliders {
+        let value = selected.alpha_map[source_pixel + slider.layer - 1] as f32;
+        commands.entity(entity).insert(SliderValue(value));
+    }
+    editor.active_point = Some(press.entity);
+}
+
+fn apply_alpha_slider_changes(
+    sliders: Query<(&AlphaSlider, &SliderValue), Changed<SliderValue>>,
+    mut editor: ResMut<TerrainEditor>,
+    terrain: Res<TerrainMap>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(selected) = editor.selected.as_mut() else {
+        return;
+    };
+    let Some((row, column)) = selected.active_alpha_point else {
+        return;
+    };
+    let source_row = row * 4 + 2;
+    let source_column = column * 4 + 2;
+    let source_pixel = (source_row * 64 + source_column) * 4;
+    let mut changed = false;
+    for (slider, value) in &sliders {
+        selected.alpha_map[source_pixel + slider.layer - 1] = value.0.round() as u8;
+        changed = true;
+    }
+    if !changed {
+        return;
+    }
+    let Some(alpha_handle) = terrain
+        .loaded_adts
+        .get(&selected.coordinates)
+        .map(|loaded| &loaded.images[0])
+    else {
+        return;
+    };
+    let Some(mut image) = images.get_mut(alpha_handle.id()) else {
+        return;
+    };
+    let Some(data) = image.data.as_mut() else {
+        return;
+    };
+    let chunk_x = selected.chunk_index / 16;
+    let chunk_y = selected.chunk_index % 16;
+    let atlas_pixel = ((chunk_x * 16 + row) * 256 + chunk_y * 16 + column) * 4;
+    data[atlas_pixel..atlas_pixel + 3]
+        .copy_from_slice(&selected.alpha_map[source_pixel..source_pixel + 3]);
+}
+
+fn alpha_point_world(chunk: &wow_adt::McnkChunk, row: usize, column: usize) -> Vec3 {
+    let local_x = (column as f32 + 0.5) * 0.5;
+    let local_z = (row as f32 + 0.5) * 0.5;
+    let nearest = (0..EDIT_HEIGHTMAP_SIZE)
+        .min_by(|left, right| {
+            let left_position = heightmap_point_world(chunk, *left);
+            let right_position = heightmap_point_world(chunk, *right);
+            let target = Vec2::new(
+                chunk.header.position[1] - local_x * CHUNK_SIZE / 8.0,
+                chunk.header.position[0] - local_z * CHUNK_SIZE / 8.0,
+            );
+            left_position
+                .xz()
+                .distance_squared(target)
+                .total_cmp(&right_position.xz().distance_squared(target))
+        })
+        .unwrap();
+    let height = heightmap_point_world(chunk, nearest).y;
+    Vec3::new(
+        chunk.header.position[1] - local_x * CHUNK_SIZE / 8.0,
+        height + 0.15,
+        chunk.header.position[0] - local_z * CHUNK_SIZE / 8.0,
+    )
 }
 
 fn neighboring_adts_for_chunk(
@@ -605,9 +851,9 @@ fn draw_selected_chunk_outline(editor: Res<TerrainEditor>, mut gizmos: Gizmos) {
     }
 }
 
-fn scale_height_points(
+fn scale_edit_points(
     camera: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
-    mut points: Query<&mut Transform, With<HeightMapPoint>>,
+    mut points: Query<&mut Transform, Or<(With<HeightMapPoint>, With<AlphaMapPoint>)>>,
 ) {
     let Ok((camera, camera_transform, projection)) = camera.single() else {
         return;

@@ -126,7 +126,7 @@ pub(super) fn prepare_material_maps(adt: &RootAdt, has_big_alpha: bool) -> Prepa
         TextureDimension::D2,
         alpha_data,
         TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
+        RenderAssetUsages::default(),
     );
     alpha_map.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
         mag_filter: ImageFilterMode::Linear,

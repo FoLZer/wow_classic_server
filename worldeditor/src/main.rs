@@ -52,6 +52,7 @@ fn main() {
         render_objects: true,
         adt_distance: config.terrain_view_distance,
         object_distance: config.object_view_distance,
+        edit_mode: Default::default(),
     };
 
     let mpqs = PatchChain::from_archives_parallel(vec![
