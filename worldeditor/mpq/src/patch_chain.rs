@@ -200,7 +200,7 @@ impl PatchChain {
     }
 
     fn read_patched_file_concurrent(&self, filename: &str) -> Result<Vec<u8>> {
-        use crate::patch::{apply_patch, PatchFile};
+        use crate::patch::{PatchFile, apply_patch};
 
         let mut base_data = None;
         let mut patches = Vec::new();

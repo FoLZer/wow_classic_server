@@ -6,6 +6,7 @@ use std::{
 
 use bevy::{
     asset::RenderAssetUsages,
+    camera::visibility::NoFrustumCulling,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     math::Affine2,
     mesh::{Indices, PrimitiveTopology},
@@ -16,7 +17,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use dashmap::DashMap;
 use wow_adt::{DoodadPlacement, RootAdt, WmoPlacement};
 use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
-use wow_m2::parse_m2;
+use wow_m2::{M2ParticleEmitter, ParticleEmitter, parse_m2};
 use wow_mpq::PatchChain;
 use wow_wmo::{ParsedWmo, discover_wmo_chunks, parse_wmo};
 
@@ -29,20 +30,100 @@ use super::{
 const MAP_HALF_SIZE: f32 = ADT_GRID_SIZE as f32 * ADT_CELLS_PER_GRID as f32 * CHUNK_SIZE * 0.5;
 
 enum PreparedObjectAsset {
-    M2(Vec<PreparedObjectPart>),
+    M2(PreparedM2Asset),
     Wmo(PreparedWmoAsset),
 }
 
 #[derive(Clone)]
 enum ObjectAsset {
-    M2(Vec<ObjectPart>),
+    M2(M2Asset),
     Wmo(WmoAsset),
+}
+
+struct PreparedM2Asset {
+    parts: Vec<PreparedObjectPart>,
+    particles: Vec<PreparedParticleEmitter>,
+}
+
+#[derive(Clone)]
+struct M2Asset {
+    parts: Vec<ObjectPart>,
+    particles: Vec<ParticleEmitterTemplate>,
+}
+
+struct PreparedParticleEmitter {
+    emitter: ParticleEmitterDefinition,
+    texture_key: Option<String>,
+    animation: Option<Arc<M2SkinAnimation>>,
+}
+
+#[derive(Clone)]
+struct ParticleEmitterTemplate {
+    emitter: ParticleEmitterDefinition,
+    material: Handle<StandardMaterial>,
+    animation: Option<Arc<M2SkinAnimation>>,
+}
+
+#[derive(Clone)]
+enum ParticleEmitterDefinition {
+    Parsed(M2ParticleEmitter),
+    Classic(ClassicParticleEmitter),
+}
+
+#[derive(Clone)]
+struct ClassicParticleEmitter {
+    flags: u32,
+    position: Vec3,
+    bone_index: u16,
+    blending_type: u16,
+    emitter_type: u16,
+    rows: u16,
+    columns: u16,
+    emission_speed: f32,
+    speed_variation: f32,
+    vertical_range: f32,
+    horizontal_range: f32,
+    gravity: f32,
+    lifespan: f32,
+    emission_rate: f32,
+    area_length: f32,
+    area_width: f32,
+    midpoint: f32,
+    colors: [[f32; 4]; 3],
+    scales: [f32; 3],
+}
+
+enum ParticleEmitterRuntime {
+    Parsed(ParticleEmitter),
+    Classic(ClassicParticleRuntime),
+}
+
+struct ClassicParticleRuntime {
+    definition: ClassicParticleEmitter,
+    particles: Vec<ClassicParticle>,
+    emission_remainder: f32,
+    random_state: u64,
+}
+
+struct ClassicParticle {
+    position: Vec3,
+    velocity: Vec3,
+    age: f32,
+    lifespan: f32,
+}
+
+#[derive(Component)]
+pub(crate) struct M2ParticleSystem {
+    emitter: ParticleEmitterRuntime,
+    mesh: Handle<Mesh>,
+    animation: Option<Arc<M2SkinAnimation>>,
 }
 
 struct PreparedObjectPart {
     mesh: Mutex<Option<Mesh>>,
     animation: Option<Arc<M2SkinAnimation>>,
     texture_animation: Option<Arc<M2TextureAnimation>>,
+    opacity_animation: Option<Arc<M2OpacityAnimation>>,
     uvs: Vec<[f32; 2]>,
     texture_key: Option<String>,
     double_sided: bool,
@@ -87,6 +168,12 @@ struct M2TextureAnimation {
     start_ms: u32,
 }
 
+struct M2OpacityAnimation {
+    opacity: AnimationTrack<f32>,
+    duration_ms: u32,
+    start_ms: u32,
+}
+
 struct AnimatedMesh {
     mesh: Handle<Mesh>,
     animation: Option<Arc<M2SkinAnimation>>,
@@ -94,10 +181,16 @@ struct AnimatedMesh {
     uvs: Vec<[f32; 2]>,
 }
 
+struct AnimatedMaterial {
+    material: Handle<StandardMaterial>,
+    animation: Arc<M2OpacityAnimation>,
+}
+
 #[derive(Default)]
 struct ObjectAnimations {
     elapsed_seconds: f32,
     meshes: Vec<AnimatedMesh>,
+    materials: Vec<AnimatedMaterial>,
 }
 
 #[derive(Clone)]
@@ -146,7 +239,10 @@ pub(super) struct ObjectCache {
 pub(crate) fn animate_objects(
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut map: ResMut<super::TerrainMap>,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
+    mut particles: Query<(&GlobalTransform, &mut M2ParticleSystem)>,
 ) {
     let animations = &mut map.object_cache.animations;
     animations.elapsed_seconds += time.delta_secs();
@@ -204,6 +300,50 @@ pub(crate) fn animate_objects(
                 .collect::<Vec<_>>();
             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
         }
+    }
+    for animated_material in &animations.materials {
+        let Some(mut material) = materials.get_mut(&animated_material.material) else {
+            continue;
+        };
+        material
+            .base_color
+            .set_alpha(animated_material.animation.sample(elapsed_ms));
+    }
+
+    let Ok(camera_transform) = camera.single() else {
+        return;
+    };
+    let camera_right = camera_transform.right().as_vec3();
+    let camera_up = camera_transform.up().as_vec3();
+    let identity = Mat4::IDENTITY.to_cols_array();
+    for (global_transform, mut system) in &mut particles {
+        let bone_transform = system
+            .animation
+            .as_ref()
+            .and_then(|animation| {
+                animation
+                    .bone_transforms(elapsed_ms)
+                    .get(system.emitter.bone_index() as usize)
+                    .copied()
+            })
+            .unwrap_or(Mat4::IDENTITY);
+        system
+            .emitter
+            .update(time.delta_secs(), &identity, bone_transform);
+        let particle_data = system.emitter.render_data();
+        let inverse = global_transform.affine().inverse();
+        let right = inverse.transform_vector3(camera_right).normalize_or_zero();
+        let up = inverse.transform_vector3(camera_up).normalize_or_zero();
+        let Some(mut mesh) = meshes.get_mut(&system.mesh) else {
+            continue;
+        };
+        update_particle_mesh(
+            &mut mesh,
+            &particle_data,
+            right,
+            up,
+            system.emitter.render_transform(bone_transform),
+        );
     }
 }
 
@@ -296,12 +436,12 @@ pub(super) fn spawn_prepared_adt_objects(
         .id();
     commands.entity(objects_entity).with_children(|parent| {
         for (filename, asset, transform) in doodads {
-            let ObjectAsset::M2(parts) = asset.as_ref() else {
+            let ObjectAsset::M2(asset) = asset.as_ref() else {
                 continue;
             };
             parent
                 .spawn((Name::new(filename), transform, Visibility::default()))
-                .with_children(|object| spawn_parts(object, parts));
+                .with_children(|object| spawn_m2_contents(object, asset, meshes));
         }
         for (filename, asset, doodad_set, transform) in wmos {
             let ObjectAsset::Wmo(asset) = asset.as_ref() else {
@@ -309,7 +449,7 @@ pub(super) fn spawn_prepared_adt_objects(
             };
             parent
                 .spawn((Name::new(filename), transform, Visibility::default()))
-                .with_children(|object| spawn_wmo_contents(object, asset, doodad_set));
+                .with_children(|object| spawn_wmo_contents(object, asset, doodad_set, meshes));
         }
     });
     objects_entity
@@ -435,21 +575,53 @@ fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: &[ObjectPart]) {
     }
 }
 
-fn spawn_wmo_contents(parent: &mut ChildSpawnerCommands, asset: &WmoAsset, doodad_set: usize) {
+fn spawn_m2_contents(
+    parent: &mut ChildSpawnerCommands,
+    asset: &M2Asset,
+    meshes: &mut Assets<Mesh>,
+) {
+    spawn_parts(parent, &asset.parts);
+    for template in &asset.particles {
+        let mesh = meshes.add(empty_particle_mesh());
+        parent.spawn((
+            Name::new("M2 particle emitter"),
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(template.material.clone()),
+            NoFrustumCulling,
+            Pickable::IGNORE,
+            M2ParticleSystem {
+                emitter: ParticleEmitterRuntime::new(&template.emitter),
+                mesh,
+                animation: template.animation.clone(),
+            },
+        ));
+    }
+}
+
+fn spawn_wmo_contents(
+    parent: &mut ChildSpawnerCommands,
+    asset: &WmoAsset,
+    doodad_set: usize,
+    meshes: &mut Assets<Mesh>,
+) {
     spawn_parts(parent, &asset.parts);
     if let Some(doodads) = asset.doodad_sets.first() {
-        spawn_wmo_doodads(parent, doodads);
+        spawn_wmo_doodads(parent, doodads, meshes);
     }
     if doodad_set != 0
         && let Some(doodads) = asset.doodad_sets.get(doodad_set)
     {
-        spawn_wmo_doodads(parent, doodads);
+        spawn_wmo_doodads(parent, doodads, meshes);
     }
 }
 
-fn spawn_wmo_doodads(parent: &mut ChildSpawnerCommands, doodads: &[WmoDoodad]) {
+fn spawn_wmo_doodads(
+    parent: &mut ChildSpawnerCommands,
+    doodads: &[WmoDoodad],
+    meshes: &mut Assets<Mesh>,
+) {
     for doodad in doodads {
-        let ObjectAsset::M2(parts) = doodad.asset.as_ref() else {
+        let ObjectAsset::M2(asset) = doodad.asset.as_ref() else {
             continue;
         };
         parent
@@ -458,7 +630,7 @@ fn spawn_wmo_doodads(parent: &mut ChildSpawnerCommands, doodads: &[WmoDoodad]) {
                 doodad.transform,
                 Visibility::default(),
             ))
-            .with_children(|doodad_entity| spawn_parts(doodad_entity, parts));
+            .with_children(|doodad_entity| spawn_m2_contents(doodad_entity, asset, meshes));
     }
 }
 
@@ -478,15 +650,24 @@ fn finalize_object_asset(
     }
 
     let asset = match prepared.as_ref() {
-        PreparedObjectAsset::M2(parts) => ObjectAsset::M2(finalize_object_parts(
-            parts,
-            Color::srgb(0.32, 0.48, 0.24),
-            prepared_cache,
-            cache,
-            meshes,
-            materials,
-            images,
-        )),
+        PreparedObjectAsset::M2(m2) => ObjectAsset::M2(M2Asset {
+            parts: finalize_object_parts(
+                &m2.parts,
+                Color::srgb(0.32, 0.48, 0.24),
+                prepared_cache,
+                cache,
+                meshes,
+                materials,
+                images,
+            ),
+            particles: finalize_particle_emitters(
+                &m2.particles,
+                prepared_cache,
+                cache,
+                materials,
+                images,
+            ),
+        }),
         PreparedObjectAsset::Wmo(wmo) => {
             let parts = finalize_object_parts(
                 &wmo.parts,
@@ -528,6 +709,45 @@ fn finalize_object_asset(
     let asset = Arc::new(asset);
     cache.assets.insert(key, Some(asset.clone()));
     Some(asset)
+}
+
+fn finalize_particle_emitters(
+    emitters: &[PreparedParticleEmitter],
+    prepared_cache: &PreparedObjectCache,
+    cache: &mut ObjectCache,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+) -> Vec<ParticleEmitterTemplate> {
+    emitters
+        .iter()
+        .map(|prepared| {
+            let texture = prepared.texture_key.as_deref().and_then(|key| {
+                if let Some(texture) = cache.textures.get(key) {
+                    return texture.clone();
+                }
+                let texture = prepared_cache
+                    .textures
+                    .get_mut(key)
+                    .and_then(|mut value| value.take())
+                    .map(|image| images.add(image));
+                cache.textures.insert(key.to_owned(), texture.clone());
+                texture
+            });
+            let material = materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                base_color_texture: texture,
+                alpha_mode: prepared.emitter.alpha_mode(),
+                cull_mode: None,
+                unlit: !prepared.emitter.is_lit(),
+                ..default()
+            });
+            ParticleEmitterTemplate {
+                emitter: prepared.emitter.clone(),
+                material,
+                animation: prepared.animation.clone(),
+            }
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -579,10 +799,14 @@ fn finalize_object_parts(
                     uvs: part.uvs.clone(),
                 });
             }
-            Some(ObjectPart {
-                mesh,
-                material: materials.add(material),
-            })
+            let material = materials.add(material);
+            if let Some(animation) = &part.opacity_animation {
+                cache.animations.materials.push(AnimatedMaterial {
+                    material: material.clone(),
+                    animation: animation.clone(),
+                });
+            }
+            Some(ObjectPart { mesh, material })
         })
         .collect()
 }
@@ -621,7 +845,7 @@ fn load_m2(
     filename: &str,
     mpqs: &PatchChain,
     cache: &PreparedObjectCache,
-) -> Option<Vec<PreparedObjectPart>> {
+) -> Option<PreparedM2Asset> {
     let data = match mpq_read_file(mpqs, filename) {
         Ok(data) => data,
         Err(error) => {
@@ -644,7 +868,9 @@ fn load_m2(
         })
     });
     let mesh_data = mesh_data.ok()?;
-    if mesh_data.positions.is_empty() || mesh_data.indices.is_empty() {
+    if (mesh_data.positions.is_empty() || mesh_data.indices.is_empty())
+        && mesh_data.particles.is_empty()
+    {
         return None;
     }
     let unresolved_types = mesh_data
@@ -656,7 +882,7 @@ fn load_m2(
     if !unresolved_types.is_empty() {
         debug!("M2 {filename} has unresolved replacement textures {unresolved_types:?}");
     }
-    Some(build_object_parts(mesh_data, mpqs, cache))
+    Some(build_m2_asset(mesh_data, mpqs, cache))
 }
 
 struct M2MeshData {
@@ -666,6 +892,7 @@ struct M2MeshData {
     animation: Option<Arc<M2SkinAnimation>>,
     indices: Vec<u32>,
     batches: Vec<ObjectBatch>,
+    particles: Vec<PreparedParticleEmitter>,
 }
 
 struct ObjectBatch {
@@ -673,6 +900,7 @@ struct ObjectBatch {
     texture: Option<String>,
     texture_type: u32,
     texture_animation: Option<Arc<M2TextureAnimation>>,
+    opacity_animation: Option<Arc<M2OpacityAnimation>>,
     alpha_mode: AlphaMode,
     opacity: f32,
     double_sided: bool,
@@ -681,67 +909,90 @@ struct ObjectBatch {
 fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     let format = parse_m2(&mut Cursor::new(data)).map_err(|error| error.to_string())?;
     let model = format.model();
-    let skin = model
-        .parse_embedded_skin(data, 0)
-        .map_err(|error| error.to_string())?;
-    let indices = skin
-        .get_resolved_indices()
-        .into_iter()
-        .map(u32::from)
-        .collect::<Vec<_>>();
-    let batches = skin
-        .batches()
-        .iter()
-        .filter_map(|batch| {
-            let submesh = skin.submeshes().get(batch.skin_section_index as usize)?;
-            let start = submesh.triangle_start as usize;
-            let end = start.checked_add(submesh.triangle_count as usize)?;
-            let texture_index = model
-                .raw_data
-                .texture_lookup_table
-                .get(batch.texture_combo_index as usize)
-                .copied()? as usize;
-            let texture = model
-                .textures
-                .get(texture_index)
-                .map(|texture| texture.filename.string.to_string_lossy())
-                .filter(|filename| !filename.is_empty());
-            let material = model.materials.get(batch.material_index as usize);
-            let texture_animation = model
-                .raw_data
-                .texture_animation_lookup
-                .get(batch.texture_transform_combo_index as usize)
-                .copied()
-                .filter(|index| *index != u16::MAX)
-                .and_then(|index| m2_texture_animation(model, index as usize));
-            let opacity = model
-                .raw_data
-                .transparency_lookup_table
-                .get(batch.texture_weight_combo_index as usize)
-                .and_then(|animation_index| {
-                    model
-                        .raw_data
-                        .transparency_animation_data
-                        .iter()
-                        .find(|animation| animation.animation_index == *animation_index as usize)
-                })
-                .and_then(|animation| fixed_i16_alpha(&animation.values))
-                .unwrap_or(1.0);
-            Some(ObjectBatch {
-                indices: indices.get(start..end)?.to_vec(),
-                texture,
-                texture_type: model
+    let skin = match model.parse_embedded_skin(data, 0) {
+        Ok(skin) => Some(skin),
+        Err(_) if !model.particle_emitters.is_empty() => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    let indices = skin.as_ref().map_or_else(Vec::new, |skin| {
+        skin.get_resolved_indices()
+            .into_iter()
+            .map(u32::from)
+            .collect::<Vec<_>>()
+    });
+    let batches = skin.as_ref().map_or_else(Vec::new, |skin| {
+        skin.batches()
+            .iter()
+            .filter_map(|batch| {
+                let submesh = skin.submeshes().get(batch.skin_section_index as usize)?;
+                let start = submesh.triangle_start as usize;
+                let end = start.checked_add(submesh.triangle_count as usize)?;
+                let texture_index = model
+                    .raw_data
+                    .texture_lookup_table
+                    .get(batch.texture_combo_index as usize)
+                    .copied()? as usize;
+                let texture = model
                     .textures
                     .get(texture_index)
-                    .map_or(0, |texture| texture.texture_type as u32),
-                texture_animation,
-                alpha_mode: alpha_mode_with_opacity(
-                    material.map_or(0, |material| material.blend_mode.bits()),
+                    .map(|texture| texture.filename.string.to_string_lossy())
+                    .filter(|filename| !filename.is_empty());
+                let material = model.materials.get(batch.material_index as usize);
+                let texture_animation = model
+                    .raw_data
+                    .texture_animation_lookup
+                    .get(batch.texture_transform_combo_index as usize)
+                    .copied()
+                    .filter(|index| *index != u16::MAX)
+                    .and_then(|index| m2_texture_animation(model, index as usize));
+                let opacity_animation = model
+                    .raw_data
+                    .transparency_lookup_table
+                    .get(batch.texture_weight_combo_index as usize)
+                    .and_then(|animation_index| {
+                        m2_opacity_animation(model, *animation_index as usize)
+                    });
+                let opacity = opacity_animation
+                    .as_ref()
+                    .map_or(1.0, |animation| animation.sample(0));
+                Some(ObjectBatch {
+                    indices: indices.get(start..end)?.to_vec(),
+                    texture,
+                    texture_type: model
+                        .textures
+                        .get(texture_index)
+                        .map_or(0, |texture| texture.texture_type as u32),
+                    texture_animation,
+                    alpha_mode: alpha_mode_with_animation(
+                        material.map_or(0, |material| material.blend_mode.bits()),
+                        opacity,
+                        opacity_animation
+                            .as_deref()
+                            .is_some_and(M2OpacityAnimation::requires_blending),
+                    ),
                     opacity,
-                ),
-                opacity,
-                double_sided: material.is_some_and(|material| material.flags.bits() & 0x04 != 0),
+                    opacity_animation,
+                    double_sided: material
+                        .is_some_and(|material| material.flags.bits() & 0x04 != 0),
+                })
             })
+            .collect()
+    });
+    let animation = m2_skin_animation(model, data);
+    let particles = model
+        .particle_emitters
+        .iter()
+        .map(|emitter| {
+            let texture = model
+                .textures
+                .get(emitter.texture_index as usize)
+                .map(|texture| texture.filename.string.to_string_lossy())
+                .filter(|filename| !filename.is_empty());
+            PreparedParticleEmitter {
+                emitter: ParticleEmitterDefinition::Parsed(emitter.clone()),
+                texture_key: texture,
+                animation: animation.clone(),
+            }
         })
         .collect();
     Ok(M2MeshData {
@@ -760,9 +1011,66 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
             .iter()
             .map(|vertex| [vertex.tex_coords.x, vertex.tex_coords.y])
             .collect(),
-        animation: m2_skin_animation(model, data),
+        animation,
         indices,
         batches,
+        particles,
+    })
+}
+
+fn m2_opacity_animation(
+    model: &wow_m2::M2Model,
+    animation_index: usize,
+) -> Option<Arc<M2OpacityAnimation>> {
+    let (sequence_index, sequence) = model
+        .animations
+        .iter()
+        .enumerate()
+        .find(|(_, animation)| animation.animation_id == 0)
+        .or_else(|| model.animations.iter().enumerate().next())?;
+    let (start_ms, duration_ms) = match sequence.end_timestamp {
+        Some(end) => (
+            sequence.start_timestamp,
+            end.saturating_sub(sequence.start_timestamp),
+        ),
+        None => (0, sequence.start_timestamp),
+    };
+    if duration_ms == 0 {
+        return None;
+    }
+    let raw = model
+        .raw_data
+        .transparency_animation_data
+        .iter()
+        .find(|track| track.animation_index == animation_index)?;
+    let offset = sequence_index * 8;
+    let (start, end) = raw
+        .interpolation_ranges
+        .get(offset..offset + 8)
+        .map(|range| {
+            (
+                LittleEndian::read_u32(&range[..4]) as usize,
+                LittleEndian::read_u32(&range[4..]) as usize + 1,
+            )
+        })
+        .unwrap_or((0, raw.timestamps.len() / 4));
+    let timestamps = raw
+        .timestamps
+        .chunks_exact(4)
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .map(LittleEndian::read_u32)
+        .collect::<Vec<_>>();
+    let values = fixed_i16_alpha_values(&raw.values, start, timestamps.len());
+    (!timestamps.is_empty()
+        && timestamps.len() == values.len()
+        && values.iter().all(|value| value.is_finite()))
+    .then(|| {
+        Arc::new(M2OpacityAnimation {
+            opacity: AnimationTrack { timestamps, values },
+            duration_ms,
+            start_ms,
+        })
     })
 }
 
@@ -1139,6 +1447,17 @@ impl M2TextureAnimation {
     }
 }
 
+impl M2OpacityAnimation {
+    fn sample(&self, elapsed_ms: u32) -> f32 {
+        let timestamp = self.start_ms + elapsed_ms % self.duration_ms;
+        self.opacity.sample_f32(timestamp).clamp(0.0, 1.0)
+    }
+
+    fn requires_blending(&self) -> bool {
+        self.opacity.values.iter().any(|opacity| *opacity < 1.0)
+    }
+}
+
 fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     const VERTICES_DESCRIPTOR_OFFSET: usize = 68;
     const VIEWS_DESCRIPTOR_OFFSET: usize = 76;
@@ -1208,6 +1527,11 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     }
 
     let textures = read_m2_textures(data, TEXTURES_DESCRIPTOR_OFFSET)?;
+    let particle_animation = classic_m2_particle_animation(data);
+    let mut particles = read_classic_particle_emitters(data, &textures)?;
+    for particle in &mut particles {
+        particle.animation = particle_animation.clone();
+    }
     let (texture_lookup_count, texture_lookup_offset) =
         read_array_descriptor(data, TEXTURE_LOOKUP_DESCRIPTOR_OFFSET)?;
     let texture_lookup = read_u16_array(data, texture_lookup_offset, texture_lookup_count)?;
@@ -1275,14 +1599,16 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                         index as usize,
                     )
                 });
-            let opacity = classic_m2_opacity(
+            let opacity_animation = classic_m2_opacity_animation(
                 data,
                 &transparency_lookup,
                 transparency_animation_offset,
                 transparency_animation_count,
                 texture_weight_combo_index,
-            )
-            .unwrap_or(1.0);
+            );
+            let opacity = opacity_animation
+                .as_ref()
+                .map_or(1.0, |animation| animation.sample(0));
             Some(ObjectBatch {
                 indices: indices.get(triangle_start..end)?.to_vec(),
                 texture: textures
@@ -1292,8 +1618,15 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                     .get(texture_index)
                     .map_or(0, |texture| texture.texture_type),
                 texture_animation,
-                alpha_mode: alpha_mode_with_opacity(blend_mode, opacity),
+                alpha_mode: alpha_mode_with_animation(
+                    blend_mode,
+                    opacity,
+                    opacity_animation
+                        .as_deref()
+                        .is_some_and(M2OpacityAnimation::requires_blending),
+                ),
                 opacity,
+                opacity_animation,
                 double_sided: flags & 0x04 != 0,
             })
         })
@@ -1306,7 +1639,218 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
         animation: None,
         indices,
         batches,
+        particles,
     })
+}
+
+fn classic_m2_particle_animation(data: &[u8]) -> Option<Arc<M2SkinAnimation>> {
+    const BONES_DESCRIPTOR_OFFSET: usize = 52;
+    const BONE_SIZE: usize = 108;
+    let (bone_count, bone_offset) = read_array_descriptor(data, BONES_DESCRIPTOR_OFFSET).ok()?;
+    checked_array_range(data, bone_offset, bone_count, BONE_SIZE).ok()?;
+
+    let bones = (0..bone_count)
+        .map(|index| {
+            let bone = bone_offset + index * BONE_SIZE;
+            Some(AnimatedBone {
+                parent: LittleEndian::read_i16(data.get(bone + 8..bone + 10)?),
+                pivot: Vec3::from_array(wow_to_bevy(
+                    read_f32(data, bone + 96).ok()?,
+                    read_f32(data, bone + 100).ok()?,
+                    read_f32(data, bone + 104).ok()?,
+                )),
+                translation: classic_bone_vec3_track(data, bone + 12),
+                rotation: classic_bone_quat_track(data, bone + 40),
+                scale: classic_bone_vec3_track(data, bone + 68),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let start_ms = bones
+        .iter()
+        .flat_map(|bone| {
+            [
+                bone.translation
+                    .as_ref()
+                    .and_then(|track| track.timestamps.first()),
+                bone.rotation
+                    .as_ref()
+                    .and_then(|track| track.timestamps.first()),
+                bone.scale
+                    .as_ref()
+                    .and_then(|track| track.timestamps.first()),
+            ]
+            .into_iter()
+            .flatten()
+            .copied()
+        })
+        .min()?;
+    let end_ms = bones
+        .iter()
+        .flat_map(|bone| {
+            [
+                bone.translation
+                    .as_ref()
+                    .and_then(|track| track.timestamps.last()),
+                bone.rotation
+                    .as_ref()
+                    .and_then(|track| track.timestamps.last()),
+                bone.scale
+                    .as_ref()
+                    .and_then(|track| track.timestamps.last()),
+            ]
+            .into_iter()
+            .flatten()
+            .copied()
+        })
+        .max()?;
+    let duration_ms = end_ms.saturating_sub(start_ms);
+    (duration_ms > 0).then(|| {
+        Arc::new(M2SkinAnimation {
+            vertices: Vec::new(),
+            bones,
+            duration_ms,
+            start_ms,
+        })
+    })
+}
+
+fn classic_bone_track_data<'a>(
+    data: &'a [u8],
+    track: usize,
+    value_size: usize,
+) -> Option<(Vec<u32>, &'a [u8])> {
+    let (timestamp_count, timestamp_offset) = read_array_descriptor(data, track + 12).ok()?;
+    let (value_count, value_offset) = read_array_descriptor(data, track + 20).ok()?;
+    if timestamp_count == 0 || timestamp_count != value_count {
+        return None;
+    }
+    let timestamp_bytes =
+        data.get(timestamp_offset..timestamp_offset.checked_add(timestamp_count * 4)?)?;
+    let values = data.get(value_offset..value_offset.checked_add(value_count * value_size)?)?;
+    Some((
+        timestamp_bytes
+            .chunks_exact(4)
+            .map(LittleEndian::read_u32)
+            .collect(),
+        values,
+    ))
+}
+
+fn classic_bone_vec3_track(data: &[u8], track: usize) -> Option<AnimationTrack<Vec3>> {
+    let (timestamps, values) = classic_bone_track_data(data, track, 12)?;
+    let values = values
+        .chunks_exact(12)
+        .map(|bytes| {
+            Vec3::from_array(wow_to_bevy(
+                LittleEndian::read_f32(&bytes[..4]),
+                LittleEndian::read_f32(&bytes[4..8]),
+                LittleEndian::read_f32(&bytes[8..]),
+            ))
+        })
+        .collect::<Vec<_>>();
+    values
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(AnimationTrack { timestamps, values })
+}
+
+fn classic_bone_quat_track(data: &[u8], track: usize) -> Option<AnimationTrack<Quat>> {
+    let (timestamps, values) = classic_bone_track_data(data, track, 16)?;
+    let values = values
+        .chunks_exact(16)
+        .map(|bytes| {
+            wow_quat_to_bevy(
+                LittleEndian::read_f32(&bytes[..4]),
+                LittleEndian::read_f32(&bytes[4..8]),
+                LittleEndian::read_f32(&bytes[8..12]),
+                LittleEndian::read_f32(&bytes[12..]),
+            )
+        })
+        .collect::<Vec<_>>();
+    values
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(AnimationTrack { timestamps, values })
+}
+
+fn read_classic_particle_emitters(
+    data: &[u8],
+    textures: &[M2TextureReference],
+) -> Result<Vec<PreparedParticleEmitter>, String> {
+    const PARTICLE_DESCRIPTOR_OFFSET: usize = 316;
+    const PARTICLE_SIZE: usize = 504;
+    let (count, offset) = read_array_descriptor(data, PARTICLE_DESCRIPTOR_OFFSET)?;
+    checked_array_range(data, offset, count, PARTICLE_SIZE)?;
+    (0..count)
+        .map(|index| {
+            let record = offset + index * PARTICLE_SIZE;
+            let texture_index = read_u16(data, record + 22)?;
+            let track = |relative| classic_particle_float_track(data, record + relative);
+            let mut colors = [[1.0; 4]; 3];
+            for (key, color) in colors.iter_mut().enumerate() {
+                let value = record + 336 + key * 4;
+                color[0] = f32::from(data[value + 2]) / 255.0;
+                color[1] = f32::from(data[value + 1]) / 255.0;
+                color[2] = f32::from(data[value]) / 255.0;
+                color[3] = f32::from(data[value + 3]) / 255.0;
+            }
+            let emitter = ClassicParticleEmitter {
+                flags: read_u32(data, record + 4)?,
+                position: Vec3::new(
+                    read_f32(data, record + 8)?,
+                    read_f32(data, record + 12)?,
+                    read_f32(data, record + 16)?,
+                ),
+                bone_index: read_u16(data, record + 20)?,
+                blending_type: read_u16(data, record + 40)?,
+                emitter_type: read_u16(data, record + 42)?,
+                rows: read_u16(data, record + 48)?.max(1),
+                columns: read_u16(data, record + 50)?.max(1),
+                emission_speed: track(52)?,
+                speed_variation: track(80)?,
+                vertical_range: track(108)?,
+                horizontal_range: track(136)?,
+                gravity: track(164)?,
+                lifespan: track(192)?,
+                emission_rate: track(220)?,
+                area_length: track(248)?,
+                area_width: track(276)?,
+                midpoint: read_f32(data, record + 332)?.clamp(0.0, 1.0),
+                colors,
+                scales: [
+                    read_f32(data, record + 348)?,
+                    read_f32(data, record + 352)?,
+                    read_f32(data, record + 356)?,
+                ],
+            };
+            if !emitter.lifespan.is_finite()
+                || emitter.lifespan <= 0.0
+                || !emitter.emission_rate.is_finite()
+                || emitter.emission_rate <= 0.0
+            {
+                return Err(format!("invalid Classic particle emitter {index}"));
+            }
+            Ok(PreparedParticleEmitter {
+                texture_key: textures
+                    .get(texture_index as usize)
+                    .and_then(|texture| texture.filename.clone()),
+                emitter: ParticleEmitterDefinition::Classic(emitter),
+                animation: None,
+            })
+        })
+        .collect()
+}
+
+fn classic_particle_float_track(data: &[u8], offset: usize) -> Result<f32, String> {
+    let (count, values_offset) = read_array_descriptor(data, offset + 20)?;
+    if count == 0 {
+        return Ok(0.0);
+    }
+    let value = read_f32(data, values_offset)?;
+    value
+        .is_finite()
+        .then_some(value)
+        .ok_or_else(|| format!("non-finite Classic particle track at {offset}"))
 }
 
 fn classic_m2_texture_animation(
@@ -1504,17 +2048,18 @@ fn read_f32(data: &[u8], offset: usize) -> Result<f32, String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_object_parts(
+fn build_m2_asset(
     mut mesh_data: M2MeshData,
     mpqs: &PatchChain,
     cache: &PreparedObjectCache,
-) -> Vec<PreparedObjectPart> {
+) -> PreparedM2Asset {
     if mesh_data.batches.is_empty() {
         mesh_data.batches.push(ObjectBatch {
             indices: mesh_data.indices.clone(),
             texture: None,
             texture_type: 0,
             texture_animation: None,
+            opacity_animation: None,
             alpha_mode: AlphaMode::Opaque,
             opacity: 1.0,
             double_sided: false,
@@ -1522,7 +2067,18 @@ fn build_object_parts(
     }
 
     let animation = mesh_data.animation.clone();
-    mesh_data
+    let particles = mesh_data
+        .particles
+        .into_iter()
+        .map(|mut emitter| {
+            emitter.texture_key = emitter
+                .texture_key
+                .as_deref()
+                .map(|filename| load_object_texture(filename, mpqs, cache));
+            emitter
+        })
+        .collect();
+    let parts = mesh_data
         .batches
         .into_iter()
         .filter(|batch| !batch.indices.is_empty())
@@ -1540,6 +2096,7 @@ fn build_object_parts(
                 ))),
                 animation: animation.clone(),
                 texture_animation: batch.texture_animation,
+                opacity_animation: batch.opacity_animation,
                 uvs: mesh_data.uvs.clone(),
                 texture_key: texture,
                 double_sided: batch.double_sided,
@@ -1547,7 +2104,8 @@ fn build_object_parts(
                 alpha_mode: batch.alpha_mode,
             }
         })
-        .collect()
+        .collect();
+    PreparedM2Asset { parts, particles }
 }
 
 fn load_object_texture(filename: &str, mpqs: &PatchChain, cache: &PreparedObjectCache) -> String {
@@ -1607,6 +2165,244 @@ fn alpha_mode(blend_mode: u16) -> AlphaMode {
     }
 }
 
+fn parsed_particle_alpha_mode(blend_mode: u8) -> AlphaMode {
+    match blend_mode {
+        0 => AlphaMode::Opaque,
+        1 => AlphaMode::Mask(0.5),
+        2 => AlphaMode::Blend,
+        3 => AlphaMode::Add,
+        4 => AlphaMode::Multiply,
+        _ => AlphaMode::Blend,
+    }
+}
+
+fn classic_particle_alpha_mode(blend_mode: u16) -> AlphaMode {
+    match blend_mode {
+        0 => AlphaMode::Opaque,
+        1 | 4 => AlphaMode::Add,
+        2 => AlphaMode::Blend,
+        3 => AlphaMode::Mask(0.5),
+        _ => AlphaMode::Blend,
+    }
+}
+
+impl ParticleEmitterDefinition {
+    fn alpha_mode(&self) -> AlphaMode {
+        match self {
+            Self::Parsed(emitter) => parsed_particle_alpha_mode(emitter.blending_type),
+            Self::Classic(emitter) => classic_particle_alpha_mode(emitter.blending_type),
+        }
+    }
+
+    fn is_lit(&self) -> bool {
+        match self {
+            Self::Parsed(emitter) => emitter.flags.contains(wow_m2::M2ParticleFlags::LIGHTING),
+            Self::Classic(emitter) => emitter.flags & 0x400 != 0,
+        }
+    }
+}
+
+struct ParticleRenderData {
+    position: Vec3,
+    color: [f32; 4],
+    size: Vec2,
+    uv_min: Vec2,
+    uv_size: Vec2,
+}
+
+impl ParticleEmitterRuntime {
+    fn new(definition: &ParticleEmitterDefinition) -> Self {
+        match definition {
+            ParticleEmitterDefinition::Parsed(emitter) => {
+                Self::Parsed(ParticleEmitter::new(emitter))
+            }
+            ParticleEmitterDefinition::Classic(emitter) => Self::Classic(ClassicParticleRuntime {
+                definition: emitter.clone(),
+                particles: Vec::new(),
+                emission_remainder: 0.0,
+                random_state: 0x4d59_5df4_d0f3_3173,
+            }),
+        }
+    }
+
+    fn bone_index(&self) -> u16 {
+        match self {
+            Self::Parsed(emitter) => emitter.bone_index(),
+            Self::Classic(emitter) => emitter.definition.bone_index,
+        }
+    }
+
+    fn update(&mut self, delta_seconds: f32, identity: &[f32; 16], bone_transform: Mat4) {
+        match self {
+            Self::Parsed(emitter) => emitter.update(delta_seconds * 1000.0, identity, identity),
+            Self::Classic(emitter) => emitter.update(delta_seconds, bone_transform),
+        }
+    }
+
+    fn render_transform(&self, bone_transform: Mat4) -> Mat4 {
+        match self {
+            Self::Classic(emitter) if emitter.definition.flags & 0x10 != 0 => Mat4::IDENTITY,
+            _ => bone_transform,
+        }
+    }
+
+    fn render_data(&self) -> Vec<ParticleRenderData> {
+        match self {
+            Self::Parsed(emitter) => emitter
+                .fill_texture_data()
+                .chunks_exact(wow_m2::TEXELS_PER_PARTICLE * 4)
+                .take(emitter.particle_count())
+                .map(|particle| ParticleRenderData {
+                    position: Vec3::new(-particle[0], particle[2], particle[1]),
+                    color: [particle[4], particle[5], particle[6], particle[7]],
+                    size: Vec2::new(particle[8], particle[9]),
+                    uv_min: Vec2::new(particle[12], particle[13]),
+                    uv_size: Vec2::ONE,
+                })
+                .collect(),
+            Self::Classic(emitter) => emitter.render_data(),
+        }
+    }
+}
+
+impl ClassicParticleRuntime {
+    fn update(&mut self, delta_seconds: f32, bone_transform: Mat4) {
+        let delta_seconds = delta_seconds.min(0.1);
+        self.emission_remainder += self.definition.emission_rate * delta_seconds;
+        let spawn_count = self.emission_remainder.floor().min(256.0) as usize;
+        self.emission_remainder -= spawn_count as f32;
+        for _ in 0..spawn_count {
+            self.spawn(bone_transform);
+        }
+        let gravity = Vec3::new(0.0, -self.definition.gravity, 0.0);
+        self.particles.retain_mut(|particle| {
+            particle.age += delta_seconds;
+            if particle.age >= particle.lifespan {
+                return false;
+            }
+            particle.velocity += gravity * delta_seconds;
+            particle.position += particle.velocity * delta_seconds;
+            true
+        });
+    }
+
+    fn spawn(&mut self, bone_transform: Mat4) {
+        let random_a = self.random_signed();
+        let random_b = self.random_signed();
+        let speed = self.definition.emission_speed
+            * (1.0 + self.definition.speed_variation * self.random_signed());
+        let (position, direction) = if self.definition.emitter_type == 2 {
+            let azimuth = random_a * self.definition.horizontal_range;
+            let elevation = random_b * self.definition.vertical_range;
+            let direction = Vec3::new(
+                elevation.cos() * azimuth.sin(),
+                elevation.cos() * azimuth.cos(),
+                elevation.sin(),
+            );
+            let radius = self.definition.area_length
+                + self.random_unit() * (self.definition.area_width - self.definition.area_length);
+            (direction * radius, direction)
+        } else {
+            let position = Vec3::new(
+                random_a * self.definition.area_length * 0.5,
+                random_b * self.definition.area_width * 0.5,
+                0.0,
+            );
+            let polar = self.random_signed() * self.definition.vertical_range;
+            let azimuth = self.random_signed() * self.definition.horizontal_range;
+            (
+                position,
+                Vec3::new(
+                    polar.sin() * azimuth.cos(),
+                    polar.sin() * azimuth.sin(),
+                    polar.cos(),
+                ),
+            )
+        };
+        let position = Vec3::from_array(wow_to_bevy(
+            self.definition.position.x + position.x,
+            self.definition.position.y + position.y,
+            self.definition.position.z + position.z,
+        ));
+        let velocity = Vec3::from_array(wow_to_bevy(direction.x, direction.y, direction.z))
+            .normalize_or_zero()
+            * speed;
+        let world_space = self.definition.flags & 0x10 != 0;
+        self.particles.push(ClassicParticle {
+            position: if world_space {
+                bone_transform.transform_point3(position)
+            } else {
+                position
+            },
+            velocity: if world_space {
+                bone_transform.transform_vector3(velocity)
+            } else {
+                velocity
+            },
+            age: 0.0,
+            lifespan: self.definition.lifespan,
+        });
+    }
+
+    fn random_unit(&mut self) -> f32 {
+        self.random_state = self
+            .random_state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        ((self.random_state >> 40) as u32) as f32 / 16_777_216.0
+    }
+
+    fn random_signed(&mut self) -> f32 {
+        self.random_unit() * 2.0 - 1.0
+    }
+
+    fn render_data(&self) -> Vec<ParticleRenderData> {
+        let rows = f32::from(self.definition.rows);
+        let columns = f32::from(self.definition.columns);
+        let uv_size = Vec2::new(1.0 / columns, 1.0 / rows);
+        self.particles
+            .iter()
+            .enumerate()
+            .map(|(index, particle)| {
+                let life = (particle.age / particle.lifespan).clamp(0.0, 1.0);
+                let color = life_ramp(
+                    life,
+                    self.definition.midpoint,
+                    self.definition.colors.map(Vec4::from_array),
+                )
+                .to_array();
+                let scale = life_ramp(life, self.definition.midpoint, self.definition.scales);
+                let tile = index as u32
+                    % (u32::from(self.definition.rows) * u32::from(self.definition.columns));
+                let column = tile % u32::from(self.definition.columns);
+                let row = tile / u32::from(self.definition.columns);
+                ParticleRenderData {
+                    position: particle.position,
+                    color,
+                    size: Vec2::splat(scale.abs().max(0.01)),
+                    uv_min: Vec2::new(column as f32 / columns, row as f32 / rows),
+                    uv_size,
+                }
+            })
+            .collect()
+    }
+}
+
+fn life_ramp<T>(life: f32, midpoint: f32, values: [T; 3]) -> T
+where
+    T: Copy + std::ops::Mul<f32, Output = T> + std::ops::Add<Output = T>,
+{
+    if life <= midpoint && midpoint > f32::EPSILON {
+        let factor = life / midpoint;
+        values[0] * (1.0 - factor) + values[1] * factor
+    } else if midpoint < 1.0 {
+        let factor = (life - midpoint) / (1.0 - midpoint);
+        values[1] * (1.0 - factor) + values[2] * factor
+    } else {
+        values[2]
+    }
+}
+
 fn alpha_mode_with_opacity(blend_mode: u16, opacity: f32) -> AlphaMode {
     match alpha_mode(blend_mode) {
         AlphaMode::Opaque if opacity < 1.0 => AlphaMode::Blend,
@@ -1614,14 +2410,22 @@ fn alpha_mode_with_opacity(blend_mode: u16, opacity: f32) -> AlphaMode {
     }
 }
 
-fn classic_m2_opacity(
+fn alpha_mode_with_animation(blend_mode: u16, opacity: f32, animated: bool) -> AlphaMode {
+    match alpha_mode_with_opacity(blend_mode, opacity) {
+        AlphaMode::Opaque if animated => AlphaMode::Blend,
+        alpha_mode => alpha_mode,
+    }
+}
+
+fn classic_m2_opacity_animation(
     data: &[u8],
     transparency_lookup: &[u16],
     animation_offset: usize,
     animation_count: usize,
     texture_weight_combo_index: usize,
-) -> Option<f32> {
+) -> Option<Arc<M2OpacityAnimation>> {
     const TRANSPARENCY_ANIMATION_SIZE: usize = 28;
+    const TIMESTAMPS_DESCRIPTOR_OFFSET: usize = 12;
     const VALUES_DESCRIPTOR_OFFSET: usize = 20;
 
     let animation_index = *transparency_lookup.get(texture_weight_combo_index)? as usize;
@@ -1630,17 +2434,43 @@ fn classic_m2_opacity(
     }
     let animation =
         animation_offset.checked_add(animation_index.checked_mul(TRANSPARENCY_ANIMATION_SIZE)?)?;
+    let (timestamp_count, timestamp_offset) =
+        read_array_descriptor(data, animation + TIMESTAMPS_DESCRIPTOR_OFFSET).ok()?;
     let (value_count, value_offset) =
         read_array_descriptor(data, animation + VALUES_DESCRIPTOR_OFFSET).ok()?;
-    (value_count > 0)
-        .then(|| data.get(value_offset..value_offset + 2))
-        .flatten()
-        .and_then(fixed_i16_alpha)
+    if timestamp_count == 0 || timestamp_count != value_count {
+        return None;
+    }
+    checked_array_range(data, timestamp_offset, timestamp_count, 4).ok()?;
+    checked_array_range(data, value_offset, value_count, 2).ok()?;
+    let timestamps = (0..timestamp_count)
+        .map(|index| LittleEndian::read_u32(&data[timestamp_offset + index * 4..]))
+        .collect::<Vec<_>>();
+    let values = (0..value_count)
+        .filter_map(|index| fixed_i16_alpha(&data[value_offset + index * 2..]))
+        .collect::<Vec<_>>();
+    let duration_ms = timestamps.last().copied()?;
+    (duration_ms > 0 && timestamps.len() == values.len()).then(|| {
+        Arc::new(M2OpacityAnimation {
+            opacity: AnimationTrack { timestamps, values },
+            duration_ms,
+            start_ms: 0,
+        })
+    })
 }
 
 fn fixed_i16_alpha(values: &[u8]) -> Option<f32> {
     let value = i16::from_le_bytes(values.get(..2)?.try_into().ok()?);
     Some((f32::from(value) / f32::from(i16::MAX)).clamp(0.0, 1.0))
+}
+
+fn fixed_i16_alpha_values(values: &[u8], start: usize, count: usize) -> Vec<f32> {
+    values
+        .chunks_exact(2)
+        .skip(start)
+        .take(count)
+        .filter_map(fixed_i16_alpha)
+        .collect()
 }
 
 fn load_wmo(
@@ -1721,24 +2551,29 @@ fn load_wmo(
                     texture: root.textures.get(texture_index).cloned(),
                     texture_type: 0,
                     texture_animation: None,
+                    opacity_animation: None,
                     alpha_mode: alpha_mode(material.blend_mode as u16),
                     opacity: 1.0,
                     double_sided: material.flags & 0x04 != 0,
                 })
             })
             .collect();
-        object_parts.extend(build_object_parts(
-            M2MeshData {
-                positions,
-                normals,
-                uvs,
-                animation: None,
-                indices,
-                batches,
-            },
-            mpqs,
-            cache,
-        ));
+        object_parts.extend(
+            build_m2_asset(
+                M2MeshData {
+                    positions,
+                    normals,
+                    uvs,
+                    animation: None,
+                    indices,
+                    batches,
+                    particles: Vec::new(),
+                },
+                mpqs,
+                cache,
+            )
+            .parts,
+        );
     }
 
     let doodad_sets = root
@@ -1844,6 +2679,71 @@ fn build_mesh(
     .with_inserted_indices(Indices::U32(indices))
 }
 
+fn empty_particle_mesh() -> Mesh {
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, Vec::<[f32; 3]>::new())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new())
+    .with_inserted_indices(Indices::U32(Vec::new()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn update_particle_mesh(
+    mesh: &mut Mesh,
+    data: &[ParticleRenderData],
+    right: Vec3,
+    up: Vec3,
+    bone_transform: Mat4,
+) {
+    let mut positions = Vec::with_capacity(data.len() * 4);
+    let mut normals = Vec::with_capacity(data.len() * 4);
+    let mut uvs = Vec::with_capacity(data.len() * 4);
+    let mut colors = Vec::with_capacity(data.len() * 4);
+    let mut indices = Vec::with_capacity(data.len() * 6);
+    let normal = right.cross(up).normalize_or_zero();
+
+    for (particle_index, particle) in data.iter().enumerate() {
+        let center = bone_transform.transform_point3(particle.position);
+        let horizontal = right * particle.size.x;
+        let vertical = up * particle.size.y;
+        positions.extend([
+            (center - horizontal - vertical).to_array(),
+            (center + horizontal - vertical).to_array(),
+            (center + horizontal + vertical).to_array(),
+            (center - horizontal + vertical).to_array(),
+        ]);
+        normals.extend([normal.to_array(); 4]);
+        let uv = particle.uv_min;
+        let uv_end = uv + particle.uv_size;
+        uvs.extend([
+            [uv.x, uv_end.y],
+            [uv_end.x, uv_end.y],
+            [uv_end.x, uv.y],
+            [uv.x, uv.y],
+        ]);
+        colors.extend([particle.color; 4]);
+        let vertex = (particle_index * 4) as u32;
+        indices.extend([
+            vertex,
+            vertex + 1,
+            vertex + 2,
+            vertex,
+            vertex + 2,
+            vertex + 3,
+        ]);
+    }
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh.insert_indices(Indices::U32(indices));
+}
+
 fn index_filenames(filenames: &[String]) -> HashMap<usize, &str> {
     let mut offset = 0;
     filenames
@@ -1929,6 +2829,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_classic_m2_bone_rotation() {
+        let mut data = vec![0_u8; 280];
+        data[52..56].copy_from_slice(&1_u32.to_le_bytes());
+        data[56..60].copy_from_slice(&128_u32.to_le_bytes());
+        data[136..138].copy_from_slice(&(-1_i16).to_le_bytes());
+        data[180..184].copy_from_slice(&2_u32.to_le_bytes());
+        data[184..188].copy_from_slice(&240_u32.to_le_bytes());
+        data[188..192].copy_from_slice(&2_u32.to_le_bytes());
+        data[192..196].copy_from_slice(&248_u32.to_le_bytes());
+        data[240..244].copy_from_slice(&3_333_u32.to_le_bytes());
+        data[244..248].copy_from_slice(&6_667_u32.to_le_bytes());
+        for (offset, value) in [
+            (260, 1.0_f32),
+            (272, std::f32::consts::FRAC_1_SQRT_2),
+            (276, std::f32::consts::FRAC_1_SQRT_2),
+        ] {
+            data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+
+        let animation = classic_m2_particle_animation(&data).unwrap();
+        assert_eq!(animation.start_ms, 3_333);
+        assert_eq!(animation.duration_ms, 3_334);
+        let transform = animation.bone_transforms(3_333)[0];
+        assert!(
+            transform
+                .transform_vector3(Vec3::X)
+                .abs_diff_eq(Vec3::NEG_Z, 0.01)
+        );
+    }
+
+    #[test]
     fn parses_classic_m2_texture_translation() {
         let mut data = vec![0_u8; 160];
         data[12..16].copy_from_slice(&2_u32.to_le_bytes());
@@ -1959,10 +2890,172 @@ mod tests {
     }
 
     #[test]
+    fn converts_wow_particle_blend_modes() {
+        assert_eq!(parsed_particle_alpha_mode(0), AlphaMode::Opaque);
+        assert_eq!(parsed_particle_alpha_mode(1), AlphaMode::Mask(0.5));
+        assert_eq!(parsed_particle_alpha_mode(4), AlphaMode::Multiply);
+        assert_eq!(classic_particle_alpha_mode(1), AlphaMode::Add);
+        assert_eq!(classic_particle_alpha_mode(2), AlphaMode::Blend);
+        assert_eq!(classic_particle_alpha_mode(3), AlphaMode::Mask(0.5));
+        assert_eq!(classic_particle_alpha_mode(4), AlphaMode::Add);
+    }
+
+    #[test]
+    fn builds_camera_facing_particle_quad() {
+        let mut mesh = empty_particle_mesh();
+        let data = [ParticleRenderData {
+            position: Vec3::ZERO,
+            color: [1.0, 0.5, 0.25, 0.75],
+            size: Vec2::splat(2.0),
+            uv_min: Vec2::ZERO,
+            uv_size: Vec2::ONE,
+        }];
+
+        update_particle_mesh(&mut mesh, &data, Vec3::X, Vec3::Y, Mat4::IDENTITY);
+
+        let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
+        assert_eq!(positions.len(), 4);
+        assert_eq!(mesh.indices().unwrap().len(), 6);
+        let bevy::mesh::VertexAttributeValues::Float32x3(positions) = positions else {
+            panic!("particle positions must be Float32x3");
+        };
+        assert_eq!(positions[0], [-2.0, -2.0, 0.0]);
+        assert_eq!(positions[2], [2.0, 2.0, 0.0]);
+    }
+
+    #[test]
+    fn classic_particle_runtime_emits_visible_particles() {
+        let definition = ClassicParticleEmitter {
+            flags: 0,
+            position: Vec3::ZERO,
+            bone_index: 0,
+            blending_type: 2,
+            emitter_type: 1,
+            rows: 1,
+            columns: 1,
+            emission_speed: 1.0,
+            speed_variation: 0.0,
+            vertical_range: 0.0,
+            horizontal_range: 0.0,
+            gravity: 0.0,
+            lifespan: 1.0,
+            emission_rate: 100.0,
+            area_length: 1.0,
+            area_width: 1.0,
+            midpoint: 0.5,
+            colors: [[1.0; 4]; 3],
+            scales: [1.0; 3],
+        };
+        let mut runtime =
+            ParticleEmitterRuntime::new(&ParticleEmitterDefinition::Classic(definition));
+
+        runtime.update(0.05, &[0.0; 16], Mat4::IDENTITY);
+        let particles = runtime.render_data();
+
+        assert_eq!(particles.len(), 5);
+        assert!(
+            particles
+                .iter()
+                .all(|particle| particle.position.is_finite())
+        );
+        assert!(
+            particles
+                .iter()
+                .all(|particle| particle.size.cmpgt(Vec2::ZERO).all())
+        );
+    }
+
+    #[test]
+    fn classic_world_space_particles_keep_spawn_transform() {
+        let definition = ClassicParticleEmitter {
+            flags: 0x10,
+            position: Vec3::ZERO,
+            bone_index: 0,
+            blending_type: 2,
+            emitter_type: 2,
+            rows: 1,
+            columns: 1,
+            emission_speed: 0.0,
+            speed_variation: 0.0,
+            vertical_range: std::f32::consts::PI,
+            horizontal_range: 0.0,
+            gravity: 0.0,
+            lifespan: 1.0,
+            emission_rate: 100.0,
+            area_length: 1.0,
+            area_width: 1.0,
+            midpoint: 0.5,
+            colors: [[1.0; 4]; 3],
+            scales: [1.0; 3],
+        };
+        let mut runtime = ClassicParticleRuntime {
+            definition,
+            particles: Vec::new(),
+            emission_remainder: 0.0,
+            random_state: 1,
+        };
+
+        runtime.update(0.1, Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2));
+        assert!(
+            runtime
+                .particles
+                .iter()
+                .all(|particle| particle.position.y.abs() < 0.0001)
+        );
+        runtime.update(0.1, Mat4::IDENTITY);
+        assert!(
+            runtime.particles[..10]
+                .iter()
+                .all(|particle| particle.position.y.abs() < 0.0001)
+        );
+        assert!(
+            runtime.particles[10..]
+                .iter()
+                .all(|particle| particle.position.z.abs() < 0.0001)
+        );
+    }
+
+    #[test]
+    fn classic_particle_lighting_uses_the_0x400_flag() {
+        let definition = |flags| {
+            ParticleEmitterDefinition::Classic(ClassicParticleEmitter {
+                flags,
+                position: Vec3::ZERO,
+                bone_index: 0,
+                blending_type: 4,
+                emitter_type: 2,
+                rows: 1,
+                columns: 1,
+                emission_speed: 0.0,
+                speed_variation: 0.0,
+                vertical_range: 0.0,
+                horizontal_range: 0.0,
+                gravity: 0.0,
+                lifespan: 1.0,
+                emission_rate: 1.0,
+                area_length: 0.0,
+                area_width: 0.0,
+                midpoint: 0.5,
+                colors: [[1.0; 4]; 3],
+                scales: [1.0; 3],
+            })
+        };
+
+        assert!(!definition(0x39).is_lit());
+        assert!(definition(0x400).is_lit());
+    }
+
+    #[test]
     fn decodes_m2_fixed_point_opacity() {
         assert_eq!(fixed_i16_alpha(&[0, 0]), Some(0.0));
         assert_eq!(fixed_i16_alpha(&i16::MAX.to_le_bytes()), Some(1.0));
         assert!((fixed_i16_alpha(&1638_i16.to_le_bytes()).unwrap() - 0.05).abs() < 0.0001);
+
+        let values = [0_i16, i16::MAX]
+            .into_iter()
+            .flat_map(i16::to_le_bytes)
+            .collect::<Vec<_>>();
+        assert_eq!(fixed_i16_alpha_values(&values, 0, 2), vec![0.0, 1.0]);
     }
 
     #[test]
@@ -1996,6 +3089,31 @@ mod tests {
             .transform(500)
             .transform_point2(Vec2::new(0.25, 0.25));
         assert!(uv.abs_diff_eq(Vec2::new(0.25, 0.75), 0.0001));
+    }
+
+    #[test]
+    fn animates_m2_material_opacity() {
+        let animation = M2OpacityAnimation {
+            opacity: AnimationTrack {
+                timestamps: vec![0, 1_000],
+                values: vec![0.0, 1.0],
+            },
+            duration_ms: 1_000,
+            start_ms: 0,
+        };
+
+        assert!((animation.sample(500) - 0.5).abs() < 0.0001);
+        assert!(animation.requires_blending());
+
+        let opaque_animation = M2OpacityAnimation {
+            opacity: AnimationTrack {
+                timestamps: vec![0, 1_000],
+                values: vec![1.0, 1.0],
+            },
+            duration_ms: 1_000,
+            start_ms: 0,
+        };
+        assert!(!opaque_animation.requires_blending());
     }
 
     #[test]
