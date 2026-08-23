@@ -175,7 +175,12 @@ async fn main() {
 
     creates(
         &out_dir,
-        &["AreaTable", "Map"],
+        &[
+            "AreaTable",
+            "GroundEffectDoodad",
+            "GroundEffectTexture",
+            "Map",
+        ],
         &Build {
             expansion: 1,
             major: 12,

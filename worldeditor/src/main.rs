@@ -5,6 +5,8 @@ mod terrain_material;
 
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 
+#[cfg(feature = "realistic-lighting")]
+use bevy::light::CascadeShadowConfigBuilder;
 use bevy::{
     diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     pbr::ExtendedMaterial,
@@ -29,6 +31,7 @@ struct AppSettings {
     mpq_directory_path: PathBuf,
     terrain_view_distance: f32,
     object_view_distance: f32,
+    ground_effect_view_distance: f32,
     log_diagnostics: bool,
     focus_wmo_camera_on_start: bool,
 }
@@ -39,6 +42,7 @@ impl Default for AppSettings {
             mpq_directory_path: PathBuf::from_str("./Data").unwrap(),
             terrain_view_distance: 50_000.0,
             object_view_distance: 3_000.0,
+            ground_effect_view_distance: 40.0,
             log_diagnostics: false,
             focus_wmo_camera_on_start: true,
         }
@@ -50,8 +54,10 @@ fn main() {
     let render_settings = RenderSettings {
         render_adts: true,
         render_objects: true,
+        render_ground_effects: true,
         adt_distance: config.terrain_view_distance,
         object_distance: config.object_view_distance,
+        ground_effect_distance: config.ground_effect_view_distance,
         edit_mode: Default::default(),
     };
 
@@ -127,6 +133,31 @@ fn setup(mut commands: Commands, mpqs_res: Res<MPQResource>, settings: Res<AppSe
             Msaa::Off,
         ))
         .id();
+
+    #[cfg(feature = "realistic-lighting")]
+    {
+        commands.entity(camera).insert(AmbientLight {
+            color: Color::srgb(0.58, 0.68, 0.82),
+            brightness: 90.0,
+            ..default()
+        });
+        commands.spawn((
+            Name::new("Realistic daylight"),
+            DirectionalLight {
+                color: Color::srgb(1.0, 0.91, 0.76),
+                illuminance: 18_000.0,
+                shadow_maps_enabled: true,
+                ..default()
+            },
+            CascadeShadowConfigBuilder {
+                first_cascade_far_bound: 150.0,
+                maximum_distance: settings.object_view_distance + 500.0,
+                ..default()
+            }
+            .build(),
+            Transform::default().looking_to(Vec3::new(-0.7, -1.0, -0.45), Vec3::Y),
+        ));
+    }
 
     let wmo_camera_transform = load_map(&mpqs_res.mpqs, &mut commands, 0);
     if settings.focus_wmo_camera_on_start

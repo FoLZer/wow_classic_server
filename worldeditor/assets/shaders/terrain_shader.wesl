@@ -15,7 +15,8 @@ import bevy_pbr::{
 @else
 import bevy_pbr::render::{
     forward_io::{VertexOutput, FragmentOutput},
-    pbr_functions::main_pass_post_lighting_processing,
+    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
+    pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
 };
 
 @if(VISIBILITY_RANGE_DITHER)
@@ -85,7 +86,11 @@ fn fragment(
 @if(!PREPASS_PIPELINE)
     var out: FragmentOutput;
 @if(!PREPASS_PIPELINE)
-    out.color = pbr_input.material.base_color;
+    if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
+        out.color = apply_pbr_lighting(pbr_input);
+    } else {
+        out.color = pbr_input.material.base_color;
+    }
 @if(!PREPASS_PIPELINE)
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 

@@ -21,7 +21,9 @@ use wow_wmo::{ParsedWmo, discover_wmo_chunks, parse_wmo};
 
 use crate::{map_loader::AdtPosition, mpq_read_file};
 
-use super::{ADT_CELLS_PER_GRID, ADT_GRID_SIZE, ADT_SIZE, CHUNK_SIZE};
+use super::{
+    ADT_CELLS_PER_GRID, ADT_GRID_SIZE, ADT_SIZE, CHUNK_SIZE, ground_effects::GroundEffectPlacement,
+};
 
 const MAP_HALF_SIZE: f32 = ADT_GRID_SIZE as f32 * ADT_CELLS_PER_GRID as f32 * CHUNK_SIZE * 0.5;
 
@@ -226,7 +228,6 @@ pub(super) fn load_adt_objects(
             ));
         }
     }
-
     let mut wmos = Vec::new();
     for placement in &adt.wmo_placements {
         if placement_owner(placement.position) != adt_coordinates {
@@ -251,6 +252,25 @@ pub(super) fn load_adt_objects(
     }
 
     ObjectsLoadResult { doodads, wmos }
+}
+
+pub(super) fn load_ground_effects(
+    placements: Vec<GroundEffectPlacement>,
+    mpqs: &PatchChain,
+    cache: &PreparedObjectCache,
+) -> ObjectsLoadResult {
+    let mut doodads = Vec::new();
+    for placement in placements {
+        if let Some(asset) = load_object(&placement.filename, mpqs, cache)
+            && matches!(asset.as_ref(), PreparedObjectAsset::M2(_))
+        {
+            doodads.push((placement.filename, asset, placement.transform));
+        }
+    }
+    ObjectsLoadResult {
+        doodads,
+        wmos: Vec::new(),
+    }
 }
 
 pub(super) fn load_world_wmos(
@@ -423,7 +443,8 @@ fn finalize_object_parts(
                 },
                 base_color_texture: texture,
                 alpha_mode: part.alpha_mode,
-                unlit: true,
+                perceptual_roughness: 0.82,
+                unlit: !cfg!(feature = "realistic-lighting"),
                 ..default()
             };
             if part.double_sided {

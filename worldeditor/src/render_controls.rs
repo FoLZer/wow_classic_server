@@ -17,7 +17,7 @@ use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
 
 use crate::{
-    map_loader::{AdtPosition, RenderedObject, TerrainEditor},
+    map_loader::{AdtPosition, RenderedGroundEffect, RenderedObject, TerrainEditor},
     mpq_read_file,
 };
 
@@ -32,8 +32,10 @@ const TRACK: Color = Color::srgb(0.16, 0.19, 0.20);
 pub struct RenderSettings {
     pub render_adts: bool,
     pub render_objects: bool,
+    pub render_ground_effects: bool,
     pub adt_distance: f32,
     pub object_distance: f32,
+    pub ground_effect_distance: f32,
     pub edit_mode: EditMode,
 }
 
@@ -63,6 +65,15 @@ impl Default for ObjectCheckbox {
 }
 
 #[derive(Component)]
+pub(crate) struct GroundEffectCheckbox;
+
+impl Default for GroundEffectCheckbox {
+    fn default() -> Self {
+        Self
+    }
+}
+
+#[derive(Component)]
 pub(crate) struct CheckboxMark;
 
 #[derive(Component)]
@@ -70,6 +81,9 @@ pub(crate) struct AdtDistanceLabel;
 
 #[derive(Component)]
 pub(crate) struct ObjectDistanceLabel;
+
+#[derive(Component)]
+pub(crate) struct GroundEffectDistanceLabel;
 
 #[derive(Component)]
 pub(crate) struct DistanceSlider;
@@ -138,6 +152,12 @@ pub fn setup_render_controls(mut commands: Commands, settings: Res<RenderSetting
                 ));
                 spawn_checkbox(panel, "ADT terrain", settings.render_adts, AdtCheckbox);
                 spawn_checkbox(panel, "Objects", settings.render_objects, ObjectCheckbox);
+                spawn_checkbox(
+                    panel,
+                    "Ground effects",
+                    settings.render_ground_effects,
+                    GroundEffectCheckbox,
+                );
                 spawn_edit_mode_control(panel, settings.edit_mode);
                 spawn_distance_control(
                     panel,
@@ -162,6 +182,19 @@ pub fn setup_render_controls(mut commands: Commands, settings: Res<RenderSetting
                     observe(
                         |event: On<ValueChange<f32>>, mut settings: ResMut<RenderSettings>| {
                             settings.object_distance = event.value;
+                        },
+                    ),
+                );
+                spawn_distance_control(
+                    panel,
+                    "Ground effect distance",
+                    settings.ground_effect_distance,
+                    32.0,
+                    600.0,
+                    GroundEffectDistanceLabel,
+                    observe(
+                        |event: On<ValueChange<f32>>, mut settings: ResMut<RenderSettings>| {
+                            settings.ground_effect_distance = event.value;
                         },
                     ),
                 );
@@ -561,13 +594,22 @@ pub fn update_slider_visuals(
 pub fn update_render_controls(
     adt_checkboxes: Query<(Entity, Has<Checked>), With<AdtCheckbox>>,
     object_checkboxes: Query<(Entity, Has<Checked>), With<ObjectCheckbox>>,
-    checkbox_children: Query<&Children, Or<(With<AdtCheckbox>, With<ObjectCheckbox>)>>,
+    ground_effect_checkboxes: Query<(Entity, Has<Checked>), With<GroundEffectCheckbox>>,
+    checkbox_children: Query<
+        &Children,
+        Or<(
+            With<AdtCheckbox>,
+            With<ObjectCheckbox>,
+            With<GroundEffectCheckbox>,
+        )>,
+    >,
     mut marks: Query<
         (&mut Text, &mut BackgroundColor),
         (
             With<CheckboxMark>,
             Without<AdtDistanceLabel>,
             Without<ObjectDistanceLabel>,
+            Without<GroundEffectDistanceLabel>,
         ),
     >,
     mut adt_labels: Query<
@@ -576,6 +618,7 @@ pub fn update_render_controls(
             With<AdtDistanceLabel>,
             Without<CheckboxMark>,
             Without<ObjectDistanceLabel>,
+            Without<GroundEffectDistanceLabel>,
         ),
     >,
     mut object_labels: Query<
@@ -584,6 +627,16 @@ pub fn update_render_controls(
             With<ObjectDistanceLabel>,
             Without<CheckboxMark>,
             Without<AdtDistanceLabel>,
+            Without<GroundEffectDistanceLabel>,
+        ),
+    >,
+    mut ground_effect_labels: Query<
+        &mut Text,
+        (
+            With<GroundEffectDistanceLabel>,
+            Without<CheckboxMark>,
+            Without<AdtDistanceLabel>,
+            Without<ObjectDistanceLabel>,
         ),
     >,
     mut settings: ResMut<RenderSettings>,
@@ -618,24 +671,41 @@ pub fn update_render_controls(
         }
         update_checkbox_mark(entity, checked, &checkbox_children, &mut marks);
     }
+    for (entity, checked) in &ground_effect_checkboxes {
+        if settings.render_ground_effects != checked {
+            settings.render_ground_effects = checked;
+        }
+        update_checkbox_mark(entity, checked, &checkbox_children, &mut marks);
+    }
     for mut label in &mut adt_labels {
         **label = format_distance(settings.adt_distance);
     }
     for mut label in &mut object_labels {
         **label = format_distance(settings.object_distance);
     }
+    for mut label in &mut ground_effect_labels {
+        **label = format_distance(settings.ground_effect_distance);
+    }
 }
 
 fn update_checkbox_mark(
     checkbox: Entity,
     checked: bool,
-    children: &Query<&Children, Or<(With<AdtCheckbox>, With<ObjectCheckbox>)>>,
+    children: &Query<
+        &Children,
+        Or<(
+            With<AdtCheckbox>,
+            With<ObjectCheckbox>,
+            With<GroundEffectCheckbox>,
+        )>,
+    >,
     marks: &mut Query<
         (&mut Text, &mut BackgroundColor),
         (
             With<CheckboxMark>,
             Without<AdtDistanceLabel>,
             Without<ObjectDistanceLabel>,
+            Without<GroundEffectDistanceLabel>,
         ),
     >,
 ) {
@@ -654,9 +724,17 @@ pub fn apply_render_visibility(
     settings: Res<RenderSettings>,
     mut adts: Query<
         (&mut Visibility, &mut VisibilityRange),
-        (With<AdtPosition>, Without<RenderedObject>),
+        (
+            With<AdtPosition>,
+            Without<RenderedObject>,
+            Without<RenderedGroundEffect>,
+        ),
     >,
     mut objects: Query<&mut Visibility, With<RenderedObject>>,
+    mut ground_effects: Query<
+        &mut Visibility,
+        (With<RenderedGroundEffect>, Without<RenderedObject>),
+    >,
 ) {
     if !settings.is_changed() {
         return;
@@ -674,6 +752,13 @@ pub fn apply_render_visibility(
     }
     for mut visibility in &mut objects {
         *visibility = if settings.render_objects {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for mut visibility in &mut ground_effects {
+        *visibility = if settings.render_ground_effects {
             Visibility::Inherited
         } else {
             Visibility::Hidden

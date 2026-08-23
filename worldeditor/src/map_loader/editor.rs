@@ -5,8 +5,12 @@ use std::{
 
 use bevy::{
     color::palettes::css::{ORANGE, YELLOW},
-    mesh::VertexAttributeValues,
+    mesh::{MeshVertexBufferLayoutRef, VertexAttributeValues},
+    pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline},
     prelude::*,
+    render::render_resource::{
+        AsBindGroup, CompareFunction, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    },
     ui_widgets::SliderValue,
 };
 use wow_adt::{ParsedAdt, RootAdt, parse_adt};
@@ -28,7 +32,8 @@ pub struct TerrainEditorPlugin;
 
 impl Plugin for TerrainEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<TerrainEditor>()
+        app.add_plugins(MaterialPlugin::<EditPointMaterial>::default())
+            .init_resource::<TerrainEditor>()
             .init_resource::<DirtyTerrainMeshes>()
             .add_systems(
                 Update,
@@ -42,6 +47,33 @@ impl Plugin for TerrainEditorPlugin {
     }
 }
 
+type EditPointMaterial = ExtendedMaterial<StandardMaterial, EditPointMaterialExtension>;
+
+#[derive(Asset, AsBindGroup, TypePath, Clone, Debug, Default)]
+pub(super) struct EditPointMaterialExtension {}
+
+impl MaterialExtension for EditPointMaterialExtension {
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        let depth_stencil = descriptor.depth_stencil.as_mut().unwrap();
+        depth_stencil.depth_compare = Some(CompareFunction::Always);
+        depth_stencil.depth_write_enabled = Some(false);
+        Ok(())
+    }
+}
+
 #[derive(Resource, Default)]
 struct DirtyTerrainMeshes(HashSet<Handle<Mesh>>);
 
@@ -52,8 +84,8 @@ pub(crate) struct TerrainEditor {
     edited_alpha_maps: HashMap<(AdtPosition, usize), Vec<u8>>,
 
     point_mesh: Option<Handle<Mesh>>,
-    point_material: Option<Handle<StandardMaterial>>,
-    active_point_material: Option<Handle<StandardMaterial>>,
+    point_material: Option<Handle<EditPointMaterial>>,
+    active_point_material: Option<Handle<EditPointMaterial>>,
     active_point: Option<Entity>,
     active_mode: EditMode,
 }
@@ -75,7 +107,7 @@ impl TerrainEditor {
     fn ensure_point_assets_loaded(
         &mut self,
         meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<StandardMaterial>,
+        materials: &mut Assets<EditPointMaterial>,
     ) -> HeightMapPointAssets {
         let point_mesh = self
             .point_mesh
@@ -84,20 +116,30 @@ impl TerrainEditor {
         let point_material = self
             .point_material
             .get_or_insert_with(|| {
-                materials.add(StandardMaterial {
-                    base_color: YELLOW.into(),
-                    unlit: true,
-                    ..Default::default()
+                materials.add(ExtendedMaterial {
+                    base: StandardMaterial {
+                        base_color: YELLOW.into(),
+                        unlit: true,
+                        alpha_mode: AlphaMode::Blend,
+                        depth_bias: i32::MAX as f32,
+                        ..Default::default()
+                    },
+                    extension: EditPointMaterialExtension {},
                 })
             })
             .clone();
         let active_point_material = self
             .active_point_material
             .get_or_insert_with(|| {
-                materials.add(StandardMaterial {
-                    base_color: ORANGE.into(),
-                    unlit: true,
-                    ..Default::default()
+                materials.add(ExtendedMaterial {
+                    base: StandardMaterial {
+                        base_color: ORANGE.into(),
+                        unlit: true,
+                        alpha_mode: AlphaMode::Blend,
+                        depth_bias: i32::MAX as f32,
+                        ..Default::default()
+                    },
+                    extension: EditPointMaterialExtension {},
                 })
             })
             .clone();
@@ -137,8 +179,8 @@ impl TerrainEditor {
 #[allow(unused)]
 pub struct HeightMapPointAssets {
     point_mesh: Handle<Mesh>,
-    point_material: Handle<StandardMaterial>,
-    active_point_material: Handle<StandardMaterial>,
+    point_material: Handle<EditPointMaterial>,
+    active_point_material: Handle<EditPointMaterial>,
 }
 
 struct SelectedTerrainChunk {
@@ -206,7 +248,7 @@ pub(super) fn select_adt_chunk(
     mut terrain: ResMut<TerrainMap>,
     mpqs: Res<MPQResource>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<EditPointMaterial>>,
     texture_controls: Query<(Entity, &TextureControl)>,
     ui_root_query: Query<(Entity, &UiRoot)>,
     mut images: ResMut<Assets<Image>>,
@@ -376,7 +418,7 @@ fn sync_edit_mode(
     settings: Res<RenderSettings>,
     mut editor: ResMut<TerrainEditor>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<EditPointMaterial>>,
 ) {
     if editor.active_mode == settings.edit_mode || editor.selected.is_none() {
         return;
@@ -412,10 +454,10 @@ fn select_alpha_point(
     mut commands: Commands,
     mut editor: ResMut<TerrainEditor>,
     alpha_points: Query<&AlphaMapPoint>,
-    mut point_materials: Query<&mut MeshMaterial3d<StandardMaterial>, With<AlphaMapPoint>>,
+    mut point_materials: Query<&mut MeshMaterial3d<EditPointMaterial>, With<AlphaMapPoint>>,
     sliders: Query<(Entity, &AlphaSlider)>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<EditPointMaterial>>,
 ) {
     if press.button != PointerButton::Primary {
         return;
@@ -620,8 +662,8 @@ fn select_height_point(
     mut press: On<Pointer<Press>>,
     mut editor: ResMut<TerrainEditor>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut points: Query<&mut MeshMaterial3d<StandardMaterial>, With<HeightMapPoint>>,
+    mut materials: ResMut<Assets<EditPointMaterial>>,
+    mut points: Query<&mut MeshMaterial3d<EditPointMaterial>, With<HeightMapPoint>>,
 ) {
     if press.button != PointerButton::Primary {
         return;

@@ -1,5 +1,6 @@
 mod editor;
 mod geometry;
+mod ground_effects;
 mod material;
 mod object_loader;
 
@@ -21,7 +22,7 @@ use crate::{
         geometry::adt_to_mesh,
         object_loader::{
             ObjectsLoadResult, PreparedObjectCache, WorldWmoPlacement, load_adt_objects,
-            load_world_wmos, spawn_prepared_adt_objects,
+            load_ground_effects, load_world_wmos, spawn_prepared_adt_objects,
         },
     },
     render_controls::RenderSettings,
@@ -31,6 +32,7 @@ use crate::{
 pub(crate) use editor::TerrainEditor;
 pub use editor::TerrainEditorPlugin;
 use editor::select_adt_chunk;
+use ground_effects::{GroundEffectData, GroundEffectSource};
 use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
@@ -43,7 +45,8 @@ pub(super) const CHUNK_SIZE: f32 = 33.3334;
 const ADT_SIZE: f32 = CHUNK_SIZE * ADT_CELLS_PER_GRID as f32;
 const ADT_HALF_DIAGONAL: f32 = ADT_SIZE * std::f32::consts::FRAC_1_SQRT_2;
 const STREAM_BUFFER: f32 = ADT_SIZE;
-const STREAM_UPDATE_DISTANCE: f32 = CHUNK_SIZE * 0.5;
+const DETAIL_CELL_SIZE: f32 = CHUNK_SIZE / 8.0;
+const STREAM_UPDATE_DISTANCE: f32 = DETAIL_CELL_SIZE * 0.5;
 const MAX_PENDING_ADTS: usize = 32;
 const MAX_PENDING_OBJECT_ADTS: usize = 1;
 
@@ -93,10 +96,14 @@ pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Opt
         loaded_adts: HashMap::new(),
         loading_adts: HashMap::new(),
         loading_objects: HashMap::new(),
+        loading_ground_effects: None,
         texture_cache: HashMap::new(),
         texture_array: None,
         object_cache: ObjectCache::default(),
         prepared_object_cache: Arc::new(PreparedObjectCache::default()),
+        ground_effects: GroundEffectData::load(mpqs),
+        ground_effects_root: None,
+        rendered_ground_effects: None,
         world_wmos,
         loading_world_wmos: None,
         world_wmos_loaded: false,
@@ -114,6 +121,14 @@ struct LoadedAdt {
     images: [Handle<Image>; 3],
     objects: Option<Entity>,
     object_placements: AdtObjectPlacements,
+    ground_effect_source: GroundEffectSource,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct GroundEffectRequest {
+    cell: [i32; 2],
+    distance_bits: u32,
+    adts: Vec<AdtPosition>,
 }
 
 struct TerrainLoadMetrics {
@@ -157,10 +172,14 @@ pub struct TerrainMap {
     loaded_adts: HashMap<AdtPosition, LoadedAdt>,
     loading_adts: HashMap<AdtPosition, Task<PreparedAdt>>,
     loading_objects: HashMap<AdtPosition, Task<ObjectsLoadResult>>,
+    loading_ground_effects: Option<(GroundEffectRequest, Task<ObjectsLoadResult>)>,
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
     object_cache: ObjectCache,
     prepared_object_cache: Arc<PreparedObjectCache>,
+    ground_effects: GroundEffectData,
+    ground_effects_root: Option<Entity>,
+    rendered_ground_effects: Option<GroundEffectRequest>,
     world_wmos: Vec<WorldWmo>,
     loading_world_wmos: Option<Task<ObjectsLoadResult>>,
     world_wmos_loaded: bool,
@@ -188,6 +207,9 @@ impl AdtPosition {
 #[derive(Component)]
 pub struct RenderedObject;
 
+#[derive(Component)]
+pub struct RenderedGroundEffect;
+
 pub fn stream_terrain_chunks(
     mut commands: Commands,
     camera: Query<&GlobalTransform, With<Camera3d>>,
@@ -211,6 +233,7 @@ pub fn stream_terrain_chunks(
     if !camera_moved
         && !terrain.loading
         && terrain.loading_objects.is_empty()
+        && terrain.loading_ground_effects.is_none()
         && terrain.world_wmos_loaded
         && !render_settings.is_changed()
     {
@@ -300,6 +323,16 @@ pub fn stream_terrain_chunks(
         &render_settings,
     );
     if terrain.world_wmos_loaded {
+        stream_ground_effects(
+            &mut commands,
+            &mut terrain,
+            camera_position,
+            &mpqs.mpqs,
+            &mut object_materials,
+            &mut meshes,
+            &mut images,
+            &render_settings,
+        );
         stream_adt_objects(
             &mut commands,
             &mut terrain,
@@ -497,6 +530,7 @@ fn finalize_adt(
     let material = terrain_materials.add(ExtendedMaterial {
         base: StandardMaterial {
             base_color: Color::WHITE,
+            unlit: !cfg!(feature = "realistic-lighting"),
             ..Default::default()
         },
         extension: TerrainMaterial {
@@ -525,6 +559,8 @@ fn finalize_adt(
         ))
         .observe(select_adt_chunk)
         .id();
+    let seed = ((coordinates.x as u32) << 16) | coordinates.y as u32;
+    let ground_effect_source = terrain.ground_effects.source(&prepared.adt, seed);
     let object_placements = AdtObjectPlacements::from_adt(&prepared.adt);
     terrain.loaded_adts.insert(
         coordinates,
@@ -535,6 +571,7 @@ fn finalize_adt(
             images: [alpha_map, layer_map, animation_map],
             objects: None,
             object_placements,
+            ground_effect_source,
         },
     );
     terrain.metrics.count += 1;
@@ -547,6 +584,104 @@ fn finalize_adt(
             terrain.metrics.count as f64 / elapsed,
         );
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_ground_effects(
+    commands: &mut Commands,
+    terrain: &mut TerrainMap,
+    camera_position: Vec2,
+    mpqs: &Arc<PatchChain>,
+    materials: &mut Assets<StandardMaterial>,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+    render_settings: &RenderSettings,
+) {
+    if !render_settings.render_ground_effects {
+        terrain.loading_ground_effects = None;
+        terrain.rendered_ground_effects = None;
+        if let Some(root) = terrain.ground_effects_root.take() {
+            commands.entity(root).despawn();
+        }
+        return;
+    }
+
+    if let Some(objects) = terrain
+        .loading_ground_effects
+        .as_mut()
+        .and_then(|(_, task)| check_ready(task))
+    {
+        let (request, _) = terrain.loading_ground_effects.take().unwrap();
+        let root = spawn_prepared_adt_objects(
+            commands,
+            objects,
+            Vec2::ZERO,
+            &terrain.prepared_object_cache,
+            &mut terrain.object_cache,
+            meshes,
+            materials,
+            images,
+        );
+        commands.entity(root).insert((
+            Name::new("Ground effects"),
+            RenderedGroundEffect,
+            Visibility::Inherited,
+        ));
+        if let Some(previous_root) = terrain.ground_effects_root.replace(root) {
+            commands.entity(previous_root).despawn();
+        }
+        terrain.rendered_ground_effects = Some(request);
+    }
+
+    let cell = [
+        (camera_position.x / DETAIL_CELL_SIZE).round() as i32,
+        (camera_position.y / DETAIL_CELL_SIZE).round() as i32,
+    ];
+    let sample_center = Vec2::new(
+        cell[0] as f32 * DETAIL_CELL_SIZE,
+        cell[1] as f32 * DETAIL_CELL_SIZE,
+    );
+    let ground_effect_distance = render_settings.ground_effect_distance;
+    let source_distance = ground_effect_distance + ADT_HALF_DIAGONAL;
+    let mut source_adts = terrain
+        .loaded_adts
+        .keys()
+        .copied()
+        .filter(|coordinates| {
+            coordinates.center().distance_squared(sample_center) <= source_distance.powi(2)
+        })
+        .collect::<Vec<_>>();
+    source_adts.sort_unstable_by_key(|coordinates| (coordinates.y, coordinates.x));
+    let request = GroundEffectRequest {
+        cell,
+        distance_bits: ground_effect_distance.to_bits(),
+        adts: source_adts,
+    };
+    let request_is_current = terrain.rendered_ground_effects.as_ref() == Some(&request)
+        || terrain
+            .loading_ground_effects
+            .as_ref()
+            .is_some_and(|(loading_request, _)| loading_request == &request);
+    if request_is_current || terrain.loading_ground_effects.is_some() {
+        return;
+    }
+
+    let placements = request
+        .adts
+        .iter()
+        .flat_map(|coordinates| {
+            terrain.ground_effects.placements_near(
+                &terrain.loaded_adts[coordinates].ground_effect_source,
+                sample_center,
+                ground_effect_distance,
+            )
+        })
+        .collect();
+    let mpqs = mpqs.clone();
+    let object_cache = terrain.prepared_object_cache.clone();
+    let task = AsyncComputeTaskPool::get()
+        .spawn(async move { load_ground_effects(placements, &mpqs, &object_cache) });
+    terrain.loading_ground_effects = Some((request, task));
 }
 
 #[allow(clippy::too_many_arguments)]

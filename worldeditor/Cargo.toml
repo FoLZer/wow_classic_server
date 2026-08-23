@@ -5,6 +5,9 @@ authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
 license.workspace = true
 
+[features]
+realistic-lighting = []
+
 [dependencies]
 #bevy = "0.17.3"
 bevy = { git = "https://github.com/bevyengine/bevy.git", features = [
