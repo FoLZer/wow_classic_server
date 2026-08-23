@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy::{
     asset::RenderAssetUsages,
-    image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
+    image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
@@ -35,13 +35,13 @@ pub(super) fn prepare_material_maps(adt: &RootAdt, has_big_alpha: bool) -> Prepa
     const ATLAS_SIZE: usize = ADT_CELLS_PER_GRID * ALPHA_MAP_SIZE;
     const DIRECTIONS: [IVec2; 8] = [
         IVec2::new(0, 1),
-        IVec2::new(1, 1),
-        IVec2::new(1, 0),
-        IVec2::new(1, -1),
-        IVec2::new(0, -1),
-        IVec2::new(-1, -1),
-        IVec2::new(-1, 0),
         IVec2::new(-1, 1),
+        IVec2::new(-1, 0),
+        IVec2::new(-1, -1),
+        IVec2::new(0, -1),
+        IVec2::new(1, -1),
+        IVec2::new(1, 0),
+        IVec2::new(1, 1),
     ];
 
     let mut alpha_data = vec![0; ATLAS_SIZE * ATLAS_SIZE * 4];
@@ -278,6 +278,8 @@ pub(super) fn update_texture_array(
     image.texture_descriptor.mip_level_count = mip_count as u32;
     image.data = Some(data);
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::Repeat,
+        address_mode_v: ImageAddressMode::Repeat,
         mag_filter: ImageFilterMode::Linear,
         min_filter: ImageFilterMode::Linear,
         mipmap_filter: ImageFilterMode::Linear,

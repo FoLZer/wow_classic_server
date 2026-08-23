@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use wow_mpq::PatchChain;
 
 use crate::{
-    map_loader::{TerrainEditorPlugin, load_map, stream_terrain_chunks},
+    map_loader::{TerrainEditorPlugin, animate_objects, load_map, stream_terrain_chunks},
     render_controls::{
         RenderSettings, apply_render_visibility, setup_render_controls, update_render_controls,
         update_slider_visuals,
@@ -105,6 +105,7 @@ fn main() {
                 update_slider_visuals,
                 apply_render_visibility.after(update_render_controls),
                 stream_terrain_chunks.after(update_render_controls),
+                animate_objects.after(stream_terrain_chunks),
             ),
         )
         .run();

@@ -37,6 +37,7 @@ use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     update_texture_array,
 };
+pub(crate) use object_loader::animate_objects;
 use object_loader::{AdtObjectPlacements, ObjectCache};
 
 pub(super) const ADT_CELLS_PER_GRID: usize = 16;

@@ -6,6 +6,10 @@ import bevy_pbr::{
     },
     decal::clustered::apply_decals,
 };
+@if(PREPASS_PIPELINE)
+import bevy_render::globals::Globals;
+@if(!PREPASS_PIPELINE)
+import bevy_pbr::render::mesh_view_bindings::globals;
 
 @if(PREPASS_PIPELINE)
 import bevy_pbr::{
@@ -30,6 +34,10 @@ import bevy_core_pipeline::oit::draw::oit_draw;
 
 @if(FORWARD_DECAL)
 import bevy_pbr::decal::forward::get_forward_decal_info;
+
+@if(PREPASS_PIPELINE)
+@group(0) @binding(1)
+var<uniform> globals: Globals;
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(100)
 var terrain_textures: texture_2d_array<f32>;
@@ -123,16 +131,16 @@ fn animation_uv(
         i32((packed_animation >> 2u) & 3u) - 1,
         i32(packed_animation & 3u) - 1,
     );
-    let animation_speed_float = f32(animation_speed) / 7.0;
+    let animation_speed_float = f32(animation_speed) / 11.2;
     let animation_direction_float = vec2<f32>(animation_direction);
-    return ((animation_direction_float * ((animation_time * animation_speed_float) % 1.0)) + uv) % 1.0;
+    return animation_direction_float * animation_time * animation_speed_float + uv;
 }
 
 fn calculate_color(in: VertexOutput) -> vec4<f32> {
-    let animation_time = 1.0;
+    let animation_time = globals.time;
     let chunk_coord = vec2<i32>(clamp(floor(in.uv / 8.0), vec2<f32>(0.0), vec2<f32>(15.0)));
     let chunk_uv = in.uv - vec2<f32>(chunk_coord) * 8.0;
-    let uv = chunk_uv % 1.0;
+    let uv = chunk_uv;
     let alpha_half_texel = 0.5 / 16.0;
     let chunk_alpha_uv = clamp(
         chunk_uv / 8.0,
