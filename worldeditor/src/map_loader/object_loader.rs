@@ -7,6 +7,7 @@ use std::{
 use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
+    math::Affine2,
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
@@ -41,6 +42,8 @@ enum ObjectAsset {
 struct PreparedObjectPart {
     mesh: Mutex<Option<Mesh>>,
     animation: Option<Arc<M2SkinAnimation>>,
+    texture_animation: Option<Arc<M2TextureAnimation>>,
+    uvs: Vec<[f32; 2]>,
     texture_key: Option<String>,
     double_sided: bool,
     opacity: f32,
@@ -74,9 +77,21 @@ struct AnimationTrack<T> {
     values: Vec<T>,
 }
 
+struct M2TextureAnimation {
+    translation_u: Option<AnimationTrack<f32>>,
+    translation_v: Option<AnimationTrack<f32>>,
+    rotation: Option<AnimationTrack<f32>>,
+    scale_u: Option<AnimationTrack<f32>>,
+    scale_v: Option<AnimationTrack<f32>>,
+    duration_ms: u32,
+    start_ms: u32,
+}
+
 struct AnimatedMesh {
     mesh: Handle<Mesh>,
-    animation: Arc<M2SkinAnimation>,
+    animation: Option<Arc<M2SkinAnimation>>,
+    texture_animation: Option<Arc<M2TextureAnimation>>,
+    uvs: Vec<[f32; 2]>,
 }
 
 #[derive(Default)]
@@ -140,45 +155,55 @@ pub(crate) fn animate_objects(
         let Some(mut mesh) = meshes.get_mut(&animated_mesh.mesh) else {
             continue;
         };
-        let animation = &animated_mesh.animation;
-        let transforms = animation.bone_transforms(elapsed_ms);
-        let mut positions = Vec::with_capacity(animation.vertices.len());
-        let mut normals = Vec::with_capacity(animation.vertices.len());
-        for vertex in &animation.vertices {
-            let mut position = Vec3::ZERO;
-            let mut normal = Vec3::ZERO;
-            let mut total_weight = 0.0;
-            for influence in 0..4 {
-                let weight = vertex.weights[influence];
-                if weight == 0.0 {
-                    continue;
+        if let Some(animation) = &animated_mesh.animation {
+            let transforms = animation.bone_transforms(elapsed_ms);
+            let mut positions = Vec::with_capacity(animation.vertices.len());
+            let mut normals = Vec::with_capacity(animation.vertices.len());
+            for vertex in &animation.vertices {
+                let mut position = Vec3::ZERO;
+                let mut normal = Vec3::ZERO;
+                let mut total_weight = 0.0;
+                for influence in 0..4 {
+                    let weight = vertex.weights[influence];
+                    if weight == 0.0 {
+                        continue;
+                    }
+                    let transform = transforms
+                        .get(vertex.bones[influence] as usize)
+                        .copied()
+                        .unwrap_or(Mat4::IDENTITY);
+                    position += transform.transform_point3(vertex.position) * weight;
+                    normal += transform.transform_vector3(vertex.normal) * weight;
+                    total_weight += weight;
                 }
-                let transform = transforms
-                    .get(vertex.bones[influence] as usize)
-                    .copied()
-                    .unwrap_or(Mat4::IDENTITY);
-                position += transform.transform_point3(vertex.position) * weight;
-                normal += transform.transform_vector3(vertex.normal) * weight;
-                total_weight += weight;
+                if total_weight > 0.0 {
+                    position /= total_weight;
+                    normal /= total_weight;
+                } else {
+                    position = vertex.position;
+                    normal = vertex.normal;
+                }
+                if !position.is_finite() {
+                    position = vertex.position;
+                }
+                if !normal.is_finite() || normal.length_squared() <= f32::EPSILON {
+                    normal = vertex.normal;
+                }
+                positions.push(position.to_array());
+                normals.push(normal.normalize_or_zero().to_array());
             }
-            if total_weight > 0.0 {
-                position /= total_weight;
-                normal /= total_weight;
-            } else {
-                position = vertex.position;
-                normal = vertex.normal;
-            }
-            if !position.is_finite() {
-                position = vertex.position;
-            }
-            if !normal.is_finite() || normal.length_squared() <= f32::EPSILON {
-                normal = vertex.normal;
-            }
-            positions.push(position.to_array());
-            normals.push(normal.normalize_or_zero().to_array());
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
         }
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        if let Some(animation) = &animated_mesh.texture_animation {
+            let transform = animation.transform(elapsed_ms);
+            let uvs = animated_mesh
+                .uvs
+                .iter()
+                .map(|uv| transform.transform_point2(Vec2::from_array(*uv)).to_array())
+                .collect::<Vec<_>>();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+        }
     }
 }
 
@@ -546,10 +571,12 @@ fn finalize_object_parts(
                 material.cull_mode = None;
             }
             let mesh = meshes.add(part.mesh.lock().unwrap().take()?);
-            if let Some(animation) = &part.animation {
+            if part.animation.is_some() || part.texture_animation.is_some() {
                 cache.animations.meshes.push(AnimatedMesh {
                     mesh: mesh.clone(),
-                    animation: animation.clone(),
+                    animation: part.animation.clone(),
+                    texture_animation: part.texture_animation.clone(),
+                    uvs: part.uvs.clone(),
                 });
             }
             Some(ObjectPart {
@@ -645,6 +672,7 @@ struct ObjectBatch {
     indices: Vec<u32>,
     texture: Option<String>,
     texture_type: u32,
+    texture_animation: Option<Arc<M2TextureAnimation>>,
     alpha_mode: AlphaMode,
     opacity: f32,
     double_sided: bool,
@@ -679,6 +707,13 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                 .map(|texture| texture.filename.string.to_string_lossy())
                 .filter(|filename| !filename.is_empty());
             let material = model.materials.get(batch.material_index as usize);
+            let texture_animation = model
+                .raw_data
+                .texture_animation_lookup
+                .get(batch.texture_transform_combo_index as usize)
+                .copied()
+                .filter(|index| *index != u16::MAX)
+                .and_then(|index| m2_texture_animation(model, index as usize));
             let opacity = model
                 .raw_data
                 .transparency_lookup_table
@@ -699,6 +734,7 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                     .textures
                     .get(texture_index)
                     .map_or(0, |texture| texture.texture_type as u32),
+                texture_animation,
                 alpha_mode: alpha_mode_with_opacity(
                     material.map_or(0, |material| material.blend_mode.bits()),
                     opacity,
@@ -728,6 +764,90 @@ fn library_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
         indices,
         batches,
     })
+}
+
+fn m2_texture_animation(
+    model: &wow_m2::M2Model,
+    animation_index: usize,
+) -> Option<Arc<M2TextureAnimation>> {
+    use wow_m2::model::TextureTrackType;
+
+    let (sequence_index, sequence) = model
+        .animations
+        .iter()
+        .enumerate()
+        .find(|(_, animation)| animation.animation_id == 0)
+        .or_else(|| model.animations.iter().enumerate().next())?;
+    let (start_ms, duration_ms) = match sequence.end_timestamp {
+        Some(end) => (
+            sequence.start_timestamp,
+            end.saturating_sub(sequence.start_timestamp),
+        ),
+        None => (0, sequence.start_timestamp),
+    };
+    if duration_ms == 0 {
+        return None;
+    }
+    let find_track = |track_type| {
+        model
+            .raw_data
+            .texture_animation_data
+            .iter()
+            .find(|track| {
+                track.animation_index == animation_index && track.track_type == track_type
+            })
+            .and_then(|track| float_track(track, sequence_index))
+    };
+    let animation = M2TextureAnimation {
+        translation_u: find_track(TextureTrackType::TranslationU),
+        translation_v: find_track(TextureTrackType::TranslationV),
+        rotation: find_track(TextureTrackType::Rotation),
+        scale_u: find_track(TextureTrackType::ScaleU),
+        scale_v: find_track(TextureTrackType::ScaleV),
+        duration_ms,
+        start_ms,
+    };
+    (animation.translation_u.is_some()
+        || animation.translation_v.is_some()
+        || animation.rotation.is_some()
+        || animation.scale_u.is_some()
+        || animation.scale_v.is_some())
+    .then(|| Arc::new(animation))
+}
+
+fn float_track(
+    raw: &wow_m2::model::TextureAnimationRaw,
+    sequence: usize,
+) -> Option<AnimationTrack<f32>> {
+    let offset = sequence * 8;
+    let (start, end) = raw
+        .interpolation_ranges
+        .get(offset..offset + 8)
+        .map(|range| {
+            (
+                LittleEndian::read_u32(&range[..4]) as usize,
+                LittleEndian::read_u32(&range[4..]) as usize + 1,
+            )
+        })
+        .unwrap_or((0, raw.timestamps.len() / 4));
+    let timestamps = raw
+        .timestamps
+        .chunks_exact(4)
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .map(LittleEndian::read_u32)
+        .collect::<Vec<_>>();
+    let values = raw
+        .values
+        .chunks_exact(4)
+        .skip(start)
+        .take(timestamps.len())
+        .map(LittleEndian::read_f32)
+        .collect::<Vec<_>>();
+    (!timestamps.is_empty()
+        && timestamps.len() == values.len()
+        && values.iter().all(|value| value.is_finite()))
+    .then_some(AnimationTrack { timestamps, values })
 }
 
 fn m2_skin_animation(model: &wow_m2::M2Model, data: &[u8]) -> Option<Arc<M2SkinAnimation>> {
@@ -845,7 +965,7 @@ fn vec3_track(
     (!timestamps.is_empty()
         && timestamps.len() == values.len()
         && values.iter().all(|value| value.is_finite()))
-        .then_some(AnimationTrack { timestamps, values })
+    .then_some(AnimationTrack { timestamps, values })
 }
 
 fn quat_track(
@@ -982,17 +1102,57 @@ impl AnimationTrack<Quat> {
     }
 }
 
+impl AnimationTrack<f32> {
+    fn sample_f32(&self, timestamp: u32) -> f32 {
+        let (left, right, factor) = self.sample_indices(timestamp);
+        self.values[left] + (self.values[right] - self.values[left]) * factor
+    }
+}
+
+impl M2TextureAnimation {
+    fn transform(&self, elapsed_ms: u32) -> Affine2 {
+        let timestamp = self.start_ms + elapsed_ms % self.duration_ms;
+        let translation = Vec2::new(
+            self.translation_u
+                .as_ref()
+                .map_or(0.0, |track| track.sample_f32(timestamp)),
+            self.translation_v
+                .as_ref()
+                .map_or(0.0, |track| track.sample_f32(timestamp)),
+        );
+        let rotation = self
+            .rotation
+            .as_ref()
+            .map_or(0.0, |track| track.sample_f32(timestamp));
+        let scale = Vec2::new(
+            self.scale_u
+                .as_ref()
+                .map_or(1.0, |track| track.sample_f32(timestamp)),
+            self.scale_v
+                .as_ref()
+                .map_or(1.0, |track| track.sample_f32(timestamp)),
+        );
+        Affine2::from_translation(Vec2::splat(0.5) + translation)
+            * Affine2::from_angle(rotation)
+            * Affine2::from_scale(scale)
+            * Affine2::from_translation(Vec2::splat(-0.5))
+    }
+}
+
 fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
     const VERTICES_DESCRIPTOR_OFFSET: usize = 68;
     const VIEWS_DESCRIPTOR_OFFSET: usize = 76;
     const TEXTURES_DESCRIPTOR_OFFSET: usize = 92;
     const TRANSPARENCY_ANIMATIONS_DESCRIPTOR_OFFSET: usize = 100;
+    const TEXTURE_ANIMATIONS_DESCRIPTOR_OFFSET: usize = 116;
     const RENDER_FLAGS_DESCRIPTOR_OFFSET: usize = 132;
     const TEXTURE_LOOKUP_DESCRIPTOR_OFFSET: usize = 148;
     const TRANSPARENCY_LOOKUP_DESCRIPTOR_OFFSET: usize = 164;
+    const TEXTURE_ANIMATION_LOOKUP_DESCRIPTOR_OFFSET: usize = 172;
     const CLASSIC_VERTEX_SIZE: usize = 48;
     const SKIN_BATCH_SIZE: usize = 24;
     const TRANSPARENCY_ANIMATION_SIZE: usize = 28;
+    const TEXTURE_ANIMATION_SIZE: usize = 84;
 
     if data.get(..4) != Some(b"MD20") {
         return Err("not a legacy MD20 model".to_owned());
@@ -1063,6 +1223,21 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
         read_array_descriptor(data, TRANSPARENCY_LOOKUP_DESCRIPTOR_OFFSET)?;
     let transparency_lookup =
         read_u16_array(data, transparency_lookup_offset, transparency_lookup_count)?;
+    let (texture_animation_count, texture_animation_offset) =
+        read_array_descriptor(data, TEXTURE_ANIMATIONS_DESCRIPTOR_OFFSET)?;
+    checked_array_range(
+        data,
+        texture_animation_offset,
+        texture_animation_count,
+        TEXTURE_ANIMATION_SIZE,
+    )?;
+    let (texture_animation_lookup_count, texture_animation_lookup_offset) =
+        read_array_descriptor(data, TEXTURE_ANIMATION_LOOKUP_DESCRIPTOR_OFFSET)?;
+    let texture_animation_lookup = read_u16_array(
+        data,
+        texture_animation_lookup_offset,
+        texture_animation_lookup_count,
+    )?;
     let (render_flag_count, render_flag_offset) =
         read_array_descriptor(data, RENDER_FLAGS_DESCRIPTOR_OFFSET)?;
     checked_array_range(data, render_flag_offset, render_flag_count, 4)?;
@@ -1087,6 +1262,19 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
             let flags = read_u16(data, material_offset).ok()?;
             let blend_mode = read_u16(data, material_offset + 2).ok()?;
             let texture_weight_combo_index = read_u16(data, offset + 20).ok()? as usize;
+            let texture_transform_combo_index = read_u16(data, offset + 22).ok()? as usize;
+            let texture_animation = texture_animation_lookup
+                .get(texture_transform_combo_index)
+                .copied()
+                .filter(|index| *index != u16::MAX)
+                .and_then(|index| {
+                    classic_m2_texture_animation(
+                        data,
+                        texture_animation_offset,
+                        texture_animation_count,
+                        index as usize,
+                    )
+                });
             let opacity = classic_m2_opacity(
                 data,
                 &transparency_lookup,
@@ -1103,6 +1291,7 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
                 texture_type: textures
                     .get(texture_index)
                     .map_or(0, |texture| texture.texture_type),
+                texture_animation,
                 alpha_mode: alpha_mode_with_opacity(blend_mode, opacity),
                 opacity,
                 double_sided: flags & 0x04 != 0,
@@ -1118,6 +1307,105 @@ fn classic_m2_mesh_data(data: &[u8]) -> Result<M2MeshData, String> {
         indices,
         batches,
     })
+}
+
+fn classic_m2_texture_animation(
+    data: &[u8],
+    animations_offset: usize,
+    animation_count: usize,
+    animation_index: usize,
+) -> Option<Arc<M2TextureAnimation>> {
+    const TEXTURE_ANIMATION_SIZE: usize = 84;
+    const ANIMATION_BLOCK_SIZE: usize = 28;
+
+    if animation_index >= animation_count {
+        return None;
+    }
+    let animation = animations_offset.checked_add(animation_index * TEXTURE_ANIMATION_SIZE)?;
+    let translation =
+        classic_texture_track(data, animation, 12, |bytes| LittleEndian::read_f32(bytes));
+    let rotation = classic_texture_track(data, animation + ANIMATION_BLOCK_SIZE, 16, |bytes| {
+        let z = LittleEndian::read_f32(&bytes[8..12]);
+        let w = LittleEndian::read_f32(&bytes[12..16]);
+        2.0 * z.atan2(w)
+    });
+    let scale = classic_texture_track(
+        data,
+        animation + ANIMATION_BLOCK_SIZE * 2,
+        12,
+        LittleEndian::read_f32,
+    );
+    let duration_ms = translation
+        .as_ref()
+        .into_iter()
+        .chain(rotation.as_ref())
+        .chain(scale.as_ref())
+        .filter_map(|track| track.timestamps.last().copied())
+        .max()?;
+    if duration_ms == 0 {
+        return None;
+    }
+
+    Some(Arc::new(M2TextureAnimation {
+        translation_u: translation.as_ref().map(|track| track.component(0)),
+        translation_v: translation.as_ref().map(|track| track.component(1)),
+        rotation: rotation.map(|track| track.component(0)),
+        scale_u: scale.as_ref().map(|track| track.component(0)),
+        scale_v: scale.as_ref().map(|track| track.component(1)),
+        duration_ms,
+        start_ms: 0,
+    }))
+}
+
+fn classic_texture_track(
+    data: &[u8],
+    track_offset: usize,
+    value_size: usize,
+    read_component: impl Fn(&[u8]) -> f32,
+) -> Option<AnimationTrack<Vec3>> {
+    let (timestamp_count, timestamp_offset) =
+        read_array_descriptor(data, track_offset + 12).ok()?;
+    let (value_count, value_offset) = read_array_descriptor(data, track_offset + 20).ok()?;
+    if timestamp_count == 0 || timestamp_count != value_count {
+        return None;
+    }
+    checked_array_range(data, timestamp_offset, timestamp_count, 4).ok()?;
+    checked_array_range(data, value_offset, value_count, value_size).ok()?;
+    let timestamps = (0..timestamp_count)
+        .map(|index| LittleEndian::read_u32(&data[timestamp_offset + index * 4..]))
+        .collect::<Vec<_>>();
+    let values = (0..value_count)
+        .map(|index| {
+            let offset = value_offset + index * value_size;
+            let bytes = &data[offset..offset + value_size];
+            Vec3::new(
+                read_component(bytes),
+                if value_size >= 8 {
+                    LittleEndian::read_f32(&bytes[4..8])
+                } else {
+                    0.0
+                },
+                if value_size == 12 {
+                    LittleEndian::read_f32(&bytes[8..12])
+                } else {
+                    0.0
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    values
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(AnimationTrack { timestamps, values })
+}
+
+impl AnimationTrack<Vec3> {
+    fn component(&self, component: usize) -> AnimationTrack<f32> {
+        AnimationTrack {
+            timestamps: self.timestamps.clone(),
+            values: self.values.iter().map(|value| value[component]).collect(),
+        }
+    }
 }
 
 struct M2TextureReference {
@@ -1226,6 +1514,7 @@ fn build_object_parts(
             indices: mesh_data.indices.clone(),
             texture: None,
             texture_type: 0,
+            texture_animation: None,
             alpha_mode: AlphaMode::Opaque,
             opacity: 1.0,
             double_sided: false,
@@ -1250,6 +1539,8 @@ fn build_object_parts(
                     batch.indices,
                 ))),
                 animation: animation.clone(),
+                texture_animation: batch.texture_animation,
+                uvs: mesh_data.uvs.clone(),
                 texture_key: texture,
                 double_sided: batch.double_sided,
                 opacity: batch.opacity,
@@ -1429,6 +1720,7 @@ fn load_wmo(
                     indices: indices.get(start..end)?.to_vec(),
                     texture: root.textures.get(texture_index).cloned(),
                     texture_type: 0,
+                    texture_animation: None,
                     alpha_mode: alpha_mode(material.blend_mode as u16),
                     opacity: 1.0,
                     double_sided: material.flags & 0x04 != 0,
@@ -1637,6 +1929,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_classic_m2_texture_translation() {
+        let mut data = vec![0_u8; 160];
+        data[12..16].copy_from_slice(&2_u32.to_le_bytes());
+        data[16..20].copy_from_slice(&128_u32.to_le_bytes());
+        data[20..24].copy_from_slice(&2_u32.to_le_bytes());
+        data[24..28].copy_from_slice(&136_u32.to_le_bytes());
+        data[128..132].copy_from_slice(&0_u32.to_le_bytes());
+        data[132..136].copy_from_slice(&1_000_u32.to_le_bytes());
+        data[152..156].copy_from_slice(&(-1.0_f32).to_le_bytes());
+
+        let animation = classic_m2_texture_animation(&data, 0, 1, 0).unwrap();
+        let uv = animation.transform(500).transform_point2(Vec2::ZERO);
+        assert!(uv.abs_diff_eq(Vec2::new(0.0, -0.5), 0.0001));
+    }
+
+    #[test]
     fn converts_wow_object_blend_modes() {
         assert_eq!(alpha_mode(0), AlphaMode::Opaque);
         assert_eq!(alpha_mode(1), AlphaMode::Mask(0.5));
@@ -1670,6 +1978,27 @@ mod tests {
     }
 
     #[test]
+    fn animates_m2_texture_coordinates() {
+        let animation = M2TextureAnimation {
+            translation_u: None,
+            translation_v: Some(AnimationTrack {
+                timestamps: vec![0, 1_000],
+                values: vec![0.0, 1.0],
+            }),
+            rotation: None,
+            scale_u: None,
+            scale_v: None,
+            duration_ms: 1_000,
+            start_ms: 0,
+        };
+
+        let uv = animation
+            .transform(500)
+            .transform_point2(Vec2::new(0.25, 0.25));
+        assert!(uv.abs_diff_eq(Vec2::new(0.25, 0.75), 0.0001));
+    }
+
+    #[test]
     fn converts_m2_rotation_to_bevy_basis() {
         let wow_rotation = Quat::from_rotation_x(0.7);
         let bevy_rotation = wow_quat_to_bevy(
@@ -1679,11 +2008,8 @@ mod tests {
             wow_rotation.w,
         );
         let wow_vector = Vec3::new(2.0, 3.0, 5.0);
-        let converted_vector = Vec3::from_array(wow_to_bevy(
-            wow_vector.x,
-            wow_vector.y,
-            wow_vector.z,
-        ));
+        let converted_vector =
+            Vec3::from_array(wow_to_bevy(wow_vector.x, wow_vector.y, wow_vector.z));
         let rotated_wow_vector = wow_rotation * wow_vector;
         let expected = Vec3::from_array(wow_to_bevy(
             rotated_wow_vector.x,
