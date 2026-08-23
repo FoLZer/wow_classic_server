@@ -3,7 +3,10 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use wow_adt::{McnkChunk, RootAdt};
+use wow_adt::{
+    McnkChunk, RootAdt,
+    chunks::mcnk::{LiquidType, MclqChunk},
+};
 
 use super::{ADT_CELLS_PER_GRID, CHUNK_SIZE};
 
@@ -16,6 +19,11 @@ struct TerrainChunkGeometry {
     uvs: Vec<[f32; 2]>,
     indices: Vec<u16>,
     position: Vec3,
+}
+
+pub(super) struct LiquidMesh {
+    pub(super) liquid_type: LiquidType,
+    pub(super) mesh: Mesh,
 }
 
 pub(super) fn adt_to_mesh(adt: &RootAdt, center: Vec2) -> Mesh {
@@ -45,6 +53,105 @@ pub(super) fn adt_to_mesh(adt: &RootAdt, center: Vec2) -> Mesh {
     }
 
     build_mesh(vertices, normals, uvs, indices)
+}
+
+pub(super) fn adt_liquids_to_meshes(adt: &RootAdt, center: Vec2) -> Vec<LiquidMesh> {
+    let mut vertices = std::array::from_fn::<_, 4, _>(|_| Vec::new());
+    let mut uvs = std::array::from_fn::<_, 4, _>(|_| Vec::new());
+    let mut indices = std::array::from_fn::<_, 4, _>(|_| Vec::new());
+
+    for chunk in &adt.mcnk_chunks {
+        let Some(liquid) = chunk.liquid.as_ref() else {
+            continue;
+        };
+        let liquid_index = liquid_type_index(liquid.liquid_type);
+        append_liquid_geometry(
+            liquid,
+            chunk.header.position,
+            center,
+            &mut vertices[liquid_index],
+            &mut uvs[liquid_index],
+            &mut indices[liquid_index],
+        );
+    }
+
+    [
+        LiquidType::Water,
+        LiquidType::Ocean,
+        LiquidType::Magma,
+        LiquidType::Slime,
+    ]
+    .into_iter()
+    .enumerate()
+    .filter_map(|(liquid_index, liquid_type)| {
+        (!indices[liquid_index].is_empty()).then(|| LiquidMesh {
+            liquid_type,
+            mesh: build_mesh(
+                std::mem::take(&mut vertices[liquid_index]),
+                vec![[0.0, 1.0, 0.0]; uvs[liquid_index].len()],
+                std::mem::take(&mut uvs[liquid_index]),
+                std::mem::take(&mut indices[liquid_index]),
+            ),
+        })
+    })
+    .collect()
+}
+
+fn append_liquid_geometry(
+    liquid: &MclqChunk,
+    chunk_position: [f32; 3],
+    center: Vec2,
+    vertices: &mut Vec<[f32; 3]>,
+    uvs: &mut Vec<[f32; 2]>,
+    indices: &mut Vec<u32>,
+) {
+    let horizontal_scale = CHUNK_SIZE / 8.0;
+    for row in 0..8 {
+        for column in 0..8 {
+            if !liquid_tile_is_visible(liquid.tile_flags[row * 8 + column]) {
+                continue;
+            }
+
+            let vertex_offset = vertices.len() as u32;
+            for (x, y) in [
+                (column, row),
+                (column, row + 1),
+                (column + 1, row),
+                (column + 1, row + 1),
+            ] {
+                let liquid_vertex = &liquid.vertices[y * 9 + x];
+                vertices.push([
+                    chunk_position[1] - x as f32 * horizontal_scale - center.x,
+                    liquid_vertex.height,
+                    chunk_position[0] - y as f32 * horizontal_scale - center.y,
+                ]);
+                uvs.push(if liquid.liquid_type == LiquidType::Magma {
+                    [
+                        liquid_vertex.magma_s() as f32 * (3.0 / 256.0),
+                        liquid_vertex.magma_t() as f32 * (3.0 / 256.0),
+                    ]
+                } else {
+                    [x as f32, y as f32]
+                });
+            }
+            indices.extend_from_slice(&[
+                vertex_offset,
+                vertex_offset + 1,
+                vertex_offset + 2,
+                vertex_offset + 2,
+                vertex_offset + 1,
+                vertex_offset + 3,
+            ]);
+        }
+    }
+}
+
+fn liquid_tile_is_visible(flags: u8) -> bool {
+    !matches!(flags & 0x0f, 0x08 | 0x0f)
+}
+
+fn liquid_type_index(liquid_type: LiquidType) -> usize {
+    liquid_type as usize
 }
 
 fn append_chunk_geometry(
@@ -197,4 +304,53 @@ pub(super) fn heightmap_point_world(chunk: &McnkChunk, vertex_index: usize) -> V
         chunk.header.position[2] + chunk.heights.as_ref().unwrap().heights[vertex_index],
         chunk.header.position[0] - z * CHUNK_SIZE / 8.0,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wow_adt::chunks::mcnk::LiquidVertex;
+
+    #[test]
+    fn liquid_geometry_uses_absolute_heights_and_tile_mask() {
+        let mut tile_flags = [0x0f; 64];
+        tile_flags[0] = 0x04;
+        let liquid = MclqChunk {
+            min_height: 12.0,
+            max_height: 20.0,
+            vertices: (0..81)
+                .map(|index| LiquidVertex {
+                    union_data: [0; 4],
+                    height: index as f32,
+                })
+                .collect(),
+            tile_flags,
+            liquid_type: LiquidType::Water,
+        };
+        let mut vertices = Vec::new();
+        let mut uvs = Vec::new();
+        let mut indices = Vec::new();
+
+        append_liquid_geometry(
+            &liquid,
+            [100.0, 200.0, 300.0],
+            Vec2::new(10.0, 20.0),
+            &mut vertices,
+            &mut uvs,
+            &mut indices,
+        );
+
+        assert_eq!(vertices.len(), 4);
+        assert_eq!(indices, [0, 1, 2, 2, 1, 3]);
+        assert_eq!(vertices[0], [190.0, 0.0, 80.0]);
+        assert_eq!(vertices[1][1], 9.0);
+        assert_eq!(uvs, [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]]);
+    }
+
+    #[test]
+    fn classic_no_render_tile_values_are_hidden() {
+        assert!(!liquid_tile_is_visible(0x0f));
+        assert!(!liquid_tile_is_visible(0x08));
+        assert!(liquid_tile_is_visible(0x04));
+    }
 }

@@ -18,8 +18,9 @@ use wow_wdt::{WdtFile, WdtReader, chunks::MphdFlags, version::WowVersion};
 
 use crate::{
     MPQResource,
+    liquid_material::{LiquidMaterial, LiquidTexture, load_liquid_texture},
     map_loader::{
-        geometry::adt_to_mesh,
+        geometry::{LiquidMesh, adt_liquids_to_meshes, adt_to_mesh},
         object_loader::{
             ObjectsLoadResult, PreparedObjectCache, WorldWmoPlacement, load_adt_objects,
             load_ground_effects, load_world_wmos, spawn_prepared_adt_objects,
@@ -100,6 +101,7 @@ pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Opt
         loading_ground_effects: None,
         texture_cache: HashMap::new(),
         texture_array: None,
+        liquid_textures: Default::default(),
         object_cache: ObjectCache::default(),
         prepared_object_cache: Arc::new(PreparedObjectCache::default()),
         ground_effects: GroundEffectData::load(mpqs),
@@ -120,6 +122,8 @@ struct LoadedAdt {
     mesh: Handle<Mesh>,
     material: Handle<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
     images: [Handle<Image>; 3],
+    liquid_meshes: Vec<Handle<Mesh>>,
+    liquid_materials: Vec<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>,
     objects: Option<Entity>,
     object_placements: AdtObjectPlacements,
     ground_effect_source: GroundEffectSource,
@@ -152,6 +156,7 @@ struct PreparedAdt {
     pos: AdtPosition,
     adt: RootAdt,
     mesh: Mesh,
+    liquids: Vec<LiquidMesh>,
     material_maps: PreparedMaterialMaps,
 }
 
@@ -176,6 +181,7 @@ pub struct TerrainMap {
     loading_ground_effects: Option<(GroundEffectRequest, Task<ObjectsLoadResult>)>,
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
+    liquid_textures: [Option<LiquidTexture>; 4],
     object_cache: ObjectCache,
     prepared_object_cache: Arc<PreparedObjectCache>,
     ground_effects: GroundEffectData,
@@ -217,6 +223,7 @@ pub fn stream_terrain_chunks(
     mut terrain: ResMut<TerrainMap>,
     mpqs: Res<MPQResource>,
     mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
+    mut liquid_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>,
     mut object_materials: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
@@ -284,6 +291,12 @@ pub fn stream_terrain_chunks(
         commands.entity(loaded_adt.entity).despawn();
         meshes.remove(loaded_adt.mesh.id());
         terrain_materials.remove(loaded_adt.material.id());
+        for mesh in loaded_adt.liquid_meshes {
+            meshes.remove(mesh.id());
+        }
+        for material in loaded_adt.liquid_materials {
+            liquid_materials.remove(material.id());
+        }
         for image in loaded_adt.images {
             images.remove(image.id());
         }
@@ -308,6 +321,7 @@ pub fn stream_terrain_chunks(
             &mut terrain,
             &mpqs.mpqs,
             &mut terrain_materials,
+            &mut liquid_materials,
             &mut meshes,
             &mut images,
             &render_settings,
@@ -319,6 +333,7 @@ pub fn stream_terrain_chunks(
         &mut terrain,
         &mpqs.mpqs,
         &mut object_materials,
+        &mut liquid_materials,
         &mut meshes,
         &mut images,
         &render_settings,
@@ -330,6 +345,7 @@ pub fn stream_terrain_chunks(
             camera_position,
             &mpqs.mpqs,
             &mut object_materials,
+            &mut liquid_materials,
             &mut meshes,
             &mut images,
             &render_settings,
@@ -340,6 +356,7 @@ pub fn stream_terrain_chunks(
             camera_position,
             &mpqs.mpqs,
             &mut object_materials,
+            &mut liquid_materials,
             &mut meshes,
             &mut images,
             &render_settings,
@@ -362,11 +379,13 @@ pub fn stream_terrain_chunks(
             let ParsedAdt::Root(adt) = adt else { panic!() };
             let adt = *adt;
             let mesh = adt_to_mesh(&adt, pos.center());
+            let liquids = adt_liquids_to_meshes(&adt, pos.center());
             let material_maps = prepare_material_maps(&adt, has_big_alpha);
             PreparedAdt {
                 pos,
                 adt,
                 mesh,
+                liquids,
                 material_maps,
             }
         });
@@ -444,6 +463,7 @@ fn stream_world_wmos(
     terrain: &mut TerrainMap,
     mpqs: &Arc<PatchChain>,
     materials: &mut Assets<StandardMaterial>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     render_settings: &RenderSettings,
@@ -463,7 +483,9 @@ fn stream_world_wmos(
             &mut terrain.object_cache,
             meshes,
             materials,
+            liquid_materials,
             images,
+            mpqs,
         );
         commands.entity(entity).insert((
             RenderedObject,
@@ -506,6 +528,7 @@ fn finalize_adt(
     terrain: &mut TerrainMap,
     mpqs: &PatchChain,
     terrain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     render_settings: &RenderSettings,
@@ -560,6 +583,56 @@ fn finalize_adt(
         ))
         .observe(select_adt_chunk)
         .id();
+    let mut liquid_mesh_handles = Vec::new();
+    let mut liquid_material_handles = Vec::new();
+    commands.entity(entity).with_children(|parent| {
+        for liquid in prepared.liquids {
+            let liquid_index = liquid.liquid_type as usize;
+            let texture = terrain.liquid_textures[liquid_index]
+                .get_or_insert_with(|| load_liquid_texture(liquid.liquid_type, mpqs, images))
+                .clone();
+            let mesh = meshes.add(liquid.mesh);
+            let material = liquid_materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: liquid_color(liquid.liquid_type),
+                    alpha_mode: if liquid.liquid_type == wow_adt::chunks::mcnk::LiquidType::Magma {
+                        AlphaMode::Opaque
+                    } else {
+                        AlphaMode::Blend
+                    },
+                    cull_mode: None,
+                    perceptual_roughness: 0.3,
+                    unlit: !cfg!(feature = "realistic-lighting"),
+                    ..default()
+                },
+                extension: LiquidMaterial {
+                    frames: texture.handle,
+                    frame_count: texture.frame_count,
+                    add_base_color: u32::from(matches!(
+                        liquid.liquid_type,
+                        wow_adt::chunks::mcnk::LiquidType::Water
+                            | wow_adt::chunks::mcnk::LiquidType::Ocean
+                    )),
+                    uv_scroll: if matches!(
+                        liquid.liquid_type,
+                        wow_adt::chunks::mcnk::LiquidType::Magma
+                            | wow_adt::chunks::mcnk::LiquidType::Slime
+                    ) {
+                        Vec2::X
+                    } else {
+                        Vec2::ZERO
+                    },
+                },
+            });
+            parent.spawn((
+                Name::new(format!("Classic {:?} liquid", liquid.liquid_type)),
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+            ));
+            liquid_mesh_handles.push(mesh);
+            liquid_material_handles.push(material);
+        }
+    });
     let seed = ((coordinates.x as u32) << 16) | coordinates.y as u32;
     let ground_effect_source = terrain.ground_effects.source(&prepared.adt, seed);
     let object_placements = AdtObjectPlacements::from_adt(&prepared.adt);
@@ -570,6 +643,8 @@ fn finalize_adt(
             mesh,
             material,
             images: [alpha_map, layer_map, animation_map],
+            liquid_meshes: liquid_mesh_handles,
+            liquid_materials: liquid_material_handles,
             objects: None,
             object_placements,
             ground_effect_source,
@@ -587,6 +662,16 @@ fn finalize_adt(
     }
 }
 
+fn liquid_color(liquid_type: wow_adt::chunks::mcnk::LiquidType) -> Color {
+    use wow_adt::chunks::mcnk::LiquidType;
+
+    match liquid_type {
+        LiquidType::Water => Color::srgba(0.3, 0.3, 0.4, 0.68),
+        LiquidType::Ocean => Color::srgba(0.2, 0.3, 0.35, 0.72),
+        LiquidType::Magma | LiquidType::Slime => Color::WHITE,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn stream_ground_effects(
     commands: &mut Commands,
@@ -594,6 +679,7 @@ fn stream_ground_effects(
     camera_position: Vec2,
     mpqs: &Arc<PatchChain>,
     materials: &mut Assets<StandardMaterial>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     render_settings: &RenderSettings,
@@ -621,7 +707,9 @@ fn stream_ground_effects(
             &mut terrain.object_cache,
             meshes,
             materials,
+            liquid_materials,
             images,
+            mpqs,
         );
         commands.entity(root).insert((
             Name::new("Ground effects"),
@@ -692,6 +780,7 @@ fn stream_adt_objects(
     camera_position: Vec2,
     mpqs: &Arc<PatchChain>,
     materials: &mut Assets<StandardMaterial>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     meshes: &mut Assets<Mesh>,
     images: &mut Assets<Image>,
     render_settings: &RenderSettings,
@@ -739,7 +828,9 @@ fn stream_adt_objects(
             &mut terrain.object_cache,
             meshes,
             materials,
+            liquid_materials,
             images,
+            mpqs,
         ));
         commands.entity(loaded_adt.objects.unwrap()).insert((
             RenderedObject,

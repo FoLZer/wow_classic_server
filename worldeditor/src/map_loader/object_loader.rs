@@ -6,28 +6,36 @@ use std::{
 
 use bevy::{
     asset::RenderAssetUsages,
-    camera::visibility::NoFrustumCulling,
+    camera::primitives::{Frustum, Sphere},
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     math::Affine2,
-    mesh::{Indices, PrimitiveTopology},
+    mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
+    pbr::ExtendedMaterial,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use byteorder::{ByteOrder, LittleEndian};
 use dashmap::DashMap;
+use wow_adt::chunks::mcnk::LiquidType;
 use wow_adt::{DoodadPlacement, RootAdt, WmoPlacement};
 use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_m2::{M2ParticleEmitter, ParticleEmitter, parse_m2};
 use wow_mpq::PatchChain;
 use wow_wmo::{ParsedWmo, discover_wmo_chunks, parse_wmo};
 
-use crate::{map_loader::AdtPosition, mpq_read_file};
+use crate::{
+    liquid_material::{LiquidMaterial, LiquidTexture, load_liquid_texture},
+    map_loader::AdtPosition,
+    mpq_read_file,
+};
 
 use super::{
     ADT_CELLS_PER_GRID, ADT_GRID_SIZE, ADT_SIZE, CHUNK_SIZE, ground_effects::GroundEffectPlacement,
 };
 
 const MAP_HALF_SIZE: f32 = ADT_GRID_SIZE as f32 * ADT_CELLS_PER_GRID as f32 * CHUNK_SIZE * 0.5;
+const PARTICLE_UPDATE_INTERVAL: f32 = 1.0 / 30.0;
+const PARTICLE_VIEW_DISTANCE: f32 = 1_000.0;
 
 enum PreparedObjectAsset {
     M2(PreparedM2Asset),
@@ -117,6 +125,10 @@ pub(crate) struct M2ParticleSystem {
     emitter: ParticleEmitterRuntime,
     mesh: Handle<Mesh>,
     animation: Option<Arc<M2SkinAnimation>>,
+    render_data: Vec<ParticleRenderData>,
+    update_accumulator: f32,
+    bounds_radius: f32,
+    mesh_is_empty: bool,
 }
 
 struct PreparedObjectPart {
@@ -191,6 +203,7 @@ struct ObjectAnimations {
     elapsed_seconds: f32,
     meshes: Vec<AnimatedMesh>,
     materials: Vec<AnimatedMaterial>,
+    bone_transform_cache: HashMap<usize, Vec<Mat4>>,
 }
 
 #[derive(Clone)]
@@ -201,13 +214,26 @@ struct ObjectPart {
 
 struct PreparedWmoAsset {
     parts: Vec<PreparedObjectPart>,
+    liquids: Vec<PreparedWmoLiquid>,
     doodad_sets: Vec<Vec<PreparedWmoDoodad>>,
 }
 
 #[derive(Clone)]
 struct WmoAsset {
     parts: Vec<ObjectPart>,
+    liquids: Vec<WmoLiquidPart>,
     doodad_sets: Vec<Vec<WmoDoodad>>,
+}
+
+struct PreparedWmoLiquid {
+    mesh: Mutex<Option<Mesh>>,
+    liquid_type: LiquidType,
+}
+
+#[derive(Clone)]
+struct WmoLiquidPart {
+    mesh: Handle<Mesh>,
+    material: Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
 }
 
 struct PreparedWmoDoodad {
@@ -233,6 +259,8 @@ pub(super) struct PreparedObjectCache {
 pub(super) struct ObjectCache {
     assets: HashMap<String, Option<Arc<ObjectAsset>>>,
     textures: HashMap<String, Option<Handle<Image>>>,
+    liquid_textures: [Option<LiquidTexture>; 4],
+    liquid_materials: [Option<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>; 4],
     animations: ObjectAnimations,
 }
 
@@ -241,18 +269,31 @@ pub(crate) fn animate_objects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut map: ResMut<super::TerrainMap>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
-    mut particles: Query<(&GlobalTransform, &mut M2ParticleSystem)>,
+    camera: Query<(&GlobalTransform, &Frustum), With<Camera3d>>,
+    mut particles: Query<(
+        Entity,
+        &GlobalTransform,
+        &mut Visibility,
+        &mut M2ParticleSystem,
+    )>,
 ) {
     let animations = &mut map.object_cache.animations;
     animations.elapsed_seconds += time.delta_secs();
     let elapsed_ms = (animations.elapsed_seconds * 1000.0) as u32;
+    let mut evaluated_animations = HashSet::new();
     for animated_mesh in &animations.meshes {
         let Some(mut mesh) = meshes.get_mut(&animated_mesh.mesh) else {
             continue;
         };
         if let Some(animation) = &animated_mesh.animation {
-            let transforms = animation.bone_transforms(elapsed_ms);
+            let animation_key = Arc::as_ptr(animation) as usize;
+            let transforms = animations
+                .bone_transform_cache
+                .entry(animation_key)
+                .or_default();
+            if evaluated_animations.insert(animation_key) {
+                animation.write_bone_transforms(elapsed_ms, transforms);
+            }
             let mut positions = Vec::with_capacity(animation.vertices.len());
             let mut normals = Vec::with_capacity(animation.vertices.len());
             for vertex in &animation.vertices {
@@ -310,40 +351,88 @@ pub(crate) fn animate_objects(
             .set_alpha(animated_material.animation.sample(elapsed_ms));
     }
 
-    let Ok(camera_transform) = camera.single() else {
+    let Ok((camera_transform, camera_frustum)) = camera.single() else {
         return;
     };
+    let camera_position = camera_transform.translation();
     let camera_right = camera_transform.right().as_vec3();
     let camera_up = camera_transform.up().as_vec3();
     let identity = Mat4::IDENTITY.to_cols_array();
-    for (global_transform, mut system) in &mut particles {
+    for (entity, global_transform, mut visibility, mut system) in &mut particles {
+        let emitter_position = global_transform.translation();
+        let bounds_radius =
+            system.bounds_radius * global_transform.compute_transform().scale.max_element();
+        let bounds = Sphere {
+            center: emitter_position.into(),
+            radius: bounds_radius,
+        };
+        let is_visible = emitter_position.distance_squared(camera_position)
+            <= (PARTICLE_VIEW_DISTANCE + bounds_radius).powi(2)
+            && camera_frustum.intersects_sphere(&bounds, true);
+        if !is_visible {
+            *visibility = Visibility::Hidden;
+            if !system.mesh_is_empty {
+                system.render_data.clear();
+                if let Some(mut mesh) = meshes.get_mut(&system.mesh) {
+                    update_particle_mesh(&mut mesh, &[], Vec3::X, Vec3::Y, Mat4::IDENTITY);
+                }
+                system.mesh_is_empty = true;
+            }
+            system.update_accumulator = 0.0;
+            continue;
+        }
+        *visibility = Visibility::Inherited;
+        if system.update_accumulator < 0.0 {
+            system.update_accumulator =
+                (entity.index_u32() % 4) as f32 * PARTICLE_UPDATE_INTERVAL / 4.0;
+        }
+        system.update_accumulator += time.delta_secs();
+        if system.update_accumulator < PARTICLE_UPDATE_INTERVAL {
+            continue;
+        }
+        let particle_delta = PARTICLE_UPDATE_INTERVAL;
+        system.update_accumulator -= PARTICLE_UPDATE_INTERVAL;
         let bone_transform = system
             .animation
             .as_ref()
             .and_then(|animation| {
-                animation
-                    .bone_transforms(elapsed_ms)
+                let animation_key = Arc::as_ptr(animation) as usize;
+                let transforms = animations
+                    .bone_transform_cache
+                    .entry(animation_key)
+                    .or_default();
+                if evaluated_animations.insert(animation_key) {
+                    animation.write_bone_transforms(elapsed_ms, transforms);
+                }
+                transforms
                     .get(system.emitter.bone_index() as usize)
                     .copied()
             })
             .unwrap_or(Mat4::IDENTITY);
         system
             .emitter
-            .update(time.delta_secs(), &identity, bone_transform);
-        let particle_data = system.emitter.render_data();
+            .update(particle_delta, &identity, bone_transform);
+        let M2ParticleSystem {
+            emitter,
+            mesh,
+            render_data,
+            ..
+        } = &mut *system;
+        emitter.write_render_data(render_data);
         let inverse = global_transform.affine().inverse();
         let right = inverse.transform_vector3(camera_right).normalize_or_zero();
         let up = inverse.transform_vector3(camera_up).normalize_or_zero();
-        let Some(mut mesh) = meshes.get_mut(&system.mesh) else {
+        let Some(mut mesh) = meshes.get_mut(mesh) else {
             continue;
         };
         update_particle_mesh(
             &mut mesh,
-            &particle_data,
+            render_data,
             right,
             up,
-            system.emitter.render_transform(bone_transform),
+            emitter.render_transform(bone_transform),
         );
+        system.mesh_is_empty = render_data.is_empty();
     }
 }
 
@@ -392,7 +481,9 @@ pub(super) fn spawn_prepared_adt_objects(
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     images: &mut Assets<Image>,
+    mpqs: &PatchChain,
 ) -> Entity {
     let doodads = objects
         .doodads
@@ -405,7 +496,9 @@ pub(super) fn spawn_prepared_adt_objects(
                 cache,
                 meshes,
                 materials,
+                liquid_materials,
                 images,
+                mpqs,
             )
             .map(|asset| (filename, asset, transform))
         })
@@ -421,7 +514,9 @@ pub(super) fn spawn_prepared_adt_objects(
                 cache,
                 meshes,
                 materials,
+                liquid_materials,
                 images,
+                mpqs,
             )
             .map(|asset| (filename, asset, doodad_set, transform))
         })
@@ -587,12 +682,15 @@ fn spawn_m2_contents(
             Name::new("M2 particle emitter"),
             Mesh3d(mesh.clone()),
             MeshMaterial3d(template.material.clone()),
-            NoFrustumCulling,
             Pickable::IGNORE,
             M2ParticleSystem {
+                bounds_radius: template.emitter.bounds_radius(),
                 emitter: ParticleEmitterRuntime::new(&template.emitter),
                 mesh,
                 animation: template.animation.clone(),
+                render_data: Vec::new(),
+                update_accumulator: -1.0,
+                mesh_is_empty: true,
             },
         ));
     }
@@ -605,6 +703,14 @@ fn spawn_wmo_contents(
     meshes: &mut Assets<Mesh>,
 ) {
     spawn_parts(parent, &asset.parts);
+    for liquid in &asset.liquids {
+        parent.spawn((
+            Name::new("Classic WMO liquid"),
+            Mesh3d(liquid.mesh.clone()),
+            MeshMaterial3d(liquid.material.clone()),
+            Pickable::IGNORE,
+        ));
+    }
     if let Some(doodads) = asset.doodad_sets.first() {
         spawn_wmo_doodads(parent, doodads, meshes);
     }
@@ -642,7 +748,9 @@ fn finalize_object_asset(
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     images: &mut Assets<Image>,
+    mpqs: &PatchChain,
 ) -> Option<Arc<ObjectAsset>> {
     let key = filename.to_ascii_lowercase();
     if let Some(asset) = cache.assets.get(&key) {
@@ -692,7 +800,9 @@ fn finalize_object_asset(
                                 cache,
                                 meshes,
                                 materials,
+                                liquid_materials,
                                 images,
+                                mpqs,
                             )
                             .map(|asset| WmoDoodad {
                                 filename: doodad.filename.clone(),
@@ -703,12 +813,79 @@ fn finalize_object_asset(
                         .collect()
                 })
                 .collect();
-            ObjectAsset::Wmo(WmoAsset { parts, doodad_sets })
+            let liquids = wmo
+                .liquids
+                .iter()
+                .filter_map(|liquid| {
+                    let mesh = meshes.add(liquid.mesh.lock().ok()?.take()?);
+                    let material = object_liquid_material(
+                        liquid.liquid_type,
+                        mpqs,
+                        cache,
+                        liquid_materials,
+                        images,
+                    );
+                    Some(WmoLiquidPart { mesh, material })
+                })
+                .collect();
+            ObjectAsset::Wmo(WmoAsset {
+                parts,
+                liquids,
+                doodad_sets,
+            })
         }
     };
     let asset = Arc::new(asset);
     cache.assets.insert(key, Some(asset.clone()));
     Some(asset)
+}
+
+fn object_liquid_material(
+    liquid_type: LiquidType,
+    mpqs: &PatchChain,
+    cache: &mut ObjectCache,
+    materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
+    images: &mut Assets<Image>,
+) -> Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>> {
+    let liquid_index = liquid_type as usize;
+    let texture = cache.liquid_textures[liquid_index]
+        .get_or_insert_with(|| load_liquid_texture(liquid_type, mpqs, images))
+        .clone();
+    cache.liquid_materials[liquid_index]
+        .get_or_insert_with(|| {
+            materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: match liquid_type {
+                        LiquidType::Water => Color::srgba(0.3, 0.3, 0.4, 0.68),
+                        LiquidType::Ocean => Color::srgba(0.2, 0.3, 0.35, 0.72),
+                        LiquidType::Magma | LiquidType::Slime => Color::WHITE,
+                    },
+                    alpha_mode: if liquid_type == LiquidType::Magma {
+                        AlphaMode::Opaque
+                    } else {
+                        AlphaMode::Blend
+                    },
+                    cull_mode: None,
+                    perceptual_roughness: 0.3,
+                    unlit: !cfg!(feature = "realistic-lighting"),
+                    ..default()
+                },
+                extension: LiquidMaterial {
+                    frames: texture.handle,
+                    frame_count: texture.frame_count,
+                    add_base_color: u32::from(matches!(
+                        liquid_type,
+                        LiquidType::Water | LiquidType::Ocean
+                    )),
+                    uv_scroll: if matches!(liquid_type, LiquidType::Magma | LiquidType::Slime) {
+                        Vec2::X
+                    } else {
+                        Vec2::ZERO
+                    },
+                },
+            })
+        })
+        .clone()
 }
 
 fn finalize_particle_emitters(
@@ -1340,9 +1517,17 @@ fn wow_quat_to_bevy(x: f32, y: f32, z: f32, w: f32) -> Quat {
 }
 
 impl M2SkinAnimation {
+    #[cfg(test)]
     fn bone_transforms(&self, elapsed_ms: u32) -> Vec<Mat4> {
+        let mut transforms = Vec::new();
+        self.write_bone_transforms(elapsed_ms, &mut transforms);
+        transforms
+    }
+
+    fn write_bone_transforms(&self, elapsed_ms: u32, transforms: &mut Vec<Mat4>) {
         let timestamp = self.start_ms + elapsed_ms % self.duration_ms;
-        let mut transforms = vec![Mat4::IDENTITY; self.bones.len()];
+        transforms.clear();
+        transforms.resize(self.bones.len(), Mat4::IDENTITY);
         for (index, bone) in self.bones.iter().enumerate() {
             let translation = bone
                 .translation
@@ -1372,7 +1557,6 @@ impl M2SkinAnimation {
                 Mat4::IDENTITY
             };
         }
-        transforms
     }
 }
 
@@ -2200,6 +2384,43 @@ impl ParticleEmitterDefinition {
             Self::Classic(emitter) => emitter.flags & 0x400 != 0,
         }
     }
+
+    fn bounds_radius(&self) -> f32 {
+        let (position, area, speed, gravity, lifespan, size) = match self {
+            Self::Parsed(emitter) => (
+                Vec3::new(emitter.position.x, emitter.position.y, emitter.position.z).length(),
+                emitter
+                    .emission_area_length
+                    .abs()
+                    .max(emitter.emission_area_width.abs()),
+                emitter
+                    .emission_velocity
+                    .abs()
+                    .max(emitter.initial_velocity.abs())
+                    * (1.0 + emitter.speed_variation.abs()),
+                emitter.gravity.abs(),
+                emitter.lifetime.abs().max(emitter.max_lifetime.abs()),
+                emitter
+                    .initial_size
+                    .abs()
+                    .max(emitter.max_initial_size.abs()),
+            ),
+            Self::Classic(emitter) => (
+                emitter.position.length(),
+                emitter.area_length.abs().max(emitter.area_width.abs()),
+                emitter.emission_speed.abs() * (1.0 + emitter.speed_variation.abs()),
+                emitter.gravity.abs(),
+                emitter.lifespan.abs(),
+                emitter.scales.into_iter().map(f32::abs).fold(0.0, f32::max),
+            ),
+        };
+        let radius = position + area + speed * lifespan + 0.5 * gravity * lifespan.powi(2) + size;
+        if radius.is_finite() {
+            radius.clamp(25.0, PARTICLE_VIEW_DISTANCE)
+        } else {
+            100.0
+        }
+    }
 }
 
 struct ParticleRenderData {
@@ -2246,21 +2467,23 @@ impl ParticleEmitterRuntime {
         }
     }
 
-    fn render_data(&self) -> Vec<ParticleRenderData> {
+    fn write_render_data(&self, output: &mut Vec<ParticleRenderData>) {
+        output.clear();
         match self {
-            Self::Parsed(emitter) => emitter
-                .fill_texture_data()
-                .chunks_exact(wow_m2::TEXELS_PER_PARTICLE * 4)
-                .take(emitter.particle_count())
-                .map(|particle| ParticleRenderData {
-                    position: Vec3::new(-particle[0], particle[2], particle[1]),
-                    color: [particle[4], particle[5], particle[6], particle[7]],
-                    size: Vec2::new(particle[8], particle[9]),
-                    uv_min: Vec2::new(particle[12], particle[13]),
-                    uv_size: Vec2::ONE,
-                })
-                .collect(),
-            Self::Classic(emitter) => emitter.render_data(),
+            Self::Parsed(emitter) => output.extend(
+                emitter
+                    .fill_texture_data()
+                    .chunks_exact(wow_m2::TEXELS_PER_PARTICLE * 4)
+                    .take(emitter.particle_count())
+                    .map(|particle| ParticleRenderData {
+                        position: Vec3::new(-particle[0], particle[2], particle[1]),
+                        color: [particle[4], particle[5], particle[6], particle[7]],
+                        size: Vec2::new(particle[8], particle[9]),
+                        uv_min: Vec2::new(particle[12], particle[13]),
+                        uv_size: Vec2::ONE,
+                    }),
+            ),
+            Self::Classic(emitter) => emitter.write_render_data(output),
         }
     }
 }
@@ -2356,35 +2579,31 @@ impl ClassicParticleRuntime {
         self.random_unit() * 2.0 - 1.0
     }
 
-    fn render_data(&self) -> Vec<ParticleRenderData> {
+    fn write_render_data(&self, output: &mut Vec<ParticleRenderData>) {
         let rows = f32::from(self.definition.rows);
         let columns = f32::from(self.definition.columns);
         let uv_size = Vec2::new(1.0 / columns, 1.0 / rows);
-        self.particles
-            .iter()
-            .enumerate()
-            .map(|(index, particle)| {
-                let life = (particle.age / particle.lifespan).clamp(0.0, 1.0);
-                let color = life_ramp(
-                    life,
-                    self.definition.midpoint,
-                    self.definition.colors.map(Vec4::from_array),
-                )
-                .to_array();
-                let scale = life_ramp(life, self.definition.midpoint, self.definition.scales);
-                let tile = index as u32
-                    % (u32::from(self.definition.rows) * u32::from(self.definition.columns));
-                let column = tile % u32::from(self.definition.columns);
-                let row = tile / u32::from(self.definition.columns);
-                ParticleRenderData {
-                    position: particle.position,
-                    color,
-                    size: Vec2::splat(scale.abs().max(0.01)),
-                    uv_min: Vec2::new(column as f32 / columns, row as f32 / rows),
-                    uv_size,
-                }
-            })
-            .collect()
+        output.extend(self.particles.iter().enumerate().map(|(index, particle)| {
+            let life = (particle.age / particle.lifespan).clamp(0.0, 1.0);
+            let color = life_ramp(
+                life,
+                self.definition.midpoint,
+                self.definition.colors.map(Vec4::from_array),
+            )
+            .to_array();
+            let scale = life_ramp(life, self.definition.midpoint, self.definition.scales);
+            let tile = index as u32
+                % (u32::from(self.definition.rows) * u32::from(self.definition.columns));
+            let column = tile % u32::from(self.definition.columns);
+            let row = tile / u32::from(self.definition.columns);
+            ParticleRenderData {
+                position: particle.position,
+                color,
+                size: Vec2::splat(scale.abs().max(0.01)),
+                uv_min: Vec2::new(column as f32 / columns, row as f32 / rows),
+                uv_size,
+            }
+        }));
     }
 }
 
@@ -2485,6 +2704,7 @@ fn load_wmo(
     };
     let stem = filename.get(..filename.len().checked_sub(4)?)?;
     let mut object_parts = Vec::new();
+    let mut liquids = Vec::new();
     let mut visible_doodads = HashSet::new();
     for group_index in 0..root.n_groups {
         let group_filename = format!("{stem}_{group_index:03}.wmo");
@@ -2492,10 +2712,26 @@ fn load_wmo(
             warn!("Unable to read WMO group {group_filename}");
             continue;
         };
-        let Some(ParsedWmo::Group(group)) = parse_wmo(&mut Cursor::new(group_data)).ok() else {
+        let Some(ParsedWmo::Group(group)) = parse_wmo(&mut Cursor::new(&group_data)).ok() else {
             warn!("Unable to parse WMO group {group_filename}");
             continue;
         };
+        let material_liquid_type = wmo_chunk_payload(&group_data, b"QILM")
+            .or_else(|| wmo_chunk_payload(&group_data, b"MLIQ"))
+            .and_then(|payload| payload.get(28..30))
+            .map(LittleEndian::read_u16)
+            .and_then(|material_id| root.materials.get(material_id as usize))
+            .and_then(|material| root.texture_offset_index_map.get(&material.texture_1))
+            .and_then(|texture_index| root.textures.get(*texture_index as usize))
+            .and_then(|texture| wmo_liquid_type_from_texture(texture));
+        liquids.extend(
+            wmo_liquid_meshes(&group_data, group.group_liquid, material_liquid_type)
+                .into_iter()
+                .map(|(liquid_type, mesh)| PreparedWmoLiquid {
+                    mesh: Mutex::new(Some(mesh)),
+                    liquid_type,
+                }),
+        );
         visible_doodads.extend(group.doodad_refs.iter().copied().map(usize::from));
         if group.vertex_positions.is_empty() || group.vertex_indices.is_empty() {
             continue;
@@ -2609,8 +2845,185 @@ fn load_wmo(
 
     (!object_parts.is_empty()).then_some(PreparedWmoAsset {
         parts: object_parts,
+        liquids,
         doodad_sets,
     })
+}
+
+fn wmo_liquid_meshes(
+    data: &[u8],
+    group_liquid: u32,
+    material_liquid_type: Option<LiquidType>,
+) -> Vec<(LiquidType, Mesh)> {
+    const HEADER_SIZE: usize = 30;
+    const VERTEX_SIZE: usize = 8;
+    const TILE_SIZE: f32 = CHUNK_SIZE / 8.0;
+
+    let Some(payload) =
+        wmo_chunk_payload(data, b"QILM").or_else(|| wmo_chunk_payload(data, b"MLIQ"))
+    else {
+        return Vec::new();
+    };
+    if payload.len() < HEADER_SIZE {
+        return Vec::new();
+    }
+
+    let vertex_columns = LittleEndian::read_u32(&payload[0..4]) as usize;
+    let vertex_rows = LittleEndian::read_u32(&payload[4..8]) as usize;
+    let tile_columns = LittleEndian::read_u32(&payload[8..12]) as usize;
+    let tile_rows = LittleEndian::read_u32(&payload[12..16]) as usize;
+    if vertex_columns != tile_columns.saturating_add(1)
+        || vertex_rows != tile_rows.saturating_add(1)
+        || tile_columns == 0
+        || tile_rows == 0
+    {
+        return Vec::new();
+    }
+
+    let Some(vertex_count) = vertex_columns.checked_mul(vertex_rows) else {
+        return Vec::new();
+    };
+    let Some(tile_count) = tile_columns.checked_mul(tile_rows) else {
+        return Vec::new();
+    };
+    let Some(vertices_size) = vertex_count.checked_mul(VERTEX_SIZE) else {
+        return Vec::new();
+    };
+    let Some(tile_flags_offset) = HEADER_SIZE.checked_add(vertices_size) else {
+        return Vec::new();
+    };
+    if payload.len() < tile_flags_offset.saturating_add(tile_count) {
+        return Vec::new();
+    }
+
+    let corner_x = LittleEndian::read_f32(&payload[16..20]);
+    let corner_y = LittleEndian::read_f32(&payload[20..24]);
+    let vertices_data = &payload[HEADER_SIZE..tile_flags_offset];
+    let tile_flags = &payload[tile_flags_offset..tile_flags_offset + tile_count];
+    let mut positions = std::array::from_fn::<_, 4, _>(|_| Vec::new());
+    let mut uvs = std::array::from_fn::<_, 4, _>(|_| Vec::new());
+    let mut indices = std::array::from_fn::<_, 4, _>(|_| Vec::new());
+
+    for row in 0..tile_rows {
+        for column in 0..tile_columns {
+            let tile_flag = tile_flags[row * tile_columns + column];
+            if tile_flag & 0x0f == 0x0f {
+                continue;
+            }
+            let liquid_type = wmo_liquid_type(group_liquid, tile_flag, material_liquid_type);
+            let type_index = liquid_type as usize;
+            let vertex_offset = positions[type_index].len() as u32;
+            for (x, y) in [
+                (column, row),
+                (column, row + 1),
+                (column + 1, row),
+                (column + 1, row + 1),
+            ] {
+                let source = (y * vertex_columns + x) * VERTEX_SIZE;
+                let height = LittleEndian::read_f32(&vertices_data[source + 4..source + 8]);
+                positions[type_index].push(wow_to_bevy(
+                    corner_x + x as f32 * TILE_SIZE,
+                    corner_y + y as f32 * TILE_SIZE,
+                    height,
+                ));
+                uvs[type_index].push(if liquid_type == LiquidType::Magma {
+                    [
+                        LittleEndian::read_i16(&vertices_data[source..source + 2]) as f32
+                            * (3.0 / 256.0),
+                        LittleEndian::read_i16(&vertices_data[source + 2..source + 4]) as f32
+                            * (3.0 / 256.0),
+                    ]
+                } else {
+                    [x as f32, y as f32]
+                });
+            }
+            indices[type_index].extend_from_slice(&[
+                vertex_offset,
+                vertex_offset + 1,
+                vertex_offset + 2,
+                vertex_offset + 2,
+                vertex_offset + 1,
+                vertex_offset + 3,
+            ]);
+        }
+    }
+
+    [
+        LiquidType::Water,
+        LiquidType::Ocean,
+        LiquidType::Magma,
+        LiquidType::Slime,
+    ]
+    .into_iter()
+    .enumerate()
+    .filter_map(|(type_index, liquid_type)| {
+        (!indices[type_index].is_empty()).then(|| {
+            let vertex_count = positions[type_index].len();
+            (
+                liquid_type,
+                Mesh::new(
+                    PrimitiveTopology::TriangleList,
+                    RenderAssetUsages::default(),
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_POSITION,
+                    std::mem::take(&mut positions[type_index]),
+                )
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_NORMAL,
+                    vec![[0.0, 1.0, 0.0]; vertex_count],
+                )
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, std::mem::take(&mut uvs[type_index]))
+                .with_inserted_indices(Indices::U32(std::mem::take(&mut indices[type_index]))),
+            )
+        })
+    })
+    .collect()
+}
+
+fn wmo_chunk_payload<'a>(data: &'a [u8], id: &[u8; 4]) -> Option<&'a [u8]> {
+    data.windows(4)
+        .position(|window| window == id)
+        .and_then(|offset| {
+            let size = LittleEndian::read_u32(data.get(offset + 4..offset + 8)?) as usize;
+            data.get(offset + 8..offset + 8 + size)
+        })
+}
+
+fn wmo_liquid_type(
+    group_liquid: u32,
+    tile_flag: u8,
+    material_liquid_type: Option<LiquidType>,
+) -> LiquidType {
+    let basic_type = if group_liquid == 15 {
+        if let Some(liquid_type) = material_liquid_type {
+            return liquid_type;
+        }
+        u32::from(tile_flag & 0x0f)
+    } else {
+        group_liquid & 0x03
+    };
+    match basic_type {
+        1 => LiquidType::Ocean,
+        2 => LiquidType::Magma,
+        3 => LiquidType::Slime,
+        _ => LiquidType::Water,
+    }
+}
+
+fn wmo_liquid_type_from_texture(texture: &str) -> Option<LiquidType> {
+    let texture = texture.to_ascii_lowercase();
+    if texture.contains("lava") || texture.contains("magma") {
+        Some(LiquidType::Magma)
+    } else if texture.contains("slime") {
+        Some(LiquidType::Slime)
+    } else if texture.contains("ocean") {
+        Some(LiquidType::Ocean)
+    } else if texture.contains("water") || texture.contains("river") {
+        Some(LiquidType::Water)
+    } else {
+        None
+    }
 }
 
 fn wmo_doodad_names(data: &[u8]) -> HashMap<u32, String> {
@@ -2684,10 +3097,10 @@ fn empty_particle_mesh() -> Mesh {
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, Vec::<[f32; 3]>::new())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0; 3]])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0; 3]])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0; 2]])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0.0; 4]])
     .with_inserted_indices(Indices::U32(Vec::new()))
 }
 
@@ -2699,24 +3112,54 @@ fn update_particle_mesh(
     up: Vec3,
     bone_transform: Mat4,
 ) {
-    let mut positions = Vec::with_capacity(data.len() * 4);
-    let mut normals = Vec::with_capacity(data.len() * 4);
-    let mut uvs = Vec::with_capacity(data.len() * 4);
-    let mut colors = Vec::with_capacity(data.len() * 4);
-    let mut indices = Vec::with_capacity(data.len() * 6);
     let normal = right.cross(up).normalize_or_zero();
 
-    for (particle_index, particle) in data.iter().enumerate() {
+    let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    else {
+        return;
+    };
+    positions.clear();
+    positions.reserve((data.len() * 4).max(1));
+    if data.is_empty() {
+        positions.push([0.0; 3]);
+    }
+    positions.extend(data.iter().flat_map(|particle| {
         let center = bone_transform.transform_point3(particle.position);
         let horizontal = right * particle.size.x;
         let vertical = up * particle.size.y;
-        positions.extend([
+        [
             (center - horizontal - vertical).to_array(),
             (center + horizontal - vertical).to_array(),
             (center + horizontal + vertical).to_array(),
             (center - horizontal + vertical).to_array(),
-        ]);
+        ]
+    }));
+
+    let Some(VertexAttributeValues::Float32x3(normals)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
+    else {
+        return;
+    };
+    normals.clear();
+    normals.reserve((data.len() * 4).max(1));
+    if data.is_empty() {
+        normals.push([0.0; 3]);
+    }
+    for _ in data {
         normals.extend([normal.to_array(); 4]);
+    }
+
+    let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+    else {
+        return;
+    };
+    uvs.clear();
+    uvs.reserve((data.len() * 4).max(1));
+    if data.is_empty() {
+        uvs.push([0.0; 2]);
+    }
+    for particle in data {
         let uv = particle.uv_min;
         let uv_end = uv + particle.uv_size;
         uvs.extend([
@@ -2725,7 +3168,27 @@ fn update_particle_mesh(
             [uv_end.x, uv.y],
             [uv.x, uv.y],
         ]);
+    }
+
+    let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+    else {
+        return;
+    };
+    colors.clear();
+    colors.reserve((data.len() * 4).max(1));
+    if data.is_empty() {
+        colors.push([0.0; 4]);
+    }
+    for particle in data {
         colors.extend([particle.color; 4]);
+    }
+
+    let Some(Indices::U32(indices)) = mesh.indices_mut() else {
+        return;
+    };
+    indices.clear();
+    indices.reserve(data.len() * 6);
+    for particle_index in 0..data.len() {
         let vertex = (particle_index * 4) as u32;
         indices.extend([
             vertex,
@@ -2736,12 +3199,6 @@ fn update_particle_mesh(
             vertex + 3,
         ]);
     }
-
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    mesh.insert_indices(Indices::U32(indices));
 }
 
 fn index_filenames(filenames: &[String]) -> HashMap<usize, &str> {
@@ -2921,6 +3378,71 @@ mod tests {
         };
         assert_eq!(positions[0], [-2.0, -2.0, 0.0]);
         assert_eq!(positions[2], [2.0, 2.0, 0.0]);
+        let position_capacity = positions.capacity();
+        let Indices::U32(indices) = mesh.indices().unwrap() else {
+            panic!("particle indices must be U32");
+        };
+        let index_capacity = indices.capacity();
+
+        update_particle_mesh(&mut mesh, &[], Vec3::X, Vec3::Y, Mat4::IDENTITY);
+
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("particle positions must be Float32x3");
+        };
+        assert_eq!(positions.capacity(), position_capacity);
+        let Some(Indices::U32(indices)) = mesh.indices() else {
+            panic!("particle indices must be U32");
+        };
+        assert_eq!(indices.capacity(), index_capacity);
+    }
+
+    #[test]
+    fn decodes_classic_wmo_magma_liquid() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&2_u32.to_le_bytes());
+        payload.extend_from_slice(&2_u32.to_le_bytes());
+        payload.extend_from_slice(&1_u32.to_le_bytes());
+        payload.extend_from_slice(&1_u32.to_le_bytes());
+        payload.extend_from_slice(&10.0_f32.to_le_bytes());
+        payload.extend_from_slice(&20.0_f32.to_le_bytes());
+        payload.extend_from_slice(&0.0_f32.to_le_bytes());
+        payload.extend_from_slice(&0_u16.to_le_bytes());
+        for (s, t) in [(0_i16, 0_i16), (256, 0), (0, 256), (256, 256)] {
+            payload.extend_from_slice(&s.to_le_bytes());
+            payload.extend_from_slice(&t.to_le_bytes());
+            payload.extend_from_slice(&5.0_f32.to_le_bytes());
+        }
+        payload.push(2);
+        let mut data = b"QILM".to_vec();
+        data.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        data.extend_from_slice(&payload);
+
+        let mut liquids = wmo_liquid_meshes(&data, 15, None);
+
+        assert_eq!(liquids.len(), 1);
+        let (liquid_type, mesh) = liquids.pop().unwrap();
+        assert_eq!(liquid_type, LiquidType::Magma);
+        assert_eq!(mesh.indices().unwrap().len(), 6);
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("WMO liquid positions must be Float32x3");
+        };
+        assert_eq!(positions[0], [20.0, 5.0, 10.0]);
+    }
+
+    #[test]
+    fn blackrock_legacy_liquid_uses_lava_material_hint() {
+        assert_eq!(
+            wmo_liquid_type_from_texture("DUNGEONS\\TEXTURES\\LAVA\\BURNINGSTEPPSLAVA02.BLP"),
+            Some(LiquidType::Magma)
+        );
+        assert_eq!(
+            wmo_liquid_type(15, 6, Some(LiquidType::Magma)),
+            LiquidType::Magma
+        );
     }
 
     #[test]
@@ -2950,7 +3472,8 @@ mod tests {
             ParticleEmitterRuntime::new(&ParticleEmitterDefinition::Classic(definition));
 
         runtime.update(0.05, &[0.0; 16], Mat4::IDENTITY);
-        let particles = runtime.render_data();
+        let mut particles = Vec::new();
+        runtime.write_render_data(&mut particles);
 
         assert_eq!(particles.len(), 5);
         assert!(

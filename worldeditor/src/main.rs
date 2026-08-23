@@ -1,4 +1,5 @@
 mod combined_alpha_map;
+mod liquid_material;
 mod map_loader;
 mod render_controls;
 mod terrain_material;
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use wow_mpq::PatchChain;
 
 use crate::{
+    liquid_material::LiquidMaterial,
     map_loader::{TerrainEditorPlugin, animate_objects, load_map, stream_terrain_chunks},
     render_controls::{
         RenderSettings, apply_render_visibility, setup_render_controls, update_render_controls,
@@ -81,6 +83,7 @@ fn main() {
     app.add_plugins((
         DefaultPlugins,
         MaterialPlugin::<ExtendedMaterial<StandardMaterial, TerrainMaterial>>::default(),
+        MaterialPlugin::<ExtendedMaterial<StandardMaterial, LiquidMaterial>>::default(),
     ));
     if config.log_diagnostics {
         app.add_plugins((
