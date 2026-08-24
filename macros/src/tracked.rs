@@ -26,6 +26,7 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             });
 
             ar.elem = Box::new(Type::Path(TypePath {
+                attrs: Vec::new(),
                 qself: None,
                 path: Path {
                     leading_colon: None,
@@ -60,6 +61,7 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
             });
 
             field.ty = Type::Path(TypePath {
+                attrs: Vec::new(),
                 qself: None,
                 path: Path {
                     leading_colon: None,

@@ -1,0 +1,50 @@
+[package]
+name = "worldeditor"
+version = "0.1.0"
+authors = ["FoLZer <folzer.se@gmail.com>"]
+edition = "2024"
+license.workspace = true
+
+[features]
+realistic-lighting = []
+
+[dependencies]
+#bevy = "0.17.3"
+bevy = { git = "https://github.com/bevyengine/bevy.git", features = [
+    "file_watcher",
+    "dynamic_linking",
+] }
+bevy_camera_controller = { git = "https://github.com/bevyengine/bevy.git", features = [
+    "free_camera",
+] }
+log4rs = "1.4.0"
+log = { version = "0.4.33" }
+serde = { version = "1.0.229", features = ["derive"] }
+confy = "2.0.0"
+dbc_structs = { path = "./dbc_structs" }
+byteorder = "1.5.0"
+bitfield-struct = "0.13.0"
+texpresso = "2.0.2"
+image = "0.25.10"
+rayon = "1.12.0"
+dbc_reader = { path = "./dbc_reader" }
+#bevy-inspector-egui = "0.35.0"
+
+# Version right before ADT refactor with alpha maps being parsed correctly (unreleased on crates.io). Change to release version once the crate is updated
+#wow-mpq = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+#wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git", rev = "6e7d55c" }
+
+#wow-mpq = "0.6.4"
+#wow-adt = "0.6.4"
+#wow-wdt = "0.6.4"
+#wow-blp = "0.6.4"
+
+wow-mpq = { path = "./mpq" }
+wow-adt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-m2 = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+wow-wmo = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
+dashmap = "6.2.1"

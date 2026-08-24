@@ -9,8 +9,8 @@ license.workspace = true
 byteorder = "1.5.0"
 lazy_static = "1.5.0"
 macros = { path = "../../macros" }
-tokio = "1.48.0"
+tokio = "1.53.1"
 common = { path = "../common" }
-chrono = "0.4.42"
-bit-vec = "0.8.0"
-bitfield-struct = "0.12.1"
+chrono = "0.4.45"
+bit-vec = "0.10.1"
+bitfield-struct = "0.13.0"

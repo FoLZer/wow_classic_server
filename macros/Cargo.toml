@@ -1,6 +1,7 @@
 [package]
 name = "macros"
 version = "0.1.0"
+authors = ["FoLZer <folzer.se@gmail.com>"]
 edition = "2024"
 license.workspace = true
 
@@ -8,6 +9,6 @@ license.workspace = true
 proc-macro = true
 
 [dependencies]
-syn = "*"
+syn = "3.0.3"
 quote = "*"
 proc-macro2 = "*"

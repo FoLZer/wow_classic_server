@@ -9,25 +9,25 @@ license.workspace = true
 byteorder = "1.5.0"
 confy = "2.0.0"
 hex = "0.4.3"
-interprocess = { version = "2.2.3", features = ["async", "tokio"] }
-itertools = "0.14.0"
+interprocess = { version = "2.4.3", features = ["async", "tokio"] }
+itertools = "0.15.0"
 lazy_static = "1.5.0"
-log = "0.4.28"
-num-bigint = "0.4.6"
-rand = "0.9.2"
-serde = { version = "1.0.228", features = ["derive"] }
-sha1 = "0.10.6"
-tokio = { version = "1.48.0", features = ["full"] }
+log = "0.4.33"
+num-bigint = "0.5.1"
+rand = "0.10.2"
+serde = { version = "1.0.229", features = ["derive"] }
+sha1 = "0.11.0"
+tokio = { version = "1.53.1", features = ["full"] }
 ipc_comms = { path = "../ipc_comms" }
-futures = "0.3.31"
+futures = "0.3.34"
 authserver_migration = { path = "./authserver_migration" }
-sea-orm = { version = "2.0.0-rc", features = [
+sea-orm = { version = "2.0.1", features = [
     "sqlx-sqlite",
     "runtime-tokio-rustls",
     "macros",
 ] }
 authserver_entity = { path = "./authserver_entity" }
 concurrent-queue = "2.5.0"
-inquire = "0.9.1"
+inquire = "0.9.4"
 log4rs = "1.4.0"
-inquire-derive = "0.9.1"
+inquire-derive = "0.9.4"
