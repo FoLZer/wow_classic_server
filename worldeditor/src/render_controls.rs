@@ -2,8 +2,9 @@ use bevy::{
     asset::RenderAssetUsages,
     camera::visibility::VisibilityRange,
     image::{ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
+    input::mouse::{MouseScrollUnit, MouseWheel},
     input_focus::tab_navigation::TabIndex,
-    picking::hover::Hovered,
+    picking::hover::{HoverMap, Hovered},
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     ui::Checked,
@@ -17,7 +18,7 @@ use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
 
 use crate::{
-    map_loader::{AdtPosition, RenderedGroundEffect, RenderedObject, TerrainEditor},
+    map_loader::{AdtPosition, MapSelection, RenderedGroundEffect, RenderedObject, TerrainEditor},
     mpq_read_file,
 };
 
@@ -110,7 +111,20 @@ pub(crate) struct TextureControl {
 #[derive(Component)]
 pub(crate) struct UiRoot;
 
-pub fn setup_render_controls(mut commands: Commands, settings: Res<RenderSettings>) {
+#[derive(Component)]
+struct MapDropdown;
+
+#[derive(Component)]
+pub(crate) struct MapDropdownMenu;
+
+#[derive(Component)]
+pub(crate) struct MapDropdownLabel;
+
+pub fn setup_render_controls(
+    mut commands: Commands,
+    settings: Res<RenderSettings>,
+    map_selection: Res<MapSelection>,
+) {
     commands
         .spawn((
             Name::new("UI Root"),
@@ -130,6 +144,109 @@ pub fn setup_render_controls(mut commands: Commands, settings: Res<RenderSetting
             UiRoot,
         ))
         .with_children(|root| {
+            root.spawn((
+                Name::new("Map selection"),
+                Node {
+                    width: px(280),
+                    padding: UiRect::all(px(12)),
+                    border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(6)),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(8),
+                    ..default()
+                },
+                BackgroundColor(PANEL),
+                BorderColor::all(BORDER),
+            ))
+            .with_children(|panel| {
+                panel.spawn((
+                    Text::new("MAP"),
+                    TextFont::from_font_size(13.0),
+                    TextColor(MUTED_TEXT),
+                ));
+                panel
+                    .spawn((
+                        MapDropdown,
+                        Button,
+                        Hovered::default(),
+                        Node {
+                            width: percent(100),
+                            height: px(34),
+                            padding: UiRect::horizontal(px(10)),
+                            border: UiRect::all(px(1)),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::SpaceBetween,
+                            ..default()
+                        },
+                        BackgroundColor(TRACK),
+                        BorderColor::all(BORDER),
+                        observe(toggle_map_dropdown),
+                    ))
+                    .with_children(|field| {
+                        field.spawn((
+                            MapDropdownLabel,
+                            Text::new(map_selection.selected_label()),
+                            TextFont::from_font_size(13.0),
+                            TextColor(TEXT),
+                        ));
+                        field.spawn((
+                            Text::new("v"),
+                            TextFont::from_font_size(12.0),
+                            TextColor(MUTED_TEXT),
+                        ));
+                    });
+                panel
+                    .spawn((
+                        MapDropdownMenu,
+                        Node {
+                            display: Display::None,
+                            width: percent(100),
+                            max_height: px(260),
+                            overflow: Overflow::scroll_y(),
+                            flex_direction: FlexDirection::Column,
+                            border: UiRect::all(px(1)),
+                            ..default()
+                        },
+                        BackgroundColor(TRACK),
+                        BorderColor::all(BORDER),
+                        ScrollPosition(Vec2::ZERO),
+                    ))
+                    .with_children(|menu| {
+                        for map in &map_selection.maps {
+                            let index = map.index;
+                            menu.spawn(
+                                (
+                                    Button,
+                                    Hovered::default(),
+                                    Node {
+                                        min_height: px(30),
+                                        padding: UiRect::horizontal(px(10)),
+                                        align_items: AlignItems::Center,
+                                        ..default()
+                                    },
+                                    observe(
+                                        move |_activate: On<Activate>,
+                                              mut selection: ResMut<MapSelection>,
+                                              mut menus: Query<
+                                            &mut Node,
+                                            With<MapDropdownMenu>,
+                                        >| {
+                                            selection.requested = Some(index);
+                                            for mut menu in &mut menus {
+                                                menu.display = Display::None;
+                                            }
+                                        },
+                                    ),
+                                ),
+                            )
+                            .with_child((
+                                Text::new(map.name.clone()),
+                                TextFont::from_font_size(12.0),
+                                TextColor(TEXT),
+                            ));
+                        }
+                    });
+            });
             root.spawn((
                 Name::new("Render controls"),
                 Node {
@@ -200,6 +317,57 @@ pub fn setup_render_controls(mut commands: Commands, settings: Res<RenderSetting
                 );
             });
         });
+}
+
+fn toggle_map_dropdown(
+    _activate: On<Activate>,
+    mut menus: Query<&mut Node, With<MapDropdownMenu>>,
+) {
+    for mut menu in &mut menus {
+        menu.display = if menu.display == Display::None {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+}
+
+pub fn scroll_map_dropdown(
+    mut mouse_wheel: MessageReader<MouseWheel>,
+    hover_map: Res<HoverMap>,
+    children: Query<&Children>,
+    mut menus: Query<(Entity, &mut ScrollPosition, &ComputedNode), With<MapDropdownMenu>>,
+) {
+    let delta = mouse_wheel
+        .read()
+        .map(|event| {
+            let scale = if event.unit == MouseScrollUnit::Line {
+                24.0
+            } else {
+                1.0
+            };
+            -event.y * scale
+        })
+        .sum::<f32>();
+    if delta == 0.0 {
+        return;
+    }
+
+    for (menu, mut position, computed) in &mut menus {
+        let hovered = hover_map.values().any(|pointer| {
+            pointer.keys().any(|entity| {
+                *entity == menu
+                    || children
+                        .iter_descendants(menu)
+                        .any(|child| child == *entity)
+            })
+        });
+        if hovered {
+            let max_offset =
+                (computed.content_size().y - computed.size().y) * computed.inverse_scale_factor();
+            position.y = (position.y + delta).clamp(0.0, max_offset.max(0.0));
+        }
+    }
 }
 
 pub(crate) fn ensure_texture_control(
@@ -610,6 +778,7 @@ pub fn update_render_controls(
             Without<AdtDistanceLabel>,
             Without<ObjectDistanceLabel>,
             Without<GroundEffectDistanceLabel>,
+            Without<MapDropdownLabel>,
         ),
     >,
     mut adt_labels: Query<
@@ -619,6 +788,7 @@ pub fn update_render_controls(
             Without<CheckboxMark>,
             Without<ObjectDistanceLabel>,
             Without<GroundEffectDistanceLabel>,
+            Without<MapDropdownLabel>,
         ),
     >,
     mut object_labels: Query<
@@ -628,6 +798,7 @@ pub fn update_render_controls(
             Without<CheckboxMark>,
             Without<AdtDistanceLabel>,
             Without<GroundEffectDistanceLabel>,
+            Without<MapDropdownLabel>,
         ),
     >,
     mut ground_effect_labels: Query<
@@ -637,13 +808,30 @@ pub fn update_render_controls(
             Without<CheckboxMark>,
             Without<AdtDistanceLabel>,
             Without<ObjectDistanceLabel>,
+            Without<MapDropdownLabel>,
         ),
     >,
     mut settings: ResMut<RenderSettings>,
     editor: Res<TerrainEditor>,
     mut mode_buttons: Query<(&EditModeButton, &mut BackgroundColor), Without<CheckboxMark>>,
     mut alpha_controls: Query<&mut Node, With<AlphaSliderContainer>>,
+    map_selection: Res<MapSelection>,
+    mut map_labels: Query<
+        &mut Text,
+        (
+            With<MapDropdownLabel>,
+            Without<CheckboxMark>,
+            Without<AdtDistanceLabel>,
+            Without<ObjectDistanceLabel>,
+            Without<GroundEffectDistanceLabel>,
+        ),
+    >,
 ) {
+    if map_selection.is_changed() {
+        for mut label in &mut map_labels {
+            **label = map_selection.selected_label().to_owned();
+        }
+    }
     for (button, mut background) in &mut mode_buttons {
         background.0 = if button.0 == settings.edit_mode {
             ACCENT
@@ -706,6 +894,7 @@ fn update_checkbox_mark(
             Without<AdtDistanceLabel>,
             Without<ObjectDistanceLabel>,
             Without<GroundEffectDistanceLabel>,
+            Without<MapDropdownLabel>,
         ),
     >,
 ) {

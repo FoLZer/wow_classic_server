@@ -52,6 +52,58 @@ const STREAM_UPDATE_DISTANCE: f32 = DETAIL_CELL_SIZE * 0.5;
 const MAX_PENDING_ADTS: usize = 32;
 const MAX_PENDING_OBJECT_ADTS: usize = 1;
 
+pub struct MapOption {
+    pub index: usize,
+    pub name: String,
+}
+
+#[derive(Resource)]
+pub struct MapSelection {
+    pub maps: Vec<MapOption>,
+    pub selected: usize,
+    pub requested: Option<usize>,
+}
+
+impl MapSelection {
+    pub fn new(maps: Vec<MapOption>, selected: usize) -> Self {
+        Self {
+            maps,
+            selected,
+            requested: None,
+        }
+    }
+
+    pub fn selected_label(&self) -> &str {
+        self.maps
+            .iter()
+            .find(|map| map.index == self.selected)
+            .map(|map| map.name.as_str())
+            .unwrap_or("Unknown map")
+    }
+}
+
+pub fn available_maps(mpqs: &PatchChain) -> Vec<MapOption> {
+    let map_buf = mpqs.read_file_concurrent("DBFilesClient\\Map.dbc").unwrap();
+    let map_dbc = dbc_reader::read_dbc::<_, dbc_structs::Map>(&mut Cursor::new(map_buf)).unwrap();
+    map_dbc
+        .get_records()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, map)| {
+            let directory = map.directory.to_str().ok()?.to_owned();
+            let wdt_path = format!("World\\Maps\\{directory}\\{directory}.wdt");
+            mpqs.read_file_concurrent(&wdt_path).ok()?;
+            let localized_name = map.map_name_lang.locales[0].to_string_lossy();
+            let name = if localized_name.is_empty() {
+                directory.clone()
+            } else {
+                format!("{localized_name} ({directory})")
+            };
+            Some(MapOption { index, name })
+        })
+        .collect()
+}
+
 pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Option<Transform> {
     let map_dbc = {
         info!("Searching for Map.dbc...");
@@ -108,6 +160,7 @@ pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Opt
         ground_effects_root: None,
         rendered_ground_effects: None,
         world_wmos,
+        world_wmos_root: None,
         loading_world_wmos: None,
         world_wmos_loaded: false,
         last_update_position: None,
@@ -188,11 +241,74 @@ pub struct TerrainMap {
     ground_effects_root: Option<Entity>,
     rendered_ground_effects: Option<GroundEffectRequest>,
     world_wmos: Vec<WorldWmo>,
+    world_wmos_root: Option<Entity>,
     loading_world_wmos: Option<Task<ObjectsLoadResult>>,
     world_wmos_loaded: bool,
     last_update_position: Option<Vec2>,
     loading: bool,
     metrics: TerrainLoadMetrics,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn switch_selected_map(
+    mut commands: Commands,
+    mut selection: ResMut<MapSelection>,
+    terrain: Option<ResMut<TerrainMap>>,
+    mpqs: Res<MPQResource>,
+    mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
+    mut liquid_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>,
+    mut object_materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(index) = selection.requested.take() else {
+        return;
+    };
+    if index == selection.selected {
+        return;
+    }
+
+    if let Some(mut terrain) = terrain {
+        for (_, loaded_adt) in terrain.loaded_adts.drain() {
+            if let Some(objects) = loaded_adt.objects {
+                commands.entity(objects).despawn();
+            }
+            commands.entity(loaded_adt.entity).despawn();
+            meshes.remove(loaded_adt.mesh.id());
+            terrain_materials.remove(loaded_adt.material.id());
+            for mesh in loaded_adt.liquid_meshes {
+                meshes.remove(mesh.id());
+            }
+            for material in loaded_adt.liquid_materials {
+                liquid_materials.remove(material.id());
+            }
+            for image in loaded_adt.images {
+                images.remove(image.id());
+            }
+        }
+        if let Some(root) = terrain.ground_effects_root.take() {
+            commands.entity(root).despawn();
+        }
+        if let Some(root) = terrain.world_wmos_root.take() {
+            commands.entity(root).despawn();
+        }
+        if let Some(texture_array) = terrain.texture_array.take() {
+            images.remove(texture_array.id());
+        }
+        for texture in terrain.liquid_textures.iter_mut().filter_map(Option::take) {
+            images.remove(texture.handle.id());
+        }
+        terrain.object_cache.unload_assets(
+            &mut meshes,
+            &mut object_materials,
+            &mut liquid_materials,
+            &mut images,
+        );
+    }
+
+    commands.remove_resource::<TerrainMap>();
+    load_map(&mpqs.mpqs, &mut commands, index);
+    selection.selected = index;
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -495,6 +611,7 @@ fn stream_world_wmos(
                 Visibility::Hidden
             },
         ));
+        terrain.world_wmos_root = Some(entity);
         terrain.world_wmos_loaded = true;
         return;
     }

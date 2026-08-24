@@ -19,10 +19,13 @@ use wow_mpq::PatchChain;
 
 use crate::{
     liquid_material::LiquidMaterial,
-    map_loader::{TerrainEditorPlugin, animate_objects, load_map, stream_terrain_chunks},
+    map_loader::{
+        MapSelection, TerrainEditorPlugin, animate_objects, available_maps, load_map,
+        stream_terrain_chunks, switch_selected_map,
+    },
     render_controls::{
-        RenderSettings, apply_render_visibility, setup_render_controls, update_render_controls,
-        update_slider_visuals,
+        RenderSettings, apply_render_visibility, scroll_map_dropdown, setup_render_controls,
+        update_render_controls, update_slider_visuals,
     },
     terrain_material::TerrainMaterial,
 };
@@ -78,6 +81,7 @@ fn main() {
         (config.mpq_directory_path.join("base.MPQ"), 0),
     ])
     .unwrap();
+    let map_selection = MapSelection::new(available_maps(&mpqs), 0);
 
     let mut app = App::new();
     app.add_plugins((
@@ -98,6 +102,7 @@ fn main() {
         .insert_resource(MPQResource {
             mpqs: Arc::new(mpqs),
         })
+        .insert_resource(map_selection)
         .insert_resource(render_settings)
         .insert_resource(config)
         .add_systems(Startup, (setup, setup_render_controls))
@@ -105,8 +110,10 @@ fn main() {
             Update,
             (
                 update_render_controls,
+                scroll_map_dropdown,
                 update_slider_visuals,
                 apply_render_visibility.after(update_render_controls),
+                switch_selected_map.before(stream_terrain_chunks),
                 stream_terrain_chunks.after(update_render_controls),
                 animate_objects.after(stream_terrain_chunks),
             ),
@@ -134,7 +141,7 @@ fn setup(mut commands: Commands, mpqs_res: Res<MPQResource>, settings: Res<AppSe
                 run_speed: 600.0,
                 ..Default::default()
             },
-            Msaa::Off,
+            Msaa::Sample8,
         ))
         .id();
 

@@ -264,6 +264,67 @@ pub(super) struct ObjectCache {
     animations: ObjectAnimations,
 }
 
+impl ObjectCache {
+    pub(super) fn unload_assets(
+        &mut self,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<StandardMaterial>,
+        liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
+        images: &mut Assets<Image>,
+    ) {
+        let mut visited = HashSet::new();
+        for asset in self.assets.drain().filter_map(|(_, asset)| asset) {
+            unload_object_asset(&asset, &mut visited, meshes, materials, liquid_materials);
+        }
+        for image in self.textures.drain().filter_map(|(_, image)| image) {
+            images.remove(image.id());
+        }
+        for texture in self.liquid_textures.iter_mut().filter_map(Option::take) {
+            images.remove(texture.handle.id());
+        }
+        for material in self.liquid_materials.iter_mut().filter_map(Option::take) {
+            liquid_materials.remove(material.id());
+        }
+        self.animations = ObjectAnimations::default();
+    }
+}
+
+fn unload_object_asset(
+    asset: &Arc<ObjectAsset>,
+    visited: &mut HashSet<usize>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
+) {
+    if !visited.insert(Arc::as_ptr(asset) as usize) {
+        return;
+    }
+    match asset.as_ref() {
+        ObjectAsset::M2(asset) => {
+            for part in &asset.parts {
+                meshes.remove(part.mesh.id());
+                materials.remove(part.material.id());
+            }
+            for particle in &asset.particles {
+                materials.remove(particle.material.id());
+            }
+        }
+        ObjectAsset::Wmo(asset) => {
+            for part in &asset.parts {
+                meshes.remove(part.mesh.id());
+                materials.remove(part.material.id());
+            }
+            for liquid in &asset.liquids {
+                meshes.remove(liquid.mesh.id());
+                liquid_materials.remove(liquid.material.id());
+            }
+            for doodad in asset.doodad_sets.iter().flatten() {
+                unload_object_asset(&doodad.asset, visited, meshes, materials, liquid_materials);
+            }
+        }
+    }
+}
+
 pub(crate) fn animate_objects(
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
