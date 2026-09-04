@@ -26,6 +26,7 @@ use crate::{
             load_ground_effects, load_world_wmos, spawn_prepared_adt_objects,
         },
     },
+    mpq_read_file,
     render_controls::RenderSettings,
     terrain_material::TerrainMaterial,
 };
@@ -83,7 +84,7 @@ impl MapSelection {
 }
 
 pub fn available_maps(mpqs: &PatchChain) -> Vec<MapOption> {
-    let map_buf = mpqs.read_file_concurrent("DBFilesClient\\Map.dbc").unwrap();
+    let map_buf = mpq_read_file(mpqs, "DBFilesClient\\Map.dbc").unwrap();
     let map_dbc = dbc_reader::read_dbc::<_, dbc_structs::Map>(&mut Cursor::new(map_buf)).unwrap();
     map_dbc
         .get_records()
@@ -92,7 +93,7 @@ pub fn available_maps(mpqs: &PatchChain) -> Vec<MapOption> {
         .filter_map(|(index, map)| {
             let directory = map.directory.to_str().ok()?.to_owned();
             let wdt_path = format!("World\\Maps\\{directory}\\{directory}.wdt");
-            mpqs.read_file_concurrent(&wdt_path).ok()?;
+            mpq_read_file(mpqs, &wdt_path).ok()?;
             let localized_name = map.map_name_lang.locales[0].to_string_lossy();
             let name = if localized_name.is_empty() {
                 directory.clone()
@@ -107,7 +108,7 @@ pub fn available_maps(mpqs: &PatchChain) -> Vec<MapOption> {
 pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Option<Transform> {
     let map_dbc = {
         info!("Searching for Map.dbc...");
-        let map_buf = mpqs.read_file_concurrent("DBFilesClient\\Map.dbc").unwrap();
+        let map_buf = mpq_read_file(mpqs, "DBFilesClient\\Map.dbc").unwrap();
         dbc_reader::read_dbc::<_, dbc_structs::Map>(&mut Cursor::new(map_buf)).unwrap()
     };
 
@@ -120,7 +121,7 @@ pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Opt
     );
 
     let wdt_file_path = format!("World\\Maps\\{}\\{}.wdt", directory, directory);
-    let wdt_file_buf = match mpqs.read_file_concurrent(&wdt_file_path) {
+    let wdt_file_buf = match mpq_read_file(mpqs, &wdt_file_path) {
         Ok(value) => value,
         Err(wow_mpq::Error::FileNotFound(_)) => {
             error!("WDT wasn't found for map {}", directory);
@@ -490,7 +491,7 @@ pub fn stream_terrain_chunks(
         let has_big_alpha = terrain.has_big_alpha;
         let mpqs = mpqs.mpqs.clone();
         let task = AsyncComputeTaskPool::get().spawn(async move {
-            let map_file_buf = mpqs.read_file_async(&map_path).await.unwrap();
+            let map_file_buf = mpq_read_file(&mpqs, &map_path).unwrap();
             let adt = parse_adt(&mut Cursor::new(map_file_buf)).unwrap();
             let ParsedAdt::Root(adt) = adt else { panic!() };
             let adt = *adt;

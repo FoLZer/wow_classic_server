@@ -18,6 +18,7 @@ use wow_adt::{ParsedAdt, RootAdt, parse_adt};
 use crate::{
     MPQResource,
     combined_alpha_map::CombinedAlphaMap,
+    mpq_read_file,
     render_controls::{
         AlphaSlider, EditMode, RenderSettings, TextureControl, UiRoot, ensure_texture_control,
     },
@@ -164,7 +165,7 @@ impl TerrainEditor {
                 "World\\Maps\\{}\\{}_{}_{}.adt",
                 terrain_map.map_name, terrain_map.map_name, position.x, position.y
             );
-            let Ok(map_file_buf) = mpqs.mpqs.read_file_concurrent(&map_path) else {
+            let Ok(map_file_buf) = mpq_read_file(&mpqs.mpqs, &map_path) else {
                 return None;
             };
             let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {
@@ -241,7 +242,7 @@ fn clear_adt_selection(
 }
 
 pub(super) fn select_adt_chunk(
-    mut click: On<Pointer<Click>>,
+    mut click: On<PointerClick>,
     mut commands: Commands,
     mut adt_entities: Query<(&AdtPosition, &mut Mesh3d)>,
     mut editor: ResMut<TerrainEditor>,
@@ -450,7 +451,7 @@ fn sync_edit_mode(
 }
 
 fn select_alpha_point(
-    mut press: On<Pointer<Press>>,
+    mut press: On<PointerPress>,
     mut commands: Commands,
     mut editor: ResMut<TerrainEditor>,
     alpha_points: Query<&AlphaMapPoint>,
@@ -599,7 +600,7 @@ fn ensure_editable_neighbor(
         "World\\Maps\\{}\\{}_{}_{}.adt",
         map_name, map_name, coordinates.x, coordinates.y
     );
-    let Ok(map_file_buf) = mpqs.read_file_concurrent(&map_path) else {
+    let Ok(map_file_buf) = mpq_read_file(mpqs, &map_path) else {
         return;
     };
     let Ok(ParsedAdt::Root(adt)) = parse_adt(&mut Cursor::new(map_file_buf)) else {
@@ -659,7 +660,7 @@ fn build_seam_links(
 }
 
 fn select_height_point(
-    mut press: On<Pointer<Press>>,
+    mut press: On<PointerPress>,
     mut editor: ResMut<TerrainEditor>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<EditPointMaterial>>,
@@ -684,7 +685,7 @@ fn select_height_point(
 }
 
 fn drag_height_point(
-    mut drag: On<Pointer<Drag>>,
+    mut drag: On<PointerDrag>,
     mut editor: ResMut<TerrainEditor>,
     mut points: Query<(&HeightMapPoint, &mut Transform)>,
     camera: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
@@ -785,7 +786,7 @@ fn drag_height_point(
 }
 
 fn finish_height_drag(
-    drag_end: On<Pointer<DragEnd>>,
+    drag_end: On<PointerDragEnd>,
     mut dirty_meshes: ResMut<DirtyTerrainMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {

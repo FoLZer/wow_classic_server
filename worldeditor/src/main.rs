@@ -44,7 +44,7 @@ struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            mpq_directory_path: PathBuf::from_str("./Data").unwrap(),
+            mpq_directory_path: PathBuf::from_str("./worldeditor/Data").unwrap(),
             terrain_view_distance: 50_000.0,
             object_view_distance: 3_000.0,
             ground_effect_view_distance: 40.0,

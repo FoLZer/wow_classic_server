@@ -4,6 +4,8 @@ use bevy::prelude::*;
 use wow_adt::RootAdt;
 use wow_mpq::PatchChain;
 
+use crate::mpq_read_file;
+
 use super::CHUNK_SIZE;
 
 const DETAIL_CELLS_PER_CHUNK: usize = 8;
@@ -45,13 +47,11 @@ struct GroundEffectChunk {
 
 impl GroundEffectData {
     pub(super) fn load(mpqs: &PatchChain) -> Self {
-        let Ok(doodad_data) = mpqs.read_file_concurrent("DBFilesClient\\GroundEffectDoodad.dbc")
-        else {
+        let Ok(doodad_data) = mpq_read_file(mpqs, "DBFilesClient\\GroundEffectDoodad.dbc") else {
             warn!("GroundEffectDoodad.dbc was not found; terrain foliage is disabled");
             return Self::default();
         };
-        let Ok(texture_data) = mpqs.read_file_concurrent("DBFilesClient\\GroundEffectTexture.dbc")
-        else {
+        let Ok(texture_data) = mpq_read_file(mpqs, "DBFilesClient\\GroundEffectTexture.dbc") else {
             warn!("GroundEffectTexture.dbc was not found; terrain foliage is disabled");
             return Self::default();
         };

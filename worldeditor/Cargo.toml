@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 realistic-lighting = []
+concurrent-mpq = []
 
 [dependencies]
 #bevy = "0.17.3"
@@ -27,6 +28,7 @@ bitfield-struct = "0.13.0"
 texpresso = "2.0.2"
 image = "0.25.10"
 rayon = "1.12.0"
+dashmap = "6.2.1"
 dbc_reader = { path = "./dbc_reader" }
 #bevy-inspector-egui = "0.35.0"
 
@@ -47,4 +49,3 @@ wow-wdt = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-blp = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-m2 = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
 wow-wmo = { git = "https://github.com/wowemulation-dev/warcraft-rs.git" }
-dashmap = "6.2.1"
