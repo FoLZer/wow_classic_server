@@ -32,6 +32,20 @@ pub(super) struct CachedTerrainTexture {
     mipmaps: Vec<Vec<u8>>,
 }
 
+pub(super) fn release_texture_loading_data(
+    cache: &mut HashMap<String, CachedTerrainTexture>,
+) -> usize {
+    cache
+        .values_mut()
+        .map(|texture| {
+            let released = texture.mipmaps.iter().map(Vec::capacity).sum::<usize>();
+            texture.mipmaps.clear();
+            texture.mipmaps.shrink_to_fit();
+            released
+        })
+        .sum()
+}
+
 pub(super) struct PreparedMaterialMaps {
     pub(super) alpha_map: Image,
     pub(super) local_layers: Vec<u16>,
@@ -169,6 +183,24 @@ mod tests {
         assert_eq!(shadow_alpha(Some(&shadow), 8, 11), u8::MAX);
         assert_eq!(shadow_alpha(None, 7, 11), u8::MAX);
     }
+
+    #[test]
+    fn releases_texture_mipmaps_but_preserves_layer_metadata() {
+        let mut cache = HashMap::from([(
+            "terrain.blp".to_owned(),
+            CachedTerrainTexture {
+                layer: 7,
+                width: 256,
+                height: 128,
+                mipmaps: vec![vec![1; 64], vec![2; 16]],
+            },
+        )]);
+
+        assert_eq!(release_texture_loading_data(&mut cache), 80);
+        let texture = &cache["terrain.blp"];
+        assert_eq!((texture.layer, texture.width, texture.height), (7, 256, 128));
+        assert!(texture.mipmaps.is_empty());
+    }
 }
 
 pub(super) fn global_layer_map(
@@ -246,6 +278,19 @@ pub(super) fn update_texture_array(
 
     if !changed && let Some(texture_array) = texture_array.as_ref() {
         return texture_array.clone();
+    }
+
+    for (filepath, texture) in cache.iter_mut() {
+        if texture.width == 0 || !texture.mipmaps.is_empty() {
+            continue;
+        }
+        let file_buf = mpq_read_file(mpqs, filepath)
+            .unwrap_or_else(|error| panic!("Unable to restore terrain texture {filepath}: {error}"));
+        let blp = load_blp_from_buf(&file_buf)
+            .unwrap_or_else(|error| panic!("Unable to parse terrain texture {filepath}: {error}"));
+        texture.mipmaps = (0..blp.image_count())
+            .map(|level| blp_to_image(&blp, level).unwrap().into_rgba8().into_vec())
+            .collect();
     }
 
     let mut ordered_textures = cache.values().collect::<Vec<_>>();

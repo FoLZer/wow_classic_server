@@ -37,7 +37,7 @@ use editor::select_adt_chunk;
 use ground_effects::{GroundEffectData, GroundEffectSource};
 use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
-    update_texture_array,
+    release_texture_loading_data, update_texture_array,
 };
 pub(crate) use object_loader::animate_objects;
 use object_loader::{AdtObjectPlacements, ObjectCache};
@@ -155,6 +155,7 @@ pub fn load_map(mpqs: &PatchChain, commands: &mut Commands, index: usize) -> Opt
         texture_cache: HashMap::new(),
         texture_array: None,
         liquid_textures: Default::default(),
+        liquid_materials: Default::default(),
         object_cache: ObjectCache::default(),
         prepared_object_cache: Arc::new(PreparedObjectCache::default()),
         ground_effects: GroundEffectData::load(mpqs),
@@ -177,7 +178,6 @@ struct LoadedAdt {
     material: Handle<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
     images: [Handle<Image>; 3],
     liquid_meshes: Vec<Handle<Mesh>>,
-    liquid_materials: Vec<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>,
     objects: Option<Entity>,
     object_placements: AdtObjectPlacements,
     ground_effect_source: GroundEffectSource,
@@ -236,6 +236,7 @@ pub struct TerrainMap {
     texture_cache: HashMap<String, CachedTerrainTexture>,
     texture_array: Option<Handle<Image>>,
     liquid_textures: [Option<LiquidTexture>; 4],
+    liquid_materials: [Option<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>; 4],
     object_cache: ObjectCache,
     prepared_object_cache: Arc<PreparedObjectCache>,
     ground_effects: GroundEffectData,
@@ -280,9 +281,6 @@ pub fn switch_selected_map(
             for mesh in loaded_adt.liquid_meshes {
                 meshes.remove(mesh.id());
             }
-            for material in loaded_adt.liquid_materials {
-                liquid_materials.remove(material.id());
-            }
             for image in loaded_adt.images {
                 images.remove(image.id());
             }
@@ -298,6 +296,13 @@ pub fn switch_selected_map(
         }
         for texture in terrain.liquid_textures.iter_mut().filter_map(Option::take) {
             images.remove(texture.handle.id());
+        }
+        for material in terrain
+            .liquid_materials
+            .iter_mut()
+            .filter_map(Option::take)
+        {
+            liquid_materials.remove(material.id());
         }
         terrain.object_cache.unload_assets(
             &mut meshes,
@@ -410,9 +415,6 @@ pub fn stream_terrain_chunks(
         terrain_materials.remove(loaded_adt.material.id());
         for mesh in loaded_adt.liquid_meshes {
             meshes.remove(mesh.id());
-        }
-        for material in loaded_adt.liquid_materials {
-            liquid_materials.remove(material.id());
         }
         for image in loaded_adt.images {
             images.remove(image.id());
@@ -702,53 +704,23 @@ fn finalize_adt(
         .observe(select_adt_chunk)
         .id();
     let mut liquid_mesh_handles = Vec::new();
-    let mut liquid_material_handles = Vec::new();
     commands.entity(entity).with_children(|parent| {
         for liquid in prepared.liquids {
-            let liquid_index = liquid.liquid_type as usize;
-            let texture = terrain.liquid_textures[liquid_index]
-                .get_or_insert_with(|| load_liquid_texture(liquid.liquid_type, mpqs, images))
-                .clone();
             let mesh = meshes.add(liquid.mesh);
-            let material = liquid_materials.add(ExtendedMaterial {
-                base: StandardMaterial {
-                    base_color: liquid_color(liquid.liquid_type),
-                    alpha_mode: if liquid.liquid_type == wow_adt::chunks::mcnk::LiquidType::Magma {
-                        AlphaMode::Opaque
-                    } else {
-                        AlphaMode::Blend
-                    },
-                    cull_mode: None,
-                    perceptual_roughness: 0.3,
-                    unlit: !cfg!(feature = "realistic-lighting"),
-                    ..default()
-                },
-                extension: LiquidMaterial {
-                    frames: texture.handle,
-                    frame_count: texture.frame_count,
-                    add_base_color: u32::from(matches!(
-                        liquid.liquid_type,
-                        wow_adt::chunks::mcnk::LiquidType::Water
-                            | wow_adt::chunks::mcnk::LiquidType::Ocean
-                    )),
-                    uv_scroll: if matches!(
-                        liquid.liquid_type,
-                        wow_adt::chunks::mcnk::LiquidType::Magma
-                            | wow_adt::chunks::mcnk::LiquidType::Slime
-                    ) {
-                        Vec2::X
-                    } else {
-                        Vec2::ZERO
-                    },
-                },
-            });
+            let material = terrain_liquid_material(
+                liquid.liquid_type,
+                mpqs,
+                &mut terrain.liquid_textures,
+                &mut terrain.liquid_materials,
+                liquid_materials,
+                images,
+            );
             parent.spawn((
                 Name::new(format!("Classic {:?} liquid", liquid.liquid_type)),
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
             ));
             liquid_mesh_handles.push(mesh);
-            liquid_material_handles.push(material);
         }
     });
     let seed = ((coordinates.x as u32) << 16) | coordinates.y as u32;
@@ -762,7 +734,6 @@ fn finalize_adt(
             material,
             images: [alpha_map, layer_map, animation_map],
             liquid_meshes: liquid_mesh_handles,
-            liquid_materials: liquid_material_handles,
             objects: None,
             object_placements,
             ground_effect_source,
@@ -778,6 +749,56 @@ fn finalize_adt(
             terrain.metrics.count as f64 / elapsed,
         );
     }
+}
+
+fn terrain_liquid_material(
+    liquid_type: wow_adt::chunks::mcnk::LiquidType,
+    mpqs: &PatchChain,
+    textures: &mut [Option<LiquidTexture>; 4],
+    cached_materials: &mut [
+        Option<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>;
+        4
+    ],
+    materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
+    images: &mut Assets<Image>,
+) -> Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>> {
+    use wow_adt::chunks::mcnk::LiquidType;
+
+    let liquid_index = liquid_type as usize;
+    let texture = textures[liquid_index]
+        .get_or_insert_with(|| load_liquid_texture(liquid_type, mpqs, images))
+        .clone();
+    cached_materials[liquid_index]
+        .get_or_insert_with(|| {
+            materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: liquid_color(liquid_type),
+                    alpha_mode: if liquid_type == LiquidType::Magma {
+                        AlphaMode::Opaque
+                    } else {
+                        AlphaMode::Blend
+                    },
+                    cull_mode: None,
+                    perceptual_roughness: 0.3,
+                    unlit: !cfg!(feature = "realistic-lighting"),
+                    ..default()
+                },
+                extension: LiquidMaterial {
+                    frames: texture.handle,
+                    frame_count: texture.frame_count,
+                    add_base_color: u32::from(matches!(
+                        liquid_type,
+                        LiquidType::Water | LiquidType::Ocean
+                    )),
+                    uv_scroll: if matches!(liquid_type, LiquidType::Magma | LiquidType::Slime) {
+                        Vec2::X
+                    } else {
+                        Vec2::ZERO
+                    },
+                },
+            })
+        })
+        .clone()
 }
 
 fn liquid_color(liquid_type: wow_adt::chunks::mcnk::LiquidType) -> Color {
@@ -996,11 +1017,13 @@ fn stream_adt_objects(
 fn report_loading_progress(terrain: &mut TerrainMap) {
     if !terrain.loading && !terrain.metrics.completion_reported {
         let elapsed = terrain.metrics.started_at.elapsed().as_secs_f64();
+        let released_texture_bytes = release_texture_loading_data(&mut terrain.texture_cache);
         info!(
-            "Finished loading {} ADTs in {:.2}s ({:.1} ADTs/s)",
+            "Finished loading {} ADTs in {:.2}s ({:.1} ADTs/s); released {:.1} MiB of texture loading data",
             terrain.metrics.count,
             elapsed,
             terrain.metrics.count as f64 / elapsed,
+            released_texture_bytes as f64 / (1024.0 * 1024.0),
         );
         terrain.metrics.completion_reported = true;
     }

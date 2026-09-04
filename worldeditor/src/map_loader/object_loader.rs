@@ -259,9 +259,66 @@ pub(super) struct PreparedObjectCache {
 pub(super) struct ObjectCache {
     assets: HashMap<String, Option<Arc<ObjectAsset>>>,
     textures: HashMap<String, Option<Handle<Image>>>,
+    materials: HashMap<ObjectMaterialKey, Handle<StandardMaterial>>,
     liquid_textures: [Option<LiquidTexture>; 4],
     liquid_materials: [Option<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>; 4],
     animations: ObjectAnimations,
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum ObjectFallbackColor {
+    M2,
+    Wmo,
+}
+
+impl ObjectFallbackColor {
+    fn color(self) -> Color {
+        match self {
+            Self::M2 => Color::srgb(0.32, 0.48, 0.24),
+            Self::Wmo => Color::srgb(0.48, 0.45, 0.39),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+enum ObjectAlphaMode {
+    Opaque,
+    Mask(u32),
+    Blend,
+    Premultiplied,
+    AlphaToCoverage,
+    Add,
+    Multiply,
+}
+
+impl From<AlphaMode> for ObjectAlphaMode {
+    fn from(alpha_mode: AlphaMode) -> Self {
+        match alpha_mode {
+            AlphaMode::Opaque => Self::Opaque,
+            AlphaMode::Mask(threshold) => Self::Mask(threshold.to_bits()),
+            AlphaMode::Blend => Self::Blend,
+            AlphaMode::Premultiplied => Self::Premultiplied,
+            AlphaMode::AlphaToCoverage => Self::AlphaToCoverage,
+            AlphaMode::Add => Self::Add,
+            AlphaMode::Multiply => Self::Multiply,
+        }
+    }
+}
+
+#[derive(Hash, PartialEq, Eq)]
+enum ObjectMaterialKey {
+    Surface {
+        texture: Option<String>,
+        fallback_color: Option<ObjectFallbackColor>,
+        opacity: u32,
+        alpha_mode: ObjectAlphaMode,
+        double_sided: bool,
+    },
+    Particle {
+        texture: Option<String>,
+        alpha_mode: ObjectAlphaMode,
+        unlit: bool,
+    },
 }
 
 impl ObjectCache {
@@ -279,6 +336,7 @@ impl ObjectCache {
         for image in self.textures.drain().filter_map(|(_, image)| image) {
             images.remove(image.id());
         }
+        self.materials.clear();
         for texture in self.liquid_textures.iter_mut().filter_map(Option::take) {
             images.remove(texture.handle.id());
         }
@@ -822,7 +880,7 @@ fn finalize_object_asset(
         PreparedObjectAsset::M2(m2) => ObjectAsset::M2(M2Asset {
             parts: finalize_object_parts(
                 &m2.parts,
-                Color::srgb(0.32, 0.48, 0.24),
+                ObjectFallbackColor::M2,
                 prepared_cache,
                 cache,
                 meshes,
@@ -840,7 +898,7 @@ fn finalize_object_asset(
         PreparedObjectAsset::Wmo(wmo) => {
             let parts = finalize_object_parts(
                 &wmo.parts,
-                Color::srgb(0.48, 0.45, 0.39),
+                ObjectFallbackColor::Wmo,
                 prepared_cache,
                 cache,
                 meshes,
@@ -971,14 +1029,24 @@ fn finalize_particle_emitters(
                 cache.textures.insert(key.to_owned(), texture.clone());
                 texture
             });
-            let material = materials.add(StandardMaterial {
+            let material_value = StandardMaterial {
                 base_color: Color::WHITE,
                 base_color_texture: texture,
                 alpha_mode: prepared.emitter.alpha_mode(),
                 cull_mode: None,
                 unlit: !prepared.emitter.is_lit(),
                 ..default()
-            });
+            };
+            let material = cached_object_material(
+                cache,
+                materials,
+                ObjectMaterialKey::Particle {
+                    texture: prepared.texture_key.clone(),
+                    alpha_mode: material_value.alpha_mode.into(),
+                    unlit: material_value.unlit,
+                },
+                material_value,
+            );
             ParticleEmitterTemplate {
                 emitter: prepared.emitter.clone(),
                 material,
@@ -991,7 +1059,7 @@ fn finalize_particle_emitters(
 #[allow(clippy::too_many_arguments)]
 fn finalize_object_parts(
     parts: &[PreparedObjectPart],
-    fallback_color: Color,
+    fallback_color: ObjectFallbackColor,
     prepared_cache: &PreparedObjectCache,
     cache: &mut ObjectCache,
     meshes: &mut Assets<Mesh>,
@@ -1017,7 +1085,7 @@ fn finalize_object_parts(
                 base_color: if texture.is_some() {
                     Color::WHITE.with_alpha(part.opacity)
                 } else {
-                    fallback_color.with_alpha(part.opacity)
+                    fallback_color.color().with_alpha(part.opacity)
                 },
                 base_color_texture: texture,
                 alpha_mode: part.alpha_mode,
@@ -1037,7 +1105,22 @@ fn finalize_object_parts(
                     uvs: part.uvs.clone(),
                 });
             }
-            let material = materials.add(material);
+            let material = if part.opacity_animation.is_none() {
+                cached_object_material(
+                    cache,
+                    materials,
+                    ObjectMaterialKey::Surface {
+                        texture: part.texture_key.clone(),
+                        fallback_color: part.texture_key.is_none().then_some(fallback_color),
+                        opacity: part.opacity.to_bits(),
+                        alpha_mode: part.alpha_mode.into(),
+                        double_sided: part.double_sided,
+                    },
+                    material,
+                )
+            } else {
+                materials.add(material)
+            };
             if let Some(animation) = &part.opacity_animation {
                 cache.animations.materials.push(AnimatedMaterial {
                     material: material.clone(),
@@ -1047,6 +1130,20 @@ fn finalize_object_parts(
             Some(ObjectPart { mesh, material })
         })
         .collect()
+}
+
+fn cached_object_material(
+    cache: &mut ObjectCache,
+    materials: &mut Assets<StandardMaterial>,
+    key: ObjectMaterialKey,
+    material: StandardMaterial,
+) -> Handle<StandardMaterial> {
+    if let Some(material) = cache.materials.get(&key) {
+        return material.clone();
+    }
+    let material = materials.add(material);
+    cache.materials.insert(key, material.clone());
+    material
 }
 
 fn load_object(
@@ -3416,6 +3513,44 @@ mod tests {
         assert_eq!(classic_particle_alpha_mode(2), AlphaMode::Blend);
         assert_eq!(classic_particle_alpha_mode(3), AlphaMode::Mask(0.5));
         assert_eq!(classic_particle_alpha_mode(4), AlphaMode::Add);
+    }
+
+    #[test]
+    fn reuses_object_materials_with_identical_render_state() {
+        let mut cache = ObjectCache::default();
+        let mut materials = Assets::default();
+        let key = || ObjectMaterialKey::Particle {
+            texture: Some("particle.blp".to_owned()),
+            alpha_mode: ObjectAlphaMode::Add,
+            unlit: true,
+        };
+
+        let first = cached_object_material(
+            &mut cache,
+            &mut materials,
+            key(),
+            StandardMaterial::default(),
+        );
+        let second = cached_object_material(
+            &mut cache,
+            &mut materials,
+            key(),
+            StandardMaterial::default(),
+        );
+        let distinct = cached_object_material(
+            &mut cache,
+            &mut materials,
+            ObjectMaterialKey::Particle {
+                texture: Some("particle.blp".to_owned()),
+                alpha_mode: ObjectAlphaMode::Blend,
+                unlit: true,
+            },
+            StandardMaterial::default(),
+        );
+
+        assert_eq!(first, second);
+        assert_ne!(first, distinct);
+        assert_eq!(materials.len(), 2);
     }
 
     #[test]
