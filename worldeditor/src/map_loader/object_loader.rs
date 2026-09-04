@@ -193,6 +193,12 @@ struct AnimatedMesh {
     uvs: Vec<[f32; 2]>,
 }
 
+#[derive(Clone, Copy)]
+struct SkinnedVertex {
+    position: [f32; 3],
+    normal: [f32; 3],
+}
+
 struct AnimatedMaterial {
     material: Handle<StandardMaterial>,
     animation: Arc<M2OpacityAnimation>,
@@ -204,13 +210,20 @@ struct ObjectAnimations {
     meshes: Vec<AnimatedMesh>,
     materials: Vec<AnimatedMaterial>,
     bone_transform_cache: HashMap<usize, Vec<Mat4>>,
+    skinned_vertex_cache: HashMap<usize, Vec<SkinnedVertex>>,
+    visible_meshes: HashSet<AssetId<Mesh>>,
+    visible_materials: HashSet<AssetId<StandardMaterial>>,
 }
 
 #[derive(Clone)]
 struct ObjectPart {
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
+    animated: bool,
 }
+
+#[derive(Component)]
+pub(crate) struct AnimatedObjectMesh;
 
 struct PreparedWmoAsset {
     parts: Vec<PreparedObjectPart>,
@@ -389,6 +402,10 @@ pub(crate) fn animate_objects(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut map: ResMut<super::TerrainMap>,
     camera: Query<(&GlobalTransform, &Frustum), With<Camera3d>>,
+    animated_instances: Query<
+        (&Mesh3d, &MeshMaterial3d<StandardMaterial>, &ViewVisibility),
+        With<AnimatedObjectMesh>,
+    >,
     mut particles: Query<(
         Entity,
         &GlobalTransform,
@@ -399,8 +416,20 @@ pub(crate) fn animate_objects(
     let animations = &mut map.object_cache.animations;
     animations.elapsed_seconds += time.delta_secs();
     let elapsed_ms = (animations.elapsed_seconds * 1000.0) as u32;
+    animations.visible_meshes.clear();
+    animations.visible_materials.clear();
+    for (mesh, material, visibility) in &animated_instances {
+        if visibility.get() {
+            animations.visible_meshes.insert(mesh.id());
+            animations.visible_materials.insert(material.id());
+        }
+    }
     let mut evaluated_animations = HashSet::new();
+    let mut skinned_animations = HashSet::new();
     for animated_mesh in &animations.meshes {
+        if !animations.visible_meshes.contains(&animated_mesh.mesh.id()) {
+            continue;
+        }
         let Some(mut mesh) = meshes.get_mut(&animated_mesh.mesh) else {
             continue;
         };
@@ -413,55 +442,48 @@ pub(crate) fn animate_objects(
             if evaluated_animations.insert(animation_key) {
                 animation.write_bone_transforms(elapsed_ms, transforms);
             }
-            let mut positions = Vec::with_capacity(animation.vertices.len());
-            let mut normals = Vec::with_capacity(animation.vertices.len());
-            for vertex in &animation.vertices {
-                let mut position = Vec3::ZERO;
-                let mut normal = Vec3::ZERO;
-                let mut total_weight = 0.0;
-                for influence in 0..4 {
-                    let weight = vertex.weights[influence];
-                    if weight == 0.0 {
-                        continue;
-                    }
-                    let transform = transforms
-                        .get(vertex.bones[influence] as usize)
-                        .copied()
-                        .unwrap_or(Mat4::IDENTITY);
-                    position += transform.transform_point3(vertex.position) * weight;
-                    normal += transform.transform_vector3(vertex.normal) * weight;
-                    total_weight += weight;
-                }
-                if total_weight > 0.0 {
-                    position /= total_weight;
-                    normal /= total_weight;
-                } else {
-                    position = vertex.position;
-                    normal = vertex.normal;
-                }
-                if !position.is_finite() {
-                    position = vertex.position;
-                }
-                if !normal.is_finite() || normal.length_squared() <= f32::EPSILON {
-                    normal = vertex.normal;
-                }
-                positions.push(position.to_array());
-                normals.push(normal.normalize_or_zero().to_array());
+            let skinned_vertices = animations
+                .skinned_vertex_cache
+                .entry(animation_key)
+                .or_default();
+            if skinned_animations.insert(animation_key) {
+                write_skinned_vertices(animation, transforms, skinned_vertices);
             }
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+            if let Some(VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+            {
+                for (position, skinned) in positions.iter_mut().zip(skinned_vertices.iter()) {
+                    *position = skinned.position;
+                }
+            }
+            if let Some(VertexAttributeValues::Float32x3(normals)) =
+                mesh.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
+            {
+                for (normal, skinned) in normals.iter_mut().zip(skinned_vertices.iter()) {
+                    *normal = skinned.normal;
+                }
+            }
         }
         if let Some(animation) = &animated_mesh.texture_animation {
             let transform = animation.transform(elapsed_ms);
-            let uvs = animated_mesh
-                .uvs
-                .iter()
-                .map(|uv| transform.transform_point2(Vec2::from_array(*uv)).to_array())
-                .collect::<Vec<_>>();
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+            if let Some(VertexAttributeValues::Float32x2(uvs)) =
+                mesh.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+            {
+                for (uv, source) in uvs.iter_mut().zip(&animated_mesh.uvs) {
+                    *uv = transform
+                        .transform_point2(Vec2::from_array(*source))
+                        .to_array();
+                }
+            }
         }
     }
     for animated_material in &animations.materials {
+        if !animations
+            .visible_materials
+            .contains(&animated_material.material.id())
+        {
+            continue;
+        }
         let Some(mut material) = materials.get_mut(&animated_material.material) else {
             continue;
         };
@@ -552,6 +574,50 @@ pub(crate) fn animate_objects(
             emitter.render_transform(bone_transform),
         );
         system.mesh_is_empty = render_data.is_empty();
+    }
+}
+
+fn write_skinned_vertices(
+    animation: &M2SkinAnimation,
+    transforms: &[Mat4],
+    output: &mut Vec<SkinnedVertex>,
+) {
+    output.clear();
+    output.reserve(animation.vertices.len());
+    for vertex in &animation.vertices {
+        let mut position = Vec3::ZERO;
+        let mut normal = Vec3::ZERO;
+        let mut total_weight = 0.0;
+        for influence in 0..4 {
+            let weight = vertex.weights[influence];
+            if weight == 0.0 {
+                continue;
+            }
+            let transform = transforms
+                .get(vertex.bones[influence] as usize)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
+            position += transform.transform_point3(vertex.position) * weight;
+            normal += transform.transform_vector3(vertex.normal) * weight;
+            total_weight += weight;
+        }
+        if total_weight > 0.0 {
+            position /= total_weight;
+            normal /= total_weight;
+        } else {
+            position = vertex.position;
+            normal = vertex.normal;
+        }
+        if !position.is_finite() {
+            position = vertex.position;
+        }
+        if !normal.is_finite() || normal.length_squared() <= f32::EPSILON {
+            normal = vertex.normal;
+        }
+        output.push(SkinnedVertex {
+            position: position.to_array(),
+            normal: normal.normalize_or_zero().to_array(),
+        });
     }
 }
 
@@ -781,11 +847,14 @@ pub(super) fn load_world_wmos(
 
 fn spawn_parts(parent: &mut ChildSpawnerCommands, parts: &[ObjectPart]) {
     for part in parts {
-        parent.spawn((
+        let mut entity = parent.spawn((
             Mesh3d(part.mesh.clone()),
             MeshMaterial3d(part.material.clone()),
             Pickable::IGNORE,
         ));
+        if part.animated {
+            entity.insert(AnimatedObjectMesh);
+        }
     }
 }
 
@@ -1127,7 +1196,13 @@ fn finalize_object_parts(
                     animation: animation.clone(),
                 });
             }
-            Some(ObjectPart { mesh, material })
+            Some(ObjectPart {
+                mesh,
+                material,
+                animated: part.animation.is_some()
+                    || part.texture_animation.is_some()
+                    || part.opacity_animation.is_some(),
+            })
         })
         .collect()
 }
