@@ -7,7 +7,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use rayon::prelude::*;
-use wow_adt::RootAdt;
+use wow_adt::{RootAdt, chunks::mcnk::McshChunk};
 use wow_blp::{convert::blp_to_image, parser::load_blp_from_buf};
 use wow_mpq::PatchChain;
 
@@ -15,8 +15,15 @@ use crate::{combined_alpha_map::CombinedAlphaMap, mpq_read_file};
 
 use super::ADT_CELLS_PER_GRID;
 
-const SOURCE_ALPHA_MAP_SIZE: usize = 64;
-const ALPHA_MAP_SIZE: usize = 16;
+const ALPHA_MAP_SIZE: usize = 64;
+
+fn shadow_alpha(shadow: Option<&McshChunk>, x: usize, y: usize) -> u8 {
+    if shadow.is_some_and(|shadow| shadow.is_shadowed(x, y)) {
+        0
+    } else {
+        u8::MAX
+    }
+}
 
 pub(super) struct CachedTerrainTexture {
     layer: u32,
@@ -58,20 +65,15 @@ pub(super) fn prepare_material_maps(adt: &RootAdt, has_big_alpha: bool) -> Prepa
                 !chunk.header.flags.do_not_fix_alpha_map(),
             )
             .into_vec();
-            let fix_alpha = u8::from(chunk.header.flags.do_not_fix_alpha_map()) * u8::MAX;
             let mut alpha = vec![0; ALPHA_MAP_SIZE * ALPHA_MAP_SIZE * 4];
             for row in 0..ALPHA_MAP_SIZE {
                 for column in 0..ALPHA_MAP_SIZE {
                     let target = (row * ALPHA_MAP_SIZE + column) * 4;
-                    let source_scale = SOURCE_ALPHA_MAP_SIZE / ALPHA_MAP_SIZE;
-                    let source_row = row * source_scale + source_scale / 2;
-                    let source_column = column * source_scale + source_scale / 2;
                     for channel in 0..3 {
-                        let source =
-                            ((source_row * SOURCE_ALPHA_MAP_SIZE + source_column) * 4) + channel;
+                        let source = ((row * ALPHA_MAP_SIZE + column) * 4) + channel;
                         alpha[target + channel] = chunk_alpha[source];
                     }
-                    alpha[target + 3] = fix_alpha;
+                    alpha[target + 3] = shadow_alpha(chunk.shadow.as_ref(), column, row);
                 }
             }
 
@@ -151,6 +153,21 @@ pub(super) fn prepare_material_maps(adt: &RootAdt, has_big_alpha: bool) -> Prepa
         alpha_map,
         local_layers: layer_values,
         animation_map,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_alpha_is_inverted_and_defaults_to_lit() {
+        let mut shadow = McshChunk::default();
+        shadow.set_shadow(7, 11, true);
+
+        assert_eq!(shadow_alpha(Some(&shadow), 7, 11), 0);
+        assert_eq!(shadow_alpha(Some(&shadow), 8, 11), u8::MAX);
+        assert_eq!(shadow_alpha(None, 7, 11), u8::MAX);
     }
 }
 

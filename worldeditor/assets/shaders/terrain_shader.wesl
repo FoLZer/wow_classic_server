@@ -141,7 +141,7 @@ fn calculate_color(in: VertexOutput) -> vec4<f32> {
     let chunk_coord = vec2<i32>(clamp(floor(in.uv / 8.0), vec2<f32>(0.0), vec2<f32>(15.0)));
     let chunk_uv = in.uv - vec2<f32>(chunk_coord) * 8.0;
     let uv = chunk_uv;
-    let alpha_half_texel = 0.5 / 16.0;
+    let alpha_half_texel = 0.5 / 64.0;
     let chunk_alpha_uv = clamp(
         chunk_uv / 8.0,
         vec2<f32>(alpha_half_texel),
@@ -149,10 +149,7 @@ fn calculate_color(in: VertexOutput) -> vec4<f32> {
     );
     let alpha_uv = (vec2<f32>(chunk_coord) + chunk_alpha_uv) / 16.0;
     let alpha_sample = textureSample(alpha_map, alpha_sampler, alpha_uv);
-    var alpha_values = alpha_sample.rgb;
-    if alpha_sample.a > 0.5 {
-        alpha_values *= 0.7;
-    }
+    let alpha_values = alpha_sample.rgb;
 
     let texture_layers = textureLoad(layer_map, chunk_coord, 0);
     let animations = textureLoad(animation_map, chunk_coord, 0);
@@ -185,5 +182,6 @@ fn calculate_color(in: VertexOutput) -> vec4<f32> {
     rgb = mix(rgb, layer_2_color, clamp(alpha_values.r, 0.0, 1.0));
     rgb = mix(rgb, layer_3_color, clamp(alpha_values.g, 0.0, 1.0));
     rgb = mix(rgb, layer_4_color, clamp(alpha_values.b, 0.0, 1.0));
+    rgb *= 0.7 + 0.3 * alpha_sample.a;
     return vec4<f32>(rgb, 1.0);
 }
