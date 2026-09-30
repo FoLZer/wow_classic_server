@@ -1,4 +1,5 @@
 mod combined_alpha_map;
+mod item_editor;
 mod liquid_material;
 mod map_loader;
 mod render_controls;
@@ -18,14 +19,16 @@ use serde::{Deserialize, Serialize};
 use wow_mpq::PatchChain;
 
 use crate::{
+    item_editor::ItemEditorPlugin,
     liquid_material::LiquidMaterial,
     map_loader::{
         MapSelection, TerrainEditorPlugin, animate_objects, available_maps, load_map,
-        stream_terrain_chunks, switch_selected_map,
+        stream_terrain_chunks, switch_selected_map, unload_world_for_items_mode,
     },
     render_controls::{
-        RenderSettings, apply_render_visibility, scroll_map_dropdown, setup_render_controls,
-        update_render_controls, update_slider_visuals,
+        EditorMode, RenderSettings, apply_render_visibility, scroll_map_dropdown,
+        setup_render_controls, update_editor_mode_controls, update_render_controls,
+        update_slider_visuals, world_mode_active,
     },
     terrain_material::TerrainMaterial,
 };
@@ -34,6 +37,7 @@ use crate::{
 #[serde(default)]
 struct AppSettings {
     mpq_directory_path: PathBuf,
+    database_path: PathBuf,
     terrain_view_distance: f32,
     object_view_distance: f32,
     ground_effect_view_distance: f32,
@@ -45,6 +49,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             mpq_directory_path: PathBuf::from_str("./worldeditor/Data").unwrap(),
+            database_path: PathBuf::from_str("./gameserver/gameserver.db").unwrap(),
             terrain_view_distance: 50_000.0,
             object_view_distance: 3_000.0,
             ground_effect_view_distance: 40.0,
@@ -96,29 +101,45 @@ fn main() {
             LogDiagnosticsPlugin::default(),
         ));
     }
-    app.add_plugins((FreeCameraPlugin, MeshPickingPlugin, TerrainEditorPlugin))
-        //.add_plugins(EguiPlugin::default())
-        //.add_plugins(WorldInspectorPlugin::new())
-        .insert_resource(MPQResource {
-            mpqs: Arc::new(mpqs),
-        })
-        .insert_resource(map_selection)
-        .insert_resource(render_settings)
-        .insert_resource(config)
-        .add_systems(Startup, (setup, setup_render_controls))
-        .add_systems(
-            Update,
-            (
-                update_render_controls,
-                scroll_map_dropdown,
-                update_slider_visuals,
-                apply_render_visibility.after(update_render_controls),
-                switch_selected_map.before(stream_terrain_chunks),
-                stream_terrain_chunks.after(update_render_controls),
-                animate_objects.after(stream_terrain_chunks),
-            ),
-        )
-        .run();
+    app.add_plugins((
+        FreeCameraPlugin,
+        MeshPickingPlugin,
+        TerrainEditorPlugin,
+        ItemEditorPlugin::new(config.database_path.clone()),
+    ))
+    //.add_plugins(EguiPlugin::default())
+    //.add_plugins(WorldInspectorPlugin::new())
+    .insert_resource(MPQResource {
+        mpqs: Arc::new(mpqs),
+    })
+    .insert_resource(map_selection)
+    .insert_resource(render_settings)
+    .init_resource::<EditorMode>()
+    .insert_resource(config)
+    .add_observer(update_editor_mode_controls)
+    .add_observer(unload_world_for_items_mode)
+    .add_systems(Startup, (setup, setup_render_controls))
+    .add_systems(
+        Update,
+        (
+            update_render_controls.run_if(world_mode_active),
+            scroll_map_dropdown.run_if(world_mode_active),
+            update_slider_visuals.run_if(world_mode_active),
+            apply_render_visibility
+                .run_if(world_mode_active)
+                .after(update_render_controls),
+            switch_selected_map
+                .run_if(world_mode_active)
+                .before(stream_terrain_chunks),
+            stream_terrain_chunks
+                .run_if(world_mode_active)
+                .after(update_render_controls),
+            animate_objects
+                .run_if(world_mode_active)
+                .after(stream_terrain_chunks),
+        ),
+    )
+    .run();
 }
 
 #[derive(Resource)]

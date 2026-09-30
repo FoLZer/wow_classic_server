@@ -27,7 +27,7 @@ use crate::{
         },
     },
     mpq_read_file,
-    render_controls::RenderSettings,
+    render_controls::{EditorModeChanged, RenderSettings},
     terrain_material::TerrainMaterial,
 };
 
@@ -252,6 +252,92 @@ pub struct TerrainMap {
 }
 
 #[allow(clippy::too_many_arguments)]
+fn unload_world(
+    commands: &mut Commands,
+    terrain: &mut TerrainMap,
+    terrain_materials: &mut Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>,
+    liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
+    object_materials: &mut Assets<StandardMaterial>,
+    meshes: &mut Assets<Mesh>,
+    images: &mut Assets<Image>,
+) {
+    terrain.loading_adts.clear();
+    terrain.loading_objects.clear();
+    terrain.loading_ground_effects = None;
+    terrain.loading_world_wmos = None;
+
+    for (_, loaded_adt) in terrain.loaded_adts.drain() {
+        if let Some(objects) = loaded_adt.objects {
+            commands.entity(objects).despawn();
+        }
+        commands.entity(loaded_adt.entity).despawn();
+        meshes.remove(loaded_adt.mesh.id());
+        terrain_materials.remove(loaded_adt.material.id());
+        for mesh in loaded_adt.liquid_meshes {
+            meshes.remove(mesh.id());
+        }
+        for image in loaded_adt.images {
+            images.remove(image.id());
+        }
+    }
+    if let Some(root) = terrain.ground_effects_root.take() {
+        commands.entity(root).despawn();
+    }
+    if let Some(root) = terrain.world_wmos_root.take() {
+        commands.entity(root).despawn();
+    }
+    if let Some(texture_array) = terrain.texture_array.take() {
+        images.remove(texture_array.id());
+    }
+    terrain.texture_cache.clear();
+    for texture in terrain.liquid_textures.iter_mut().filter_map(Option::take) {
+        images.remove(texture.handle.id());
+    }
+    for material in terrain.liquid_materials.iter_mut().filter_map(Option::take) {
+        liquid_materials.remove(material.id());
+    }
+    terrain
+        .object_cache
+        .unload_assets(meshes, object_materials, liquid_materials, images);
+    terrain.prepared_object_cache.clear();
+    terrain.prepared_object_cache = Arc::new(PreparedObjectCache::default());
+
+    terrain.rendered_ground_effects = None;
+    terrain.world_wmos_loaded = false;
+    terrain.last_update_position = None;
+    terrain.loading = false;
+    terrain.metrics = TerrainLoadMetrics::new();
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn unload_world_for_items_mode(
+    transition: On<EditorModeChanged>,
+    mut commands: Commands,
+    terrain: Option<ResMut<TerrainMap>>,
+    mut terrain_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
+    mut liquid_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>,
+    mut object_materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if transition.current != crate::render_controls::EditorMode::Items {
+        return;
+    }
+    let Some(mut terrain) = terrain else {
+        return;
+    };
+    unload_world(
+        &mut commands,
+        &mut terrain,
+        &mut terrain_materials,
+        &mut liquid_materials,
+        &mut object_materials,
+        &mut meshes,
+        &mut images,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn switch_selected_map(
     mut commands: Commands,
     mut selection: ResMut<MapSelection>,
@@ -271,43 +357,13 @@ pub fn switch_selected_map(
     }
 
     if let Some(mut terrain) = terrain {
-        for (_, loaded_adt) in terrain.loaded_adts.drain() {
-            if let Some(objects) = loaded_adt.objects {
-                commands.entity(objects).despawn();
-            }
-            commands.entity(loaded_adt.entity).despawn();
-            meshes.remove(loaded_adt.mesh.id());
-            terrain_materials.remove(loaded_adt.material.id());
-            for mesh in loaded_adt.liquid_meshes {
-                meshes.remove(mesh.id());
-            }
-            for image in loaded_adt.images {
-                images.remove(image.id());
-            }
-        }
-        if let Some(root) = terrain.ground_effects_root.take() {
-            commands.entity(root).despawn();
-        }
-        if let Some(root) = terrain.world_wmos_root.take() {
-            commands.entity(root).despawn();
-        }
-        if let Some(texture_array) = terrain.texture_array.take() {
-            images.remove(texture_array.id());
-        }
-        for texture in terrain.liquid_textures.iter_mut().filter_map(Option::take) {
-            images.remove(texture.handle.id());
-        }
-        for material in terrain
-            .liquid_materials
-            .iter_mut()
-            .filter_map(Option::take)
-        {
-            liquid_materials.remove(material.id());
-        }
-        terrain.object_cache.unload_assets(
-            &mut meshes,
-            &mut object_materials,
+        unload_world(
+            &mut commands,
+            &mut terrain,
+            &mut terrain_materials,
             &mut liquid_materials,
+            &mut object_materials,
+            &mut meshes,
             &mut images,
         );
     }

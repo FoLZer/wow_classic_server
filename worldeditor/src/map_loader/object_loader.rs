@@ -278,6 +278,13 @@ pub(super) struct ObjectCache {
     animations: ObjectAnimations,
 }
 
+impl PreparedObjectCache {
+    pub(super) fn clear(&self) {
+        self.assets.clear();
+        self.textures.clear();
+    }
+}
+
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 enum ObjectFallbackColor {
     M2,

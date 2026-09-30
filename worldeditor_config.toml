@@ -1,6 +1,7 @@
-mpq_directory_path = "./Data"
-database_path = "../gameserver/gameserver.db"
+mpq_directory_path = "./worldeditor/Data"
+database_path = "./gameserver/gameserver.db"
 terrain_view_distance = 50000.0
 object_view_distance = 3000.0
 ground_effect_view_distance = 40.0
 log_diagnostics = false
+focus_wmo_camera_on_start = true

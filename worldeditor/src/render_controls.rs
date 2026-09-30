@@ -29,6 +29,23 @@ const BORDER: Color = Color::srgb(0.23, 0.27, 0.29);
 const ACCENT: Color = Color::srgb(0.20, 0.72, 0.53);
 const TRACK: Color = Color::srgb(0.16, 0.19, 0.20);
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Resource)]
+pub enum EditorMode {
+    #[default]
+    Terrain,
+    Entities,
+    Items,
+}
+
+#[derive(Clone, Copy, Debug, Event)]
+pub struct EditorModeChanged {
+    pub current: EditorMode,
+}
+
+pub fn world_mode_active(editor_mode: Res<EditorMode>) -> bool {
+    *editor_mode != EditorMode::Items
+}
+
 #[derive(Resource)]
 pub struct RenderSettings {
     pub render_adts: bool,
@@ -96,6 +113,9 @@ pub(crate) struct DistanceSliderThumb;
 pub(crate) struct EditModeButton(pub(crate) EditMode);
 
 #[derive(Component)]
+pub(crate) struct EditorModeButton(EditorMode);
+
+#[derive(Component)]
 pub(crate) struct AlphaSliderContainer;
 
 #[derive(Component)]
@@ -123,6 +143,7 @@ pub(crate) struct MapDropdownLabel;
 pub fn setup_render_controls(
     mut commands: Commands,
     settings: Res<RenderSettings>,
+    editor_mode: Res<EditorMode>,
     map_selection: Res<MapSelection>,
 ) {
     commands
@@ -317,6 +338,84 @@ pub fn setup_render_controls(
                 );
             });
         });
+
+    commands
+        .spawn((
+            Name::new("Editor mode bar"),
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                bottom: px(0),
+                width: percent(100),
+                height: px(38),
+                border: UiRect::top(px(1)),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            GlobalZIndex(101),
+            BackgroundColor(PANEL),
+            BorderColor::all(BORDER),
+        ))
+        .with_children(|bar| {
+            for (mode, label) in [
+                (EditorMode::Terrain, "Terrain"),
+                (EditorMode::Entities, "Entities"),
+                (EditorMode::Items, "Items"),
+            ] {
+                bar.spawn((
+                    EditorModeButton(mode),
+                    Button,
+                    Hovered::default(),
+                    Node {
+                        width: px(104),
+                        height: percent(100),
+                        border: UiRect::horizontal(px(1)),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(if mode == *editor_mode { ACCENT } else { TRACK }),
+                    BorderColor::all(BORDER),
+                    observe(
+                        move |_activate: On<Activate>,
+                              mut commands: Commands,
+                              mut selected: ResMut<EditorMode>| {
+                            if *selected == mode {
+                                return;
+                            }
+                            *selected = mode;
+                            commands.trigger(EditorModeChanged { current: mode });
+                        },
+                    ),
+                ))
+                .with_child((
+                    Text::new(label),
+                    TextFont::from_font_size(12.0),
+                    TextColor(TEXT),
+                ));
+            }
+        });
+}
+
+pub fn update_editor_mode_controls(
+    transition: On<EditorModeChanged>,
+    mut buttons: Query<(&EditorModeButton, &mut BackgroundColor)>,
+    mut terrain_controls: Query<&mut Node, With<UiRoot>>,
+) {
+    for (button, mut background) in &mut buttons {
+        background.0 = if button.0 == transition.current {
+            ACCENT
+        } else {
+            TRACK
+        };
+    }
+    for mut node in &mut terrain_controls {
+        node.display = if transition.current == EditorMode::Items {
+            Display::None
+        } else {
+            Display::Flex
+        };
+    }
 }
 
 fn toggle_map_dropdown(

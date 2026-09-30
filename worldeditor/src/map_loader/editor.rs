@@ -20,7 +20,8 @@ use crate::{
     combined_alpha_map::CombinedAlphaMap,
     mpq_read_file,
     render_controls::{
-        AlphaSlider, EditMode, RenderSettings, TextureControl, UiRoot, ensure_texture_control,
+        AlphaSlider, EditMode, EditorMode, EditorModeChanged, RenderSettings, TextureControl,
+        UiRoot, ensure_texture_control, world_mode_active,
     },
 };
 
@@ -36,6 +37,7 @@ impl Plugin for TerrainEditorPlugin {
         app.add_plugins(MaterialPlugin::<EditPointMaterial>::default())
             .init_resource::<TerrainEditor>()
             .init_resource::<DirtyTerrainMeshes>()
+            .add_observer(clear_world_editor_visuals)
             .add_systems(
                 Update,
                 (
@@ -43,15 +45,16 @@ impl Plugin for TerrainEditorPlugin {
                     apply_alpha_slider_changes,
                     draw_selected_chunk_outline,
                     scale_edit_points,
-                ),
+                )
+                    .run_if(world_mode_active),
             );
     }
 }
 
-type EditPointMaterial = ExtendedMaterial<StandardMaterial, EditPointMaterialExtension>;
+pub(crate) type EditPointMaterial = ExtendedMaterial<StandardMaterial, EditPointMaterialExtension>;
 
 #[derive(Asset, AsBindGroup, TypePath, Clone, Debug, Default)]
-pub(super) struct EditPointMaterialExtension {}
+pub(crate) struct EditPointMaterialExtension {}
 
 impl MaterialExtension for EditPointMaterialExtension {
     fn enable_prepass() -> bool {
@@ -76,7 +79,7 @@ impl MaterialExtension for EditPointMaterialExtension {
 }
 
 #[derive(Resource, Default)]
-struct DirtyTerrainMeshes(HashSet<Handle<Mesh>>);
+pub(crate) struct DirtyTerrainMeshes(HashSet<Handle<Mesh>>);
 
 #[derive(Resource, Default)]
 pub(crate) struct TerrainEditor {
@@ -239,6 +242,39 @@ fn clear_adt_selection(
         );
         editor.active_point = None;
     }
+}
+
+fn clear_world_editor_visuals(
+    transition: On<EditorModeChanged>,
+    mut commands: Commands,
+    mut editor: ResMut<TerrainEditor>,
+    terrain: Option<ResMut<TerrainMap>>,
+    mut dirty_meshes: ResMut<DirtyTerrainMeshes>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<EditPointMaterial>>,
+) {
+    if transition.current != EditorMode::Items {
+        return;
+    }
+    if let Some(mut terrain) = terrain {
+        clear_adt_selection(&mut commands, &mut editor, &mut terrain, &mut meshes);
+    } else if let Some(previous) = editor.selected.take() {
+        for point_entity in previous.point_entities {
+            commands.entity(point_entity).despawn();
+        }
+        editor.active_point = None;
+    }
+    if let Some(mesh) = editor.point_mesh.take() {
+        meshes.remove(mesh.id());
+    }
+    if let Some(material) = editor.point_material.take() {
+        materials.remove(material.id());
+    }
+    if let Some(material) = editor.active_point_material.take() {
+        materials.remove(material.id());
+    }
+    editor.active_point = None;
+    dirty_meshes.0.clear();
 }
 
 pub(super) fn select_adt_chunk(
