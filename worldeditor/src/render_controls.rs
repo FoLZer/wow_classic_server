@@ -53,6 +53,7 @@ pub struct RenderSettings {
     pub render_ground_effects: bool,
     pub adt_distance: f32,
     pub object_distance: f32,
+    pub small_object_distance_scale: f32,
     pub ground_effect_distance: f32,
     pub edit_mode: EditMode,
 }

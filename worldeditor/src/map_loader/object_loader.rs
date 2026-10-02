@@ -27,6 +27,7 @@ use crate::{
     liquid_material::{LiquidMaterial, LiquidTexture, load_liquid_texture},
     map_loader::AdtPosition,
     mpq_read_file,
+    render_controls::RenderSettings,
 };
 
 use super::{
@@ -36,6 +37,10 @@ use super::{
 const MAP_HALF_SIZE: f32 = ADT_GRID_SIZE as f32 * ADT_CELLS_PER_GRID as f32 * CHUNK_SIZE * 0.5;
 const PARTICLE_UPDATE_INTERVAL: f32 = 1.0 / 30.0;
 const PARTICLE_VIEW_DISTANCE: f32 = 1_000.0;
+// Native client doodad fade-out ends by bounding radius (3.3.5a sub_683f80); doodads larger than
+// the last radius are only limited by the far clip
+const SMALL_OBJECT_CULL_DISTANCES: [(f32, f32); 3] = [(0.5, 50.0), (2.5, 125.0), (7.0, 200.0)];
+const SMALL_OBJECT_CULL_UPDATE_DISTANCE: f32 = 2.0;
 
 enum PreparedObjectAsset {
     M2(PreparedM2Asset),
@@ -51,12 +56,58 @@ enum ObjectAsset {
 struct PreparedM2Asset {
     parts: Vec<PreparedObjectPart>,
     particles: Vec<PreparedParticleEmitter>,
+    bounds: ObjectBounds,
 }
 
 #[derive(Clone)]
 struct M2Asset {
     parts: Vec<ObjectPart>,
     particles: Vec<ParticleEmitterTemplate>,
+    bounds: ObjectBounds,
+}
+
+#[derive(Clone, Copy)]
+struct ObjectBounds {
+    center: Vec3,
+    radius: f32,
+}
+
+impl ObjectBounds {
+    fn from_positions(positions: &[[f32; 3]]) -> Self {
+        let Some((min, max)) = positions
+            .iter()
+            .map(|&position| Vec3::from_array(position))
+            .fold(None, |bounds: Option<(Vec3, Vec3)>, position| {
+                Some(bounds.map_or((position, position), |(min, max)| {
+                    (min.min(position), max.max(position))
+                }))
+            })
+        else {
+            return Self {
+                center: Vec3::ZERO,
+                radius: 0.0,
+            };
+        };
+        let center = (min + max) * 0.5;
+        let radius = positions
+            .iter()
+            .map(|&position| Vec3::from_array(position).distance(center))
+            .fold(0.0, f32::max);
+        Self { center, radius }
+    }
+}
+
+fn small_object_cull_distance(radius: f32) -> Option<f32> {
+    SMALL_OBJECT_CULL_DISTANCES
+        .iter()
+        .find(|&&(max_radius, _)| radius <= max_radius)
+        .map(|&(_, distance)| distance)
+}
+
+/// M2 placement hidden by [`cull_small_objects`] once it is too far away for its size
+#[derive(Component)]
+pub(crate) struct SizeCulledObject {
+    bounds: ObjectBounds,
 }
 
 struct PreparedParticleEmitter {
@@ -676,6 +727,7 @@ pub(super) fn spawn_prepared_adt_objects(
     liquid_materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     images: &mut Assets<Image>,
     mpqs: &PatchChain,
+    size_culled: bool,
 ) -> Entity {
     let doodads = objects
         .doodads
@@ -726,9 +778,11 @@ pub(super) fn spawn_prepared_adt_objects(
             let ObjectAsset::M2(asset) = asset.as_ref() else {
                 continue;
             };
-            parent
-                .spawn((Name::new(filename), transform, Visibility::default()))
-                .with_children(|object| spawn_m2_contents(object, asset, meshes));
+            let mut object = parent.spawn((Name::new(filename), transform, Visibility::default()));
+            if size_culled {
+                insert_size_culling(&mut object, asset, &transform);
+            }
+            object.with_children(|object| spawn_m2_contents(object, asset, meshes));
         }
         for (filename, asset, doodad_set, transform) in wmos {
             let ObjectAsset::Wmo(asset) = asset.as_ref() else {
@@ -736,7 +790,9 @@ pub(super) fn spawn_prepared_adt_objects(
             };
             parent
                 .spawn((Name::new(filename), transform, Visibility::default()))
-                .with_children(|object| spawn_wmo_contents(object, asset, doodad_set, meshes));
+                .with_children(|object| {
+                    spawn_wmo_contents(object, asset, doodad_set, meshes, size_culled)
+                });
         }
     });
     objects_entity
@@ -896,6 +952,7 @@ fn spawn_wmo_contents(
     asset: &WmoAsset,
     doodad_set: usize,
     meshes: &mut Assets<Mesh>,
+    size_culled: bool,
 ) {
     spawn_parts(parent, &asset.parts);
     for liquid in &asset.liquids {
@@ -907,12 +964,12 @@ fn spawn_wmo_contents(
         ));
     }
     if let Some(doodads) = asset.doodad_sets.first() {
-        spawn_wmo_doodads(parent, doodads, meshes);
+        spawn_wmo_doodads(parent, doodads, meshes, size_culled);
     }
     if doodad_set != 0
         && let Some(doodads) = asset.doodad_sets.get(doodad_set)
     {
-        spawn_wmo_doodads(parent, doodads, meshes);
+        spawn_wmo_doodads(parent, doodads, meshes, size_culled);
     }
 }
 
@@ -920,18 +977,80 @@ fn spawn_wmo_doodads(
     parent: &mut ChildSpawnerCommands,
     doodads: &[WmoDoodad],
     meshes: &mut Assets<Mesh>,
+    size_culled: bool,
 ) {
     for doodad in doodads {
         let ObjectAsset::M2(asset) = doodad.asset.as_ref() else {
             continue;
         };
-        parent
-            .spawn((
-                Name::new(doodad.filename.clone()),
-                doodad.transform,
-                Visibility::default(),
-            ))
+        let mut doodad_entity = parent.spawn((
+            Name::new(doodad.filename.clone()),
+            doodad.transform,
+            Visibility::default(),
+        ));
+        if size_culled {
+            insert_size_culling(&mut doodad_entity, asset, &doodad.transform);
+        }
+        doodad_entity
             .with_children(|doodad_entity| spawn_m2_contents(doodad_entity, asset, meshes));
+    }
+}
+
+fn insert_size_culling(entity: &mut EntityCommands, asset: &M2Asset, transform: &Transform) {
+    // Large doodads are never size culled, so they don't need to be checked
+    if small_object_cull_distance(asset.bounds.radius * transform.scale.max_element()).is_some() {
+        entity.insert(SizeCulledObject {
+            bounds: asset.bounds,
+        });
+    }
+}
+
+/// Hides small M2 placements past the native client's size-based fade distance.
+/// Re-evaluates everything only after the camera moves, otherwise just newly spawned placements.
+#[allow(clippy::type_complexity)]
+pub(crate) fn cull_small_objects(
+    settings: Res<RenderSettings>,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
+    mut last_update: Local<Option<(Vec3, f32)>>,
+    mut objects: ParamSet<(
+        Query<(&GlobalTransform, &SizeCulledObject, &mut Visibility)>,
+        Query<(&GlobalTransform, &SizeCulledObject, &mut Visibility), Added<SizeCulledObject>>,
+    )>,
+) {
+    let Ok(camera_transform) = camera.single() else {
+        return;
+    };
+    let camera_position = camera_transform.translation();
+    let scale = settings.small_object_distance_scale;
+    let update_all = last_update.is_none_or(|(position, last_scale)| {
+        last_scale != scale
+            || position.distance_squared(camera_position)
+                >= SMALL_OBJECT_CULL_UPDATE_DISTANCE.powi(2)
+    });
+    let update = |transform: &GlobalTransform,
+                  object: &SizeCulledObject,
+                  mut visibility: Mut<Visibility>| {
+        // Placements are uniformly scaled
+        let radius = object.bounds.radius * transform.affine().matrix3.x_axis.length();
+        let distance =
+            camera_position.distance(transform.transform_point(object.bounds.center)) - radius;
+        let visible = small_object_cull_distance(radius)
+            .is_none_or(|cull_distance| distance <= cull_distance * scale);
+        visibility.set_if_neq(if visible {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    };
+    if update_all {
+        *last_update = Some((camera_position, scale));
+        for (transform, object, visibility) in &mut objects.p0() {
+            update(transform, object, visibility);
+        }
+    } else {
+        for (transform, object, visibility) in &mut objects.p1() {
+            update(transform, object, visibility);
+        }
     }
 }
 
@@ -970,6 +1089,7 @@ fn finalize_object_asset(
                 materials,
                 images,
             ),
+            bounds: m2.bounds,
         }),
         PreparedObjectAsset::Wmo(wmo) => {
             let parts = finalize_object_parts(
@@ -2490,6 +2610,7 @@ fn build_m2_asset(
         });
     }
 
+    let bounds = ObjectBounds::from_positions(&mesh_data.positions);
     let animation = mesh_data.animation.clone();
     let particles = mesh_data
         .particles
@@ -2529,7 +2650,11 @@ fn build_m2_asset(
             }
         })
         .collect();
-    PreparedM2Asset { parts, particles }
+    PreparedM2Asset {
+        parts,
+        particles,
+        bounds,
+    }
 }
 
 fn load_object_texture(filename: &str, mpqs: &PatchChain, cache: &PreparedObjectCache) -> String {

@@ -10,9 +10,11 @@ use std::{path::PathBuf, str::FromStr, sync::Arc};
 #[cfg(feature = "realistic-lighting")]
 use bevy::light::CascadeShadowConfigBuilder;
 use bevy::{
+    camera::visibility::VisibilitySystems,
     diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     pbr::ExtendedMaterial,
     prelude::*,
+    transform::TransformSystems,
 };
 use bevy_camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
 use serde::{Deserialize, Serialize};
@@ -22,8 +24,8 @@ use crate::{
     item_editor::ItemEditorPlugin,
     liquid_material::LiquidMaterial,
     map_loader::{
-        MapSelection, TerrainEditorPlugin, animate_objects, available_maps, load_map,
-        stream_terrain_chunks, switch_selected_map, unload_world_for_items_mode,
+        MapSelection, TerrainEditorPlugin, animate_objects, available_maps, cull_small_objects,
+        load_map, stream_terrain_chunks, switch_selected_map, unload_world_for_items_mode,
     },
     render_controls::{
         EditorMode, RenderSettings, apply_render_visibility, scroll_map_dropdown,
@@ -40,6 +42,8 @@ struct AppSettings {
     database_path: PathBuf,
     terrain_view_distance: f32,
     object_view_distance: f32,
+    /// Multiplier for the native client's size-based doodad cull distances
+    small_object_distance_scale: f32,
     ground_effect_view_distance: f32,
     log_diagnostics: bool,
     focus_wmo_camera_on_start: bool,
@@ -52,6 +56,7 @@ impl Default for AppSettings {
             database_path: PathBuf::from_str("./gameserver/gameserver.db").unwrap(),
             terrain_view_distance: 50_000.0,
             object_view_distance: 3_000.0,
+            small_object_distance_scale: 1.0,
             ground_effect_view_distance: 40.0,
             log_diagnostics: false,
             focus_wmo_camera_on_start: true,
@@ -67,6 +72,7 @@ fn main() {
         render_ground_effects: true,
         adt_distance: config.terrain_view_distance,
         object_distance: config.object_view_distance,
+        small_object_distance_scale: config.small_object_distance_scale,
         ground_effect_distance: config.ground_effect_view_distance,
         edit_mode: Default::default(),
     };
@@ -138,6 +144,13 @@ fn main() {
                 .run_if(world_mode_active)
                 .after(stream_terrain_chunks),
         ),
+    )
+    .add_systems(
+        PostUpdate,
+        cull_small_objects
+            .run_if(world_mode_active)
+            .after(TransformSystems::Propagate)
+            .before(VisibilitySystems::VisibilityPropagate),
     )
     .run();
 }

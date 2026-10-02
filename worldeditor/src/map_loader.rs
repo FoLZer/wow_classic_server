@@ -39,8 +39,8 @@ use material::{
     CachedTerrainTexture, PreparedMaterialMaps, global_layer_map, prepare_material_maps,
     release_texture_loading_data, update_texture_array,
 };
-pub(crate) use object_loader::animate_objects;
 use object_loader::{AdtObjectPlacements, ObjectCache};
+pub(crate) use object_loader::{animate_objects, cull_small_objects};
 
 pub(super) const ADT_CELLS_PER_GRID: usize = 16;
 const ADT_GRID_SIZE: usize = 64;
@@ -661,6 +661,7 @@ fn stream_world_wmos(
             liquid_materials,
             images,
             mpqs,
+            true,
         );
         commands.entity(entity).insert((
             RenderedObject,
@@ -905,6 +906,7 @@ fn stream_ground_effects(
             liquid_materials,
             images,
             mpqs,
+            false,
         );
         commands.entity(root).insert((
             Name::new("Ground effects"),
@@ -1026,6 +1028,7 @@ fn stream_adt_objects(
             liquid_materials,
             images,
             mpqs,
+            true,
         ));
         commands.entity(loaded_adt.objects.unwrap()).insert((
             RenderedObject,
