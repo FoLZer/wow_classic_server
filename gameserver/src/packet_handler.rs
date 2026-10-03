@@ -297,7 +297,7 @@ pub async fn packet_handler(
                     }
                     Err(e) => {
                         error!(
-                            "Failed to get query item prototype due to a DB error (item_id: {}, requesting character_id: {}). Error: {}",
+                            "Failed to query item prototype due to a DB error (item_id: {}, requesting character_id: {}). Error: {}",
                             item_id,
                             character_id.get(),
                             e

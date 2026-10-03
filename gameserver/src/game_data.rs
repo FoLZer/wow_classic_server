@@ -1,10 +1,13 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::Duration};
 
 use log::error;
 use packets::character_info::GearInfo;
 use sqlx::{Pool, Sqlite};
 
-use crate::objects::item_prototype::ItemPrototype;
+use crate::{
+    creature_spawner::{CreatureSpawner, StaticCreatureSpawner},
+    objects::{creature_prototype::CreaturePrototype, item_prototype::ItemPrototype},
+};
 
 // This exists to provide an ability to switch data backend later if needed
 // It's supposed to be easy to clone
@@ -408,6 +411,38 @@ impl GameDataAccessor {
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    pub async fn get_creature_prototype(
+        &self,
+        id: u32,
+    ) -> Result<Option<CreaturePrototype>, sqlx::Error> {
+        match CreaturePrototype::load_from_db(self, &self.db, id).await {
+            Ok(v) => Ok(Some(v)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn load_creature_spawners(&self) -> Result<Vec<CreatureSpawner>, sqlx::Error> {
+        let static_spawners = sqlx::query!("SELECT * FROM creature_spawner_static",)
+            .fetch_all(&self.db)
+            .await?
+            .into_iter()
+            .map(|v| {
+                CreatureSpawner::Static(StaticCreatureSpawner::new(
+                    (
+                        v.position_x as f32,
+                        v.position_y as f32,
+                        v.position_z as f32,
+                    ),
+                    v.orientation as f32,
+                    v.spawn_creature_id as u32,
+                    Duration::from_millis(v.respawn_time as u64),
+                ))
+            });
+
+        Ok(static_spawners.collect())
     }
 }
 

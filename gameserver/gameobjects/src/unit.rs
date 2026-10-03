@@ -22,7 +22,7 @@ pub struct UnitFields {
     pub faction_template: u32,
     pub bytes_1: UnitFieldBytes1,
     pub virtual_item_slot_displays: [u32; 3],
-    pub virtual_item_infos: [u32; 6],
+    pub virtual_item_infos: [VirtualItemInfo; 3],
     pub flags: UnitFlags,
     pub aura: [u32; 48],
     pub aura_flags: [u32; 6],
@@ -33,7 +33,7 @@ pub struct UnitFields {
     pub offhand_attack_time: u32,
     pub ranged_attack_time: u32,
     pub bounding_radius: u32,
-    pub combat_reach: u32,
+    pub combat_reach: f32,
     pub display_id: u32,
     pub native_display_id: u32,
     pub mount_display_id: u32,
@@ -260,4 +260,27 @@ pub struct UnitFieldBytes3Flags {
     unk5: bool,
     unk6: bool,
     unk7: bool,
+}
+
+#[bitfield(u64)]
+pub struct VirtualItemInfo {
+    pub class: u8,
+    pub sub_class: u8,
+    pub material: u8,
+    pub inventory_type: u8,
+    pub sheath: u8,
+    pub _unknown_0: u8,
+    pub _unknown_1: u8,
+    pub _unknown_2: u8,
+}
+
+impl UpdateWritable for VirtualItemInfo {
+    fn get_update_blocks_count() -> usize {
+        2
+    }
+
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.0 as u32;
+        blocks[1] = (self.0 >> 32) as u32;
+    }
 }

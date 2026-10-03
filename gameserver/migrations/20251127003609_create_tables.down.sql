@@ -5,7 +5,10 @@ DROP TABLE IF EXISTS character_display_id;
 DROP TABLE IF EXISTS class;
 DROP TABLE IF EXISTS race;
 DROP TABLE IF EXISTS item_prototype;
+DROP TABLE IF EXISTS faction;
 /* ---------------- Game data END ---------------- */
 
 DROP TABLE IF EXISTS character;
 DROP TABLE IF EXISTS item;
+DROP TABLE IF EXISTS creature_spawner_static;
+DROP TABLE IF EXISTS creature;

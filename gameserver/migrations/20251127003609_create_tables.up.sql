@@ -185,6 +185,9 @@ CREATE TABLE IF NOT EXISTS player_start_data(
 
     PRIMARY KEY(race, class)
 );
+CREATE TABLE IF NOT EXISTS faction(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+);
 /* ---------------- Game data END ---------------- */
 
 CREATE TABLE IF NOT EXISTS item(
@@ -281,4 +284,41 @@ CREATE TABLE IF NOT EXISTS character(
     equipment_ranged_id INT REFERENCES item,
     equipment_tabard_id INT REFERENCES item
     /* Equipmnet END */
+);
+
+CREATE TABLE IF NOT EXISTS creature(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    health INT,
+    max_health INT NOT NULL,
+    level_min INT NOT NULL,
+    level_max INT NOT NULL,
+    faction INT NOT NULL REFERENCES faction,
+    race TINYINT NOT NULL,
+    class TINYINT NOT NULL,
+    gender BOOLEAN NOT NULL,
+    power TINYINT NOT NULL,
+
+    equipment_mainhand_id INT REFERENCES item_prototype,
+    equipment_offhand_id INT REFERENCES item_prototype,
+    equipment_ranged_id INT REFERENCES item_prototype,
+
+    base_attack_time INT NOT NULL,
+    offhand_attack_time INT NOT NULL,
+    ranged_attack_time INT NOT NULL,
+
+    combat_reach FLOAT NOT NULL,
+    display_id INT NOT NULL,
+    native_display_id INT NOT NULL,
+    initial_mount_display_id INT
+);
+
+CREATE TABLE IF NOT EXISTS creature_spawner_static(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    position_x FLOAT NOT NULL,
+    position_y FLOAT NOT NULL,
+    position_z FLOAT NOT NULL,
+    orientation FLOAT NOT NULL,
+    spawn_creature_id INT NOT NULL REFERENCES creature,
+    /* MS */
+    respawn_time INT NOT NULL
 );

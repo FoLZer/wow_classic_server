@@ -1,11 +1,12 @@
-#![feature(vec_try_remove)]
-
 mod character_selection_screen;
+mod creature_spawner;
 mod game_data;
+mod guid_allocator;
 mod ipc_connection;
 mod objects;
 mod packet_handler;
 mod server;
+mod sparse_set;
 
 use std::{
     collections::HashMap,
@@ -244,7 +245,9 @@ async fn main() {
 
     let max_sleep_for_ms = (1000 / TICKRATE) as i64;
 
-    let mut server = Server::new(world_transition_character_queue, game_data_accessor);
+    let mut server = Server::new(world_transition_character_queue, game_data_accessor)
+        .await
+        .expect("failed to fetch all required data from database");
     loop {
         let new_game_time = chrono::Local::now();
         let diff = (new_game_time - server.game_time).abs();

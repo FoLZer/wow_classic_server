@@ -341,3 +341,73 @@ VALUES(
         NULL,
         NULL
     );
+/* Player Start Data END */
+/* Factions START */
+INSERT INTO faction(id)
+VALUES(25);
+/* Factions END */
+
+/* Creatures START */
+INSERT INTO creature(
+        id,
+        health,
+        max_health,
+        level_min,
+        level_max,
+        faction,
+        race,
+        class,
+        gender,
+        power,
+        equipment_mainhand_id,
+        equipment_offhand_id,
+        equipment_ranged_id,
+        base_attack_time,
+        offhand_attack_time,
+        ranged_attack_time,
+        combat_reach,
+        display_id,
+        native_display_id,
+        initial_mount_display_id
+    )
+VALUES(
+        6,
+        100,
+        500,
+        1,
+        1,
+        25,
+        0,
+        1,
+        1,
+        0,
+        NULL,
+        NULL,
+        NULL,
+        1,
+        2,
+        3,
+        5.0,
+        10913,
+        10913,
+        0
+    );
+/* Creatures END */
+/* Static Creature Spawners START */
+INSERT INTO creature_spawner_static(
+        position_x,
+        position_y,
+        position_z,
+        orientation,
+        spawn_creature_id,
+        respawn_time
+    )
+VALUES(
+        -8949.95,
+        -132.493,
+        83.5312,
+        0.0,
+        6,
+        30000
+    );
+/* Static Creature Spawners END */

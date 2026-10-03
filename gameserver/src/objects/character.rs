@@ -8,7 +8,7 @@ use gameobjects::{
     },
     unit::{
         SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2, UnitFieldBytes2Flags,
-        UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
+        UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags, VirtualItemInfo,
     },
 };
 use packets::update_data::UpdateData;
@@ -275,7 +275,7 @@ impl Character {
                     .with_power(0)
                     .into(),
                 virtual_item_slot_displays: [0.into(); 3],
-                virtual_item_infos: [0.into(); 6],
+                virtual_item_infos: [VirtualItemInfo::new().into(); 3],
                 flags: UnitFlags::new().into(),
                 aura: [0.into(); 48],
                 aura_flags: [0.into(); 6],
@@ -286,7 +286,7 @@ impl Character {
                 offhand_attack_time: 2.into(),
                 ranged_attack_time: 3.into(),
                 bounding_radius: 4.into(),
-                combat_reach: 5.into(),
+                combat_reach: 5.0.into(),
                 display_id: (model.display_id as u32).into(),
                 native_display_id: 0.into(),
                 mount_display_id: 0.into(),
