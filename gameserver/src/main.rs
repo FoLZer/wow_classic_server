@@ -247,6 +247,8 @@ async fn run_character_selection_screen_loop(
     loop {
         match conn.connection_loop().await {
             CharacterScreenResult::WorldTransition { guid } => {
+                let _ = conn.stream.set_nodelay(true);
+
                 let (rx, tx) = conn.stream.into_split();
 
                 let character = match Character::load_from_db(
@@ -256,7 +258,6 @@ async fn run_character_selection_screen_loop(
                     conn.account_id,
                     tx,
                     conn.session_key,
-                    conn.decrypt_data,
                     conn.encrypt_data,
                 )
                 .await

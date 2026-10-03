@@ -812,10 +812,7 @@ fn terrain_liquid_material(
     liquid_type: wow_adt::chunks::mcnk::LiquidType,
     mpqs: &PatchChain,
     textures: &mut [Option<LiquidTexture>; 4],
-    cached_materials: &mut [
-        Option<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>;
-        4
-    ],
+    cached_materials: &mut [Option<Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>>>; 4],
     materials: &mut Assets<ExtendedMaterial<StandardMaterial, LiquidMaterial>>,
     images: &mut Assets<Image>,
 ) -> Handle<ExtendedMaterial<StandardMaterial, LiquidMaterial>> {

@@ -17,12 +17,7 @@ use rand::{RngExt, rng};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
-    creature_spawner::{CreatureSpawnInfo, CreatureSpawner},
-    game_data::GameDataAccessor,
-    guid_allocator::GuidAllocator,
-    objects::{character::Character, creature::Creature, creature_prototype::CreaturePrototype},
-    packet_handler::{PlayerUpdate, PlayerUpdateData, packet_handler},
-    sparse_set::SparseSet,
+    creature_spawner::{CreatureSpawnInfo, CreatureSpawner}, game_data::GameDataAccessor, guid_allocator::GuidAllocator, objects::{character::Character, creature::Creature, creature_prototype::CreaturePrototype}, packet_handler::{MovementOpcode, PlayerUpdate, PlayerUpdateData, packet_handler}, sparse_set::SparseSet,
 };
 
 pub struct Server {
@@ -142,15 +137,223 @@ impl Server {
         for update in self.player_update_queue.try_iter() {
             let character_id = update.character_id;
             match update.data {
-                PlayerUpdateData::Movement(movement_info) => {
+                PlayerUpdateData::Movement {
+                    opcode,
+                    movement_info,
+                } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
                     character.position.0 = movement_info.pos_x;
                     character.position.1 = movement_info.pos_y;
                     character.position.2 = movement_info.pos_z;
+                    character.orientation = movement_info.orientation;
 
-                    //TODO
+                    for recipient in self.characters.values() {
+                        if recipient.object_fields.guid == character_id
+                            || !recipient.other_visible_players.contains(&character_id)
+                        {
+                            continue;
+                        }
+
+                        let response = match opcode {
+                            MovementOpcode::StartForward => {
+                                packets::server::MSG_MOVE_START_FORWARD {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StartBackward => {
+                                packets::server::MSG_MOVE_START_BACKWARD {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::Stop => packets::server::MSG_MOVE_STOP {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::StartStrafeLeft => {
+                                packets::server::MSG_MOVE_START_STRAFE_LEFT {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StartStrafeRight => {
+                                packets::server::MSG_MOVE_START_STRAFE_RIGHT {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StopStrafe => packets::server::MSG_MOVE_STOP_STRAFE {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::Jump => packets::server::MSG_MOVE_JUMP {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::StartTurnLeft => {
+                                packets::server::MSG_MOVE_START_TURN_LEFT {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StartTurnRight => {
+                                packets::server::MSG_MOVE_START_TURN_RIGHT {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StopTurn => packets::server::MSG_MOVE_STOP_TURN {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::StartPitchUp => {
+                                packets::server::MSG_MOVE_START_PITCH_UP {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StartPitchDown => {
+                                packets::server::MSG_MOVE_START_PITCH_DOWN {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::StopPitch => packets::server::MSG_MOVE_STOP_PITCH {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::SetRunMode => packets::server::MSG_MOVE_SET_RUN_MODE {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::SetWalkMode => {
+                                packets::server::MSG_MOVE_SET_WALK_MODE {
+                                    mover: character_id.into(),
+                                    movement_info: movement_info.clone(),
+                                }
+                                .to_bytes(
+                                    Some(recipient.session_key),
+                                    &mut *recipient.encrypt_data.lock().await,
+                                )
+                            }
+                            MovementOpcode::FallLand => packets::server::MSG_MOVE_FALL_LAND {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::StartSwim => packets::server::MSG_MOVE_START_SWIM {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::StopSwim => packets::server::MSG_MOVE_STOP_SWIM {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::SetFacing => packets::server::MSG_MOVE_SET_FACING {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::SetPitch => packets::server::MSG_MOVE_SET_PITCH {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                            MovementOpcode::Heartbeat => packets::server::MSG_MOVE_HEARTBEAT {
+                                mover: character_id.into(),
+                                movement_info: movement_info.clone(),
+                            }
+                            .to_bytes(
+                                Some(recipient.session_key),
+                                &mut *recipient.encrypt_data.lock().await,
+                            ),
+                        };
+
+                        let mut lock = recipient.stream_tx.lock().await;
+                        if let Err(e) = lock.write_all(&response).await {
+                            warn!(
+                                "Failed to relay movement to client (character_id: {}). Error: {:?}",
+                                recipient.object_fields.guid.get().get(),
+                                e
+                            );
+                        }
+                    }
                 }
                 PlayerUpdateData::SwapInventoryItem { src, dst } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
@@ -432,7 +635,7 @@ impl Server {
                             orientation: character.orientation,
                             on_transport_data: None,
                             swimming_pitch: None,
-                            fall_time: Some(0),
+                            fall_time: 0,
                             falling_data: None,
                             spline_elevation: None,
                         },
@@ -715,7 +918,7 @@ impl Server {
                                 orientation: character.orientation,
                                 on_transport_data: None,
                                 swimming_pitch: None,
-                                fall_time: Some(0),
+                                fall_time: 0,
                                 falling_data: None,
                                 spline_elevation: None,
                             },
@@ -958,7 +1161,7 @@ impl Server {
                                 orientation: creature.orientation,
                                 on_transport_data: None,
                                 swimming_pitch: None,
-                                fall_time: Some(0),
+                                fall_time: 0,
                                 falling_data: None,
                                 spline_elevation: None,
                             },

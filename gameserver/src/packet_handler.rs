@@ -53,7 +53,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_FORWARD(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartForward,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -61,7 +64,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_BACKWARD(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartBackward,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -69,7 +75,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_STOP(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::Stop,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -77,7 +86,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_STRAFE_LEFT(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartStrafeLeft,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -85,7 +97,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_STRAFE_RIGHT(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartStrafeRight,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -93,7 +108,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_STOP_STRAFE(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StopStrafe,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -101,7 +119,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_JUMP(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::Jump,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -109,7 +130,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_TURN_LEFT(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartTurnLeft,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -117,7 +141,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_TURN_RIGHT(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartTurnRight,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -125,7 +152,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_STOP_TURN(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StopTurn,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -133,7 +163,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_PITCH_UP(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartPitchUp,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -141,7 +174,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_PITCH_DOWN(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartPitchDown,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -149,7 +185,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_STOP_PITCH(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StopPitch,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -157,7 +196,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_SET_RUN_MODE(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::SetRunMode,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -165,7 +207,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_SET_WALK_MODE(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::SetWalkMode,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -173,7 +218,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_FALL_LAND(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::FallLand,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -181,7 +229,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_START_SWIM(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StartSwim,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -189,7 +240,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_STOP_SWIM(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::StopSwim,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -197,7 +251,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_SET_FACING(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::SetFacing,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -205,7 +262,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_SET_PITCH(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::SetPitch,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -213,7 +273,10 @@ pub async fn packet_handler(
             ClientPacket::MSG_MOVE_HEARTBEAT(packet) => {
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::Movement(packet.movement_info),
+                    data: PlayerUpdateData::Movement {
+                        opcode: MovementOpcode::Heartbeat,
+                        movement_info: packet.movement_info,
+                    },
                 }) {
                     return;
                 };
@@ -546,7 +609,10 @@ pub struct PlayerUpdate {
 }
 
 pub enum PlayerUpdateData {
-    Movement(MovementInfo),
+    Movement {
+        opcode: MovementOpcode,
+        movement_info: MovementInfo,
+    },
     SwapInventoryItem {
         src: Slot,
         dst: Slot,
@@ -583,4 +649,29 @@ fn parse_slot(slot: u8) -> Slot {
 #[derive(Debug)]
 pub enum Slot {
     MainBag(u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovementOpcode {
+    StartForward,
+    StartBackward,
+    Stop,
+    StartStrafeLeft,
+    StartStrafeRight,
+    StopStrafe,
+    Jump,
+    StartTurnLeft,
+    StartTurnRight,
+    StopTurn,
+    StartPitchUp,
+    StartPitchDown,
+    StopPitch,
+    SetRunMode,
+    SetWalkMode,
+    FallLand,
+    StartSwim,
+    StopSwim,
+    SetFacing,
+    SetPitch,
+    Heartbeat,
 }

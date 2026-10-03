@@ -7,6 +7,7 @@ use std::{
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
+use common::guid::{self, Guid};
 use macros::create_server_packets;
 
 use crate::{
@@ -14,6 +15,7 @@ use crate::{
     character_info::CharacterInfo,
     inventory_change_result::InventoryChangeResult,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
+    movement_info::MovementInfo,
     update_data::UpdateBlocks,
 };
 
@@ -119,6 +121,90 @@ SMSG_CREATURE_QUERY_RESPONSE 0x061 {
 },
 SMSG_UPDATE_OBJECT 0x0A9 {
     update_data: UpdateBlocks: LittleEndian,
+},
+MSG_MOVE_START_FORWARD 0x0B5 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_BACKWARD 0x0B6 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_STOP 0x0B7 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_STRAFE_LEFT 0x0B8 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_STRAFE_RIGHT 0x0B9 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_STOP_STRAFE 0x0BA {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_JUMP 0x0BB {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_TURN_LEFT 0x0BC {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_TURN_RIGHT 0x0BD {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_STOP_TURN 0x0BE {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_PITCH_UP 0x0BF {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_PITCH_DOWN 0x0C1 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_STOP_PITCH 0x0C2 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_SET_RUN_MODE 0x0C3 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_SET_WALK_MODE 0x0C4 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_FALL_LAND 0x0C9 {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_START_SWIM 0x0CA {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_STOP_SWIM 0x0CB {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_SET_FACING 0x0DA {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_SET_PITCH 0x0DB {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
+},
+MSG_MOVE_HEARTBEAT 0x0EE {
+    mover: PackedPlayerGuid: LittleEndian,
+    movement_info: MovementInfo: LittleEndian,
 },
 SMSG_TUTORIAL_FLAGS 0x0FD {
     tutorial_data0: u32: LittleEndian,
@@ -241,5 +327,29 @@ impl<T: ByteOrder, Tz: TimeZone> OrderedWrite<T> for DateTime<Tz> {
             | self.minute();
 
         writer.write_u32::<T>(v)
+    }
+}
+
+pub struct PackedPlayerGuid(pub Guid<guid::Player>);
+
+impl From<Guid<guid::Player>> for PackedPlayerGuid {
+    fn from(value: Guid<guid::Player>) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for PackedPlayerGuid {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        let bytes = self.0.get().get().to_le_bytes();
+        let mask = bytes.iter().enumerate().fold(0_u8, |mask, (index, byte)| {
+            mask | (u8::from(*byte != 0) << index)
+        });
+
+        writer.write_u8(mask)?;
+        for byte in bytes.into_iter().filter(|byte| *byte != 0) {
+            writer.write_u8(byte)?;
+        }
+
+        Ok(())
     }
 }

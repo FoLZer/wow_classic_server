@@ -16,7 +16,7 @@ pub struct MovementInfo {
     pub orientation: f32,
     pub on_transport_data: Option<MovementInfoTransportData>,
     pub swimming_pitch: Option<f32>,
-    pub fall_time: Option<u32>,
+    pub fall_time: u32,
     pub falling_data: Option<MovementInfoFallingData>,
     pub spline_elevation: Option<f32>,
 }
@@ -42,10 +42,7 @@ impl<T: ByteOrder> OrderedWrite<T> for MovementInfo {
             let data = self.swimming_pitch.unwrap(); //TODO: check
             writer.write_f32::<LittleEndian>(data)?;
         }
-        if !self.movement_flags.on_transport() {
-            let data = self.fall_time.unwrap(); //TODO: check
-            writer.write_u32::<LittleEndian>(data)?;
-        }
+        writer.write_u32::<LittleEndian>(self.fall_time)?;
         if self.movement_flags.falling() {
             let data = self.falling_data.as_ref().unwrap(); //TODO: check
             writer.write_f32::<LittleEndian>(data.velocity)?;
@@ -153,11 +150,7 @@ impl<T: ByteOrder> OrderedRead<T> for MovementInfo {
             None
         };
 
-        let fall_time = if movement_flags.on_transport() {
-            Some(reader.read_u32::<LittleEndian>()?)
-        } else {
-            None
-        };
+        let fall_time = reader.read_u32::<LittleEndian>()?;
 
         let falling_data = if movement_flags.falling() {
             let velocity = reader.read_f32::<LittleEndian>()?;

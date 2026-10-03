@@ -198,7 +198,10 @@ mod tests {
 
         assert_eq!(release_texture_loading_data(&mut cache), 80);
         let texture = &cache["terrain.blp"];
-        assert_eq!((texture.layer, texture.width, texture.height), (7, 256, 128));
+        assert_eq!(
+            (texture.layer, texture.width, texture.height),
+            (7, 256, 128)
+        );
         assert!(texture.mipmaps.is_empty());
     }
 }
@@ -284,8 +287,9 @@ pub(super) fn update_texture_array(
         if texture.width == 0 || !texture.mipmaps.is_empty() {
             continue;
         }
-        let file_buf = mpq_read_file(mpqs, filepath)
-            .unwrap_or_else(|error| panic!("Unable to restore terrain texture {filepath}: {error}"));
+        let file_buf = mpq_read_file(mpqs, filepath).unwrap_or_else(|error| {
+            panic!("Unable to restore terrain texture {filepath}: {error}")
+        });
         let blp = load_blp_from_buf(&file_buf)
             .unwrap_or_else(|error| panic!("Unable to parse terrain texture {filepath}: {error}"));
         texture.mipmaps = (0..blp.image_count())

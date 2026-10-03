@@ -45,7 +45,6 @@ impl Character {
         account_id: u32,
         stream_tx: OwnedWriteHalf,
         session_key: [u8; 40],
-        decrypt_data: (usize, u8),
         encrypt_data: (usize, u8),
     ) -> Result<Self, (OwnedWriteHalf, sqlx::Error)> {
         let character_id = guid.get_u32();
