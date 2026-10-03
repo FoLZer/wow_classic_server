@@ -346,10 +346,20 @@ VALUES(
 INSERT INTO faction(id)
 VALUES(25);
 /* Factions END */
+/* Creature Type START */
+INSERT INTO creature_type(id)
+VALUES(7);
+/* Creature Type END */
+/* Creature Family START */
+INSERT INTO creature_family(id)
+VALUES(0);
+/* Creature Family END */
 
 /* Creatures START */
 INSERT INTO creature(
         id,
+        name,
+        sub_name,
         health,
         max_health,
         level_min,
@@ -368,10 +378,17 @@ INSERT INTO creature(
         combat_reach,
         display_id,
         native_display_id,
-        initial_mount_display_id
+        initial_mount_display_id,
+        flags,
+        type,
+        family,
+        rank,
+        civilian
     )
 VALUES(
         6,
+        "Kobold Vermin",
+        NULL,
         100,
         500,
         1,
@@ -390,6 +407,11 @@ VALUES(
         5.0,
         10913,
         10913,
+        NULL,
+        0,
+        7,
+        0,
+        2,
         0
     );
 /* Creatures END */

@@ -4,6 +4,8 @@ use crate::{game_data::GameDataAccessor, objects::item_prototype::ItemPrototype}
 
 pub struct CreaturePrototype {
     pub health: Option<u32>,
+    pub name: String,
+    pub sub_name: Option<String>,
     pub max_health: u32,
     pub level: std::ops::RangeInclusive<u32>,
     pub faction: u32,
@@ -24,6 +26,12 @@ pub struct CreaturePrototype {
     pub display_id: u32,
     pub native_display_id: u32,
     pub initial_mount_display_id: Option<u32>,
+
+    pub flags: u32,
+    pub r#type: u32,
+    pub family: u32,
+    pub rank: u32,
+    pub civilian: u16,
 }
 
 impl CreaturePrototype {
@@ -38,6 +46,8 @@ impl CreaturePrototype {
 
         Ok(Self {
             health: model.health.map(|v| v as u32),
+            name: model.name,
+            sub_name: model.sub_name,
             max_health: model.max_health as u32,
             level: (model.level_min as u32)..=(model.level_max as u32),
             faction: model.faction as u32,
@@ -79,6 +89,12 @@ impl CreaturePrototype {
             display_id: model.display_id as u32,
             native_display_id: model.native_display_id as u32,
             initial_mount_display_id: model.initial_mount_display_id.map(|v| v as u32),
+
+            flags: model.flags as u32,
+            r#type: model.r#type as u32,
+            family: model.family as u32,
+            rank: model.rank as u32,
+            civilian: model.civilian as u16,
         })
     }
 }

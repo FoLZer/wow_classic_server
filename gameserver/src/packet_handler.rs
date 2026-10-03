@@ -418,6 +418,61 @@ pub async fn packet_handler(
                     )
                 };
             }
+            ClientPacket::CMSG_CREATURE_QUERY(packet) => {
+                let creature_id = packet.creature_id;
+
+                let creature_prototype = match game_data_accessor
+                    .get_creature_prototype(creature_id)
+                    .await
+                {
+                    Ok(Some(v)) => v,
+                    Ok(None) => {
+                        continue;
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to query creature prototype due to a DB error (creature_id: {}, requesting character_id: {}). Error: {}",
+                            creature_id,
+                            character_id.get(),
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                let response = packets::server::SMSG_CREATURE_QUERY_RESPONSE {
+                    creature_id,
+                    name_1: CString::new(creature_prototype.name).unwrap(),
+                    name_2: CString::new("").unwrap(),
+                    name_3: CString::new("").unwrap(),
+                    name_4: CString::new("").unwrap(),
+                    sub_name: CString::new(creature_prototype.sub_name.unwrap_or(String::new()))
+                        .unwrap(),
+                    flags: creature_prototype.flags,
+                    creature_type: creature_prototype.r#type,
+                    family: creature_prototype.family,
+                    rank: creature_prototype.rank,
+                    unkn: 0,
+                    pet_spell_data_id: 0,
+                    display_id: creature_prototype.display_id,
+                    civilian: creature_prototype.civilian,
+                };
+
+                let mut lock = tx.lock().await;
+
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_CREATURE_QUERY_RESPONSE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",

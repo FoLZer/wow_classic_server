@@ -188,6 +188,12 @@ CREATE TABLE IF NOT EXISTS player_start_data(
 CREATE TABLE IF NOT EXISTS faction(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS creature_type(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS creature_family(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+);
 /* ---------------- Game data END ---------------- */
 
 CREATE TABLE IF NOT EXISTS item(
@@ -288,6 +294,8 @@ CREATE TABLE IF NOT EXISTS character(
 
 CREATE TABLE IF NOT EXISTS creature(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL,
+    sub_name TEXT,
     health INT,
     max_health INT NOT NULL,
     level_min INT NOT NULL,
@@ -309,7 +317,13 @@ CREATE TABLE IF NOT EXISTS creature(
     combat_reach FLOAT NOT NULL,
     display_id INT NOT NULL,
     native_display_id INT NOT NULL,
-    initial_mount_display_id INT
+    initial_mount_display_id INT,
+
+    flags INT NOT NULL,
+    type INT NOT NULL REFERENCES creature_type,
+    family INT NOT NULL REFERENCES creature_family,
+    rank INT NOT NULL,
+    civilian INT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS creature_spawner_static(

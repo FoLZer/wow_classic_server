@@ -96,6 +96,22 @@ SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
     map: u32: LittleEndian,
     bag_family: u32: LittleEndian,
 },
+SMSG_CREATURE_QUERY_RESPONSE 0x061 {
+    creature_id: u32: LittleEndian,
+    name_1: CString: LittleEndian,
+    name_2: CString: LittleEndian,
+    name_3: CString: LittleEndian,
+    name_4: CString: LittleEndian,
+    sub_name: CString: LittleEndian,
+    flags: u32: LittleEndian,
+    creature_type: u32: LittleEndian,
+    family: u32: LittleEndian,
+    rank: u32: LittleEndian,
+    unkn: u32: LittleEndian,
+    pet_spell_data_id: u32: LittleEndian,
+    display_id: u32: LittleEndian,
+    civilian: u16: LittleEndian, //mask?
+},
 SMSG_UPDATE_OBJECT 0x0A9 {
     update_data: UpdateBlocks: LittleEndian,
 },
@@ -155,6 +171,12 @@ pub trait OrderedWrite<T: ByteOrder> {
 impl<T: ByteOrder> OrderedWrite<T> for u8 {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_u8(*self)
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for u16 {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        writer.write_u16::<T>(*self)
     }
 }
 
