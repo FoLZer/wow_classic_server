@@ -14,7 +14,7 @@ impl<T: GuidType> Guid<T> {
     pub fn try_from_u64(v: u64) -> Option<Self> {
         let prefix = (v >> (32 + 16)) as u16;
         let value = (v & 0x0000_0000_FFFF_FFFF) as u32;
-        if T::get_prefix() != prefix {
+        if T::PREFIX != prefix {
             return None;
         }
 
@@ -22,7 +22,7 @@ impl<T: GuidType> Guid<T> {
     }
 
     pub fn get(&self) -> NonZeroU64 {
-        NonZeroU64::from(self.0) | ((T::get_prefix() as u64) << (32 + 16))
+        NonZeroU64::from(self.0) | ((T::PREFIX as u64) << (32 + 16))
     }
 
     pub fn get_u32(&self) -> NonZeroU32 {
@@ -31,70 +31,56 @@ impl<T: GuidType> Guid<T> {
 }
 
 pub trait GuidType {
-    fn get_prefix() -> u16;
+    const PREFIX: u16;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Item;
 
 impl GuidType for Item {
-    fn get_prefix() -> u16 {
-        0x4000
-    }
+    const PREFIX: u16 = 0x4000;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Container;
 
 impl GuidType for Container {
-    fn get_prefix() -> u16 {
-        0x4000
-    }
+    const PREFIX: u16 = 0x4000;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Unit;
 
 impl GuidType for Unit {
-    fn get_prefix() -> u16 {
-        0xF130
-    }
+    const PREFIX: u16 = 0xF130;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Player;
 
 impl GuidType for Player {
-    fn get_prefix() -> u16 {
-        0x0000
-    }
+    const PREFIX: u16 = 0x0000;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct GameObject;
 
 impl GuidType for GameObject {
-    fn get_prefix() -> u16 {
-        0xF110
-    }
+    const PREFIX: u16 = 0xF110;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct DynamicObject;
 
 impl GuidType for DynamicObject {
-    fn get_prefix() -> u16 {
-        0xF100
-    }
+    const PREFIX: u16 = 0xF100;
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct Corpse;
 
 impl GuidType for Corpse {
-    fn get_prefix() -> u16 {
-        0xF101
-    }
+    const PREFIX: u16 = 0xF101;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -118,6 +104,26 @@ impl AnyGuid {
             AnyGuid::GameObject(guid) => guid.get(),
             AnyGuid::DynamicObject(guid) => guid.get(),
             AnyGuid::Corpse(guid) => guid.get(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectableGuid {
+    Unit(Guid<Unit>),
+    Player(Guid<Player>),
+    Corpse(Guid<Corpse>),
+}
+
+impl SelectableGuid {
+    pub fn try_from_u64(v: u64) -> Option<Self> {
+        let prefix = (v >> 48) as u16;
+
+        match prefix {
+            Unit::PREFIX => Guid::<Unit>::try_from_u64(v).map(Self::Unit),
+            Player::PREFIX => Guid::<Player>::try_from_u64(v).map(Self::Player),
+            Corpse::PREFIX => Guid::<Corpse>::try_from_u64(v).map(Self::Corpse),
+            _ => None,
         }
     }
 }

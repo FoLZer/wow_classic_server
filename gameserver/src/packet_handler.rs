@@ -1,7 +1,7 @@
 use std::{ffi::CString, io::ErrorKind, sync::Arc};
 
 use chrono::Local;
-use common::guid::{self, Guid};
+use common::guid::{self, Guid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::unit::{SheathState, StandStateType};
 use log::{error, warn};
@@ -519,6 +519,16 @@ pub async fn packet_handler(
                 };
                 return;
             }
+            ClientPacket::CMSG_SET_SELECTION(packet) => {
+                //TODO: check that guid actually resolves to something
+                let guid = SelectableGuid::try_from_u64(packet.guid);
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::SetSelection { guid },
+                }) {
+                    return;
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -556,6 +566,9 @@ pub enum PlayerUpdateData {
     TransitionToCharacterScreen {
         rx: OwnedReadHalf,
         decrypt_data: (usize, u8),
+    },
+    SetSelection {
+        guid: Option<SelectableGuid>,
     },
 }
 

@@ -168,7 +168,7 @@ impl Item {
             movement: MovementUpdate {
                 is_self_update: false,
                 position: None,
-                high_guid: Some(guid::Item::get_prefix() as u32),
+                high_guid: Some(guid::Item::PREFIX as u32),
                 is_update_all: true,
                 full_guid: PossibleUpdate::NoUpdate,
                 transport_time_millis: None,

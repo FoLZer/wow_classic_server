@@ -262,6 +262,13 @@ impl Server {
                         .character_transition_to_character_screen_tx
                         .send((character, rx));
                 }
+                PlayerUpdateData::SetSelection { guid } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    *character.unit_fields.target.get_mut_using_copy() = guid;
+                }
             }
         }
     }

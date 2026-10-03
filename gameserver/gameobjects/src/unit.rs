@@ -1,5 +1,5 @@
 use bitfield_struct::bitfield;
-use common::guid::{self, Guid};
+use common::guid::{self, Guid, SelectableGuid};
 use macros::tracked;
 
 use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
@@ -11,7 +11,7 @@ pub struct UnitFields {
     pub charmed_by: Option<Guid<guid::Unit>>,
     pub summoned_by: Option<Guid<guid::Unit>>,
     pub created_by: Option<Guid<guid::Unit>>,
-    pub target: Option<Guid<guid::Unit>>,
+    pub target: Option<SelectableGuid>,
     pub persuaded: Option<Guid<guid::Unit>>,
     pub channel_object: Option<Guid<guid::Unit>>,
     pub health: u32,

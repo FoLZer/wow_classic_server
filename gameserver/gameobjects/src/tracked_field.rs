@@ -6,7 +6,7 @@ use std::{
 };
 
 use bit_vec::BitVec;
-use common::guid::{AnyGuid, Guid, GuidType};
+use common::guid::{AnyGuid, Guid, GuidType, SelectableGuid};
 
 pub trait UpdateWritable {
     fn get_update_blocks_count() -> usize {
@@ -253,6 +253,32 @@ impl UpdateWritable for AnyGuid {
 }
 
 impl UpdateWritable for Option<AnyGuid> {
+    fn get_update_blocks_count() -> usize {
+        2
+    }
+
+    fn write(&self, blocks: &mut [u32]) {
+        if let Some(v) = self {
+            v.write(blocks);
+        }
+    }
+}
+
+impl UpdateWritable for SelectableGuid {
+    fn get_update_blocks_count() -> usize {
+        2
+    }
+
+    fn write(&self, blocks: &mut [u32]) {
+        match self {
+            SelectableGuid::Unit(guid) => guid.write(blocks),
+            SelectableGuid::Player(guid) => guid.write(blocks),
+            SelectableGuid::Corpse(guid) => guid.write(blocks),
+        }
+    }
+}
+
+impl UpdateWritable for Option<SelectableGuid> {
     fn get_update_blocks_count() -> usize {
         2
     }
