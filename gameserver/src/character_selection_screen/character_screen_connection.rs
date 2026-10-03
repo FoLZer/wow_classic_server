@@ -597,6 +597,7 @@ impl CharacterScreenConnection {
     pub fn from_game_character(
         character: Character,
         read_half: OwnedReadHalf,
+        decrypt_data: (usize, u8),
         db: Pool<Sqlite>,
         game_data_accessor: GameDataAccessor,
     ) -> Self {
@@ -612,7 +613,7 @@ impl CharacterScreenConnection {
             db,
             game_data_accessor,
 
-            decrypt_data: character.decrypt_data,
+            decrypt_data,
             encrypt_data: Arc::into_inner(character.encrypt_data)
                 .unwrap()
                 .into_inner(),

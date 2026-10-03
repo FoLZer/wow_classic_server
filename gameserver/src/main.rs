@@ -112,13 +112,14 @@ async fn main() {
         config.server_category,
     );
 
-    let world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>> =
-        Arc::new(ConcurrentQueue::unbounded());
+    let world_transition_character_queue: Arc<
+        ConcurrentQueue<(Box<Character>, OwnedReadHalf, (usize, u8))>,
+    > = Arc::new(ConcurrentQueue::unbounded());
 
     let game_data_accessor = GameDataAccessor::new(db.clone());
 
     let (character_transition_to_character_screen_tx, character_transition_to_character_screen_rx) =
-        mpsc::unbounded_channel::<(Character, OwnedReadHalf)>();
+        mpsc::unbounded_channel::<(Character, OwnedReadHalf, (usize, u8))>();
 
     {
         let world_transition_character_queue = world_transition_character_queue.clone();
@@ -175,7 +176,7 @@ async fn main() {
         let world_transition_character_queue = world_transition_character_queue.clone();
         tokio::spawn(async move {
             loop {
-                let Some((character, read_half)) =
+                let Some((character, read_half, decrypt_data)) =
                     character_transition_to_character_screen_rx.recv().await
                 else {
                     return;
@@ -192,6 +193,7 @@ async fn main() {
                     let conn = CharacterScreenConnection::from_game_character(
                         character,
                         read_half,
+                        decrypt_data,
                         db.clone(),
                         game_data_accessor.clone(),
                     );
@@ -236,7 +238,11 @@ async fn run_character_selection_screen_loop(
     mut conn: CharacterScreenConnection,
     game_data_accessor: &GameDataAccessor,
     db: &Pool<Sqlite>,
-    world_transition_character_queue: &ConcurrentQueue<(Box<Character>, OwnedReadHalf)>,
+    world_transition_character_queue: &ConcurrentQueue<(
+        Box<Character>,
+        OwnedReadHalf,
+        (usize, u8),
+    )>,
 ) {
     loop {
         match conn.connection_loop().await {
@@ -315,7 +321,7 @@ async fn run_character_selection_screen_loop(
                 ); //TODO: character_id
 
                 // If this fails, the client will be disconnected anyway due to Drop being called
-                let _ = world_transition_character_queue.push((character, rx));
+                let _ = world_transition_character_queue.push((character, rx, conn.decrypt_data));
                 return;
             }
             CharacterScreenResult::ClientDisconnect => {

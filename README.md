@@ -1,7 +1,7 @@
-This project is a fully custom 1.12.1 server that aims to provide a fully separate experience instead of what was provided initially in classic World of Warcraft. It uses completely custom quests, creatures and other data that is not connected with original World of Warcraft in any way.
+This project is a fully custom 1.12.1 emulator that aims to provide a fully separate experience instead of what was provided initially in classic World of Warcraft. It's supposed to build upon completely custom quests, creatures and other data that is not connected with original World of Warcraft in any way.
 
-To use this server you must have obtained a valid copy of World of Warcraft's client.
-Logging into the server without one is **violating [Blizzard Entertainment, Inc.][1] copyright**.
+To use this software you must have obtained a valid copy of World of Warcraft's client.
+Logging into the server without one is **violating [Blizzard Entertainment, Inc.][1] EULA**.
 
 Building & Running
 --------

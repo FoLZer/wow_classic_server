@@ -36,18 +36,23 @@ pub struct Server {
 
     // A queue containing all parsed updates received from players during this tick
     player_update_queue: Arc<ConcurrentQueue<PlayerUpdate>>,
-    world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>>,
-    character_transition_to_character_screen_tx: mpsc::UnboundedSender<(Character, OwnedReadHalf)>,
+    world_transition_character_queue:
+        Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf, (usize, u8))>>,
+    character_transition_to_character_screen_tx:
+        mpsc::UnboundedSender<(Character, OwnedReadHalf, (usize, u8))>,
     game_data_accessor: GameDataAccessor,
 }
 
 impl Server {
     pub async fn new(
-        world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>>,
+        world_transition_character_queue: Arc<
+            ConcurrentQueue<(Box<Character>, OwnedReadHalf, (usize, u8))>,
+        >,
         game_data_accessor: GameDataAccessor,
         character_transition_to_character_screen_tx: mpsc::UnboundedSender<(
             Character,
             OwnedReadHalf,
+            (usize, u8),
         )>,
     ) -> Result<Self, sqlx::Error> {
         let mut unit_guid_allocator = GuidAllocator::new();
@@ -256,11 +261,12 @@ impl Server {
                         );
                         return;
                     };
-                    character.decrypt_data = decrypt_data;
                     // If this fails the connection is going to be shut due to Drop being called
-                    let _ = self
-                        .character_transition_to_character_screen_tx
-                        .send((character, rx));
+                    let _ = self.character_transition_to_character_screen_tx.send((
+                        character,
+                        rx,
+                        decrypt_data,
+                    ));
                 }
                 PlayerUpdateData::SetSelection { guid } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
@@ -274,7 +280,7 @@ impl Server {
     }
 
     async fn add_queued_characters(&mut self) {
-        for (character, rx) in self.world_transition_character_queue.try_iter() {
+        for (character, rx, decrypt_data) in self.world_transition_character_queue.try_iter() {
             let response = packets::server::SMSG_LOGIN_VERIFY_WORLD {
                 map: character.map_id,
                 position_x: character.position.0,
@@ -477,7 +483,6 @@ impl Server {
 
             let character_id = character.object_fields.guid.get().clone();
             let session_key = character.session_key;
-            let decrypt_data = character.decrypt_data;
             let encrypt_data = character.encrypt_data.clone();
             let stream_tx = character.stream_tx.clone();
 
