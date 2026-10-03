@@ -25,11 +25,11 @@ use ipc_comms::{
 use log::{error, info, warn};
 use packets::account_result::AccountResult;
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::{Pool, Sqlite, sqlite::SqlitePoolOptions};
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, tcp::OwnedReadHalf},
-    sync::Mutex,
+    sync::{Mutex, mpsc},
 };
 
 use crate::{
@@ -116,10 +116,15 @@ async fn main() {
         Arc::new(ConcurrentQueue::unbounded());
 
     let game_data_accessor = GameDataAccessor::new(db.clone());
+
+    let (character_transition_to_character_screen_tx, character_transition_to_character_screen_rx) =
+        mpsc::unbounded_channel::<(Character, OwnedReadHalf)>();
+
     {
         let world_transition_character_queue = world_transition_character_queue.clone();
 
         let game_data_accessor = game_data_accessor.clone();
+        let db = db.clone();
         tokio::spawn(async move {
             let socket = TcpListener::bind(config.bind_to)
                 .await
@@ -141,7 +146,7 @@ async fn main() {
                 let db = db.clone();
                 let world_transition_character_queue = world_transition_character_queue.clone();
                 tokio::spawn(async move {
-                    let mut conn = CharacterScreenConnection::authenticate(
+                    let conn = CharacterScreenConnection::authenticate(
                         stream,
                         player_session_keys,
                         server_pipe,
@@ -151,93 +156,52 @@ async fn main() {
                     .await
                     .unwrap();
 
-                    loop {
-                        match conn.connection_loop().await {
-                            CharacterScreenResult::WorldTransition { guid } => {
-                                let (rx, tx) = conn.stream.into_split();
+                    run_character_selection_screen_loop(
+                        conn,
+                        &game_data_accessor,
+                        &db,
+                        &world_transition_character_queue,
+                    )
+                    .await;
+                });
+            }
+        });
+    }
 
-                                let character = match Character::load_from_db(
-                                    &game_data_accessor,
-                                    &db,
-                                    guid,
-                                    conn.account_id,
-                                    tx,
-                                    conn.session_key,
-                                    conn.decrypt_data,
-                                    conn.encrypt_data,
-                                )
-                                .await
-                                {
-                                    Ok(v) => v,
-                                    Err((mut tx, sqlx::Error::RowNotFound)) => {
-                                        let response = packets::server::SMSG_CHAR_LOGIN_FAILED {
-                                            result: AccountResult::CHAR_LOGIN_NO_CHARACTER,
-                                        };
+    {
+        let mut character_transition_to_character_screen_rx =
+            character_transition_to_character_screen_rx;
+        let game_data_accessor = game_data_accessor.clone();
+        let world_transition_character_queue = world_transition_character_queue.clone();
+        tokio::spawn(async move {
+            loop {
+                let Some((character, read_half)) =
+                    character_transition_to_character_screen_rx.recv().await
+                else {
+                    return;
+                };
+                info!(
+                    "Transitioning client's character (client_id: {}, character_id: {}) into a character selection screen",
+                    character.account_id, 0
+                ); //TODO: character_id
 
-                                        warn!(
-                                            "Client (account_id: {}) tried to log into a character that doesn't exist or not owned by the client (guid: {})",
-                                            conn.account_id,
-                                            guid.get_u32()
-                                        );
-
-                                        if let Err(e) = tx
-                                            .write_all(&response.to_bytes(
-                                                Some(conn.session_key),
-                                                &mut conn.encrypt_data,
-                                            ))
-                                            .await
-                                        {
-                                            error!(
-                                                "Failed to send SMSG_CHAR_LOGIN_FAILED to client (account_id: {}). Error: {:?}",
-                                                conn.account_id, e
-                                            )
-                                        };
-                                        conn.stream = tx.reunite(rx).unwrap();
-                                        continue;
-                                    }
-                                    Err((mut tx, e)) => {
-                                        error!(
-                                            "Failed to get client's character due to a DB error (account_id: {}, character_id: {}). Error: {}",
-                                            conn.account_id,
-                                            guid.get_u32(),
-                                            e
-                                        );
-                                        let response = packets::server::SMSG_CHAR_DELETE {
-                                            result: AccountResult::CHAR_LOGIN_FAILED,
-                                        };
-
-                                        if let Err(e) = tx
-                                            .write_all(&response.to_bytes(
-                                                Some(conn.session_key),
-                                                &mut conn.encrypt_data,
-                                            ))
-                                            .await
-                                        {
-                                            error!(
-                                                "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
-                                                conn.account_id, e
-                                            )
-                                        };
-                                        conn.stream = tx.reunite(rx).unwrap();
-                                        continue;
-                                    }
-                                };
-                                let character = Box::new(character);
-
-                                info!(
-                                    "Transitioning client's character (client_id: {}, character_id: {}) into a game world",
-                                    character.account_id, 0
-                                ); //TODO: character_id
-
-                                // If this fails, the client will be disconnected anyway due to Drop being called
-                                let _ = world_transition_character_queue.push((character, rx));
-                                return;
-                            }
-                            CharacterScreenResult::ClientDisconnect => {
-                                return;
-                            }
-                        }
-                    }
+                let db = db.clone();
+                let game_data_accessor = game_data_accessor.clone();
+                let world_transition_character_queue = world_transition_character_queue.clone();
+                tokio::spawn(async move {
+                    let conn = CharacterScreenConnection::from_game_character(
+                        character,
+                        read_half,
+                        db.clone(),
+                        game_data_accessor.clone(),
+                    );
+                    run_character_selection_screen_loop(
+                        conn,
+                        &game_data_accessor,
+                        &db,
+                        &world_transition_character_queue,
+                    )
+                    .await;
                 });
             }
         });
@@ -245,9 +209,13 @@ async fn main() {
 
     let max_sleep_for_ms = (1000 / TICKRATE) as i64;
 
-    let mut server = Server::new(world_transition_character_queue, game_data_accessor)
-        .await
-        .expect("failed to fetch all required data from database");
+    let mut server = Server::new(
+        world_transition_character_queue,
+        game_data_accessor,
+        character_transition_to_character_screen_tx,
+    )
+    .await
+    .expect("failed to fetch all required data from database");
     loop {
         let new_game_time = chrono::Local::now();
         let diff = (new_game_time - server.game_time).abs();
@@ -260,6 +228,99 @@ async fn main() {
         let left_to_sleep = max_sleep_for_ms - update_took;
         if left_to_sleep > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(left_to_sleep as u64)).await;
+        }
+    }
+}
+
+async fn run_character_selection_screen_loop(
+    mut conn: CharacterScreenConnection,
+    game_data_accessor: &GameDataAccessor,
+    db: &Pool<Sqlite>,
+    world_transition_character_queue: &ConcurrentQueue<(Box<Character>, OwnedReadHalf)>,
+) {
+    loop {
+        match conn.connection_loop().await {
+            CharacterScreenResult::WorldTransition { guid } => {
+                let (rx, tx) = conn.stream.into_split();
+
+                let character = match Character::load_from_db(
+                    game_data_accessor,
+                    db,
+                    guid,
+                    conn.account_id,
+                    tx,
+                    conn.session_key,
+                    conn.decrypt_data,
+                    conn.encrypt_data,
+                )
+                .await
+                {
+                    Ok(v) => v,
+                    Err((mut tx, sqlx::Error::RowNotFound)) => {
+                        let response = packets::server::SMSG_CHAR_LOGIN_FAILED {
+                            result: AccountResult::CHAR_LOGIN_NO_CHARACTER,
+                        };
+
+                        warn!(
+                            "Client (account_id: {}) tried to log into a character that doesn't exist or not owned by the client (guid: {})",
+                            conn.account_id,
+                            guid.get_u32()
+                        );
+
+                        if let Err(e) = tx
+                            .write_all(
+                                &response.to_bytes(Some(conn.session_key), &mut conn.encrypt_data),
+                            )
+                            .await
+                        {
+                            error!(
+                                "Failed to send SMSG_CHAR_LOGIN_FAILED to client (account_id: {}). Error: {:?}",
+                                conn.account_id, e
+                            )
+                        };
+                        conn.stream = tx.reunite(rx).unwrap();
+                        continue;
+                    }
+                    Err((mut tx, e)) => {
+                        error!(
+                            "Failed to get client's character due to a DB error (account_id: {}, character_id: {}). Error: {}",
+                            conn.account_id,
+                            guid.get_u32(),
+                            e
+                        );
+                        let response = packets::server::SMSG_CHAR_DELETE {
+                            result: AccountResult::CHAR_LOGIN_FAILED,
+                        };
+
+                        if let Err(e) = tx
+                            .write_all(
+                                &response.to_bytes(Some(conn.session_key), &mut conn.encrypt_data),
+                            )
+                            .await
+                        {
+                            error!(
+                                "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
+                                conn.account_id, e
+                            )
+                        };
+                        conn.stream = tx.reunite(rx).unwrap();
+                        continue;
+                    }
+                };
+                let character = Box::new(character);
+
+                info!(
+                    "Transitioning client's character (client_id: {}, character_id: {}) into a game world",
+                    character.account_id, 0
+                ); //TODO: character_id
+
+                // If this fails, the client will be disconnected anyway due to Drop being called
+                let _ = world_transition_character_queue.push((character, rx));
+                return;
+            }
+            CharacterScreenResult::ClientDisconnect => {
+                return;
+            }
         }
     }
 }

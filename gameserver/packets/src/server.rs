@@ -34,6 +34,11 @@ SMSG_LOGIN_SETTIMESPEED 0x042 {
     game_time: DateTime<Local>: LittleEndian,
     game_speed: f32: LittleEndian,
 },
+SMSG_LOGOUT_RESPONSE 0x04C {
+    failed: u32: LittleEndian,
+    instant: u8: LittleEndian,
+},
+SMSG_LOGOUT_COMPLETE 0x04D {},
 SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
     item_id: u32: LittleEndian,
     class: u32: LittleEndian,

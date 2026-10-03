@@ -473,6 +473,52 @@ pub async fn packet_handler(
                     )
                 };
             }
+            ClientPacket::CMSG_LOGOUT_REQUEST(_) => {
+                // TODO: logout checks
+
+                let response = packets::server::SMSG_LOGOUT_RESPONSE {
+                    failed: 0,
+                    instant: 1,
+                };
+
+                let mut lock = tx.lock().await;
+
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_LOGOUT_RESPONSE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+
+                let response = packets::server::SMSG_LOGOUT_COMPLETE {};
+
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_LOGOUT_COMPLETE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::TransitionToCharacterScreen { rx, decrypt_data },
+                }) {
+                    return;
+                };
+                return;
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -491,15 +537,26 @@ pub struct PlayerUpdate {
 
 pub enum PlayerUpdateData {
     Movement(MovementInfo),
-    SwapInventoryItem { src: Slot, dst: Slot },
+    SwapInventoryItem {
+        src: Slot,
+        dst: Slot,
+    },
     // In case CMSG_SETSHEATHED failed to validate StandStateType
     ResendSheathState,
-    SetSheathState { state: SheathState },
+    SetSheathState {
+        state: SheathState,
+    },
     // In case CMSG_STANDSTATECHANGE failed to validate StandStateType
     ResendAnimationState,
-    SetAnimationState { state: StandStateType },
+    SetAnimationState {
+        state: StandStateType,
+    },
     // Kicks the client by abruptly dropping their connection, usually due to an error in reading client's packets
     ForceKick,
+    TransitionToCharacterScreen {
+        rx: OwnedReadHalf,
+        decrypt_data: (usize, u8),
+    },
 }
 
 fn parse_slot(slot: u8) -> Slot {

@@ -12,7 +12,11 @@ use packets::{
 use rand::{Rng, rngs::StdRng};
 use sha1::{Digest, Sha1};
 use sqlx::{Pool, Sqlite};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpStream, tcp::OwnedReadHalf},
+    sync::Mutex,
+};
 
 use crate::{
     character_selection_screen::character_selection::CharacterSelection,
@@ -585,6 +589,33 @@ impl CharacterScreenConnection {
                     );
                 }
             }
+        }
+    }
+
+    // For this to succeed the character must have only 1 reference, this being the one passed to this function
+    // If this is not the case, the function will panic
+    pub fn from_game_character(
+        character: Character,
+        read_half: OwnedReadHalf,
+        db: Pool<Sqlite>,
+        game_data_accessor: GameDataAccessor,
+    ) -> Self {
+        Self {
+            account_id: character.account_id,
+            stream: Arc::into_inner(character.stream_tx)
+                .unwrap()
+                .into_inner()
+                .reunite(read_half)
+                .unwrap(),
+            session_key: character.session_key,
+
+            db,
+            game_data_accessor,
+
+            decrypt_data: character.decrypt_data,
+            encrypt_data: Arc::into_inner(character.encrypt_data)
+                .unwrap()
+                .into_inner(),
         }
     }
 }

@@ -14,7 +14,7 @@ use packets::{
     },
 };
 use rand::{RngExt, rng};
-use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf};
+use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
     creature_spawner::{CreatureSpawnInfo, CreatureSpawner},
@@ -37,6 +37,7 @@ pub struct Server {
     // A queue containing all parsed updates received from players during this tick
     player_update_queue: Arc<ConcurrentQueue<PlayerUpdate>>,
     world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>>,
+    character_transition_to_character_screen_tx: mpsc::UnboundedSender<(Character, OwnedReadHalf)>,
     game_data_accessor: GameDataAccessor,
 }
 
@@ -44,6 +45,10 @@ impl Server {
     pub async fn new(
         world_transition_character_queue: Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf)>>,
         game_data_accessor: GameDataAccessor,
+        character_transition_to_character_screen_tx: mpsc::UnboundedSender<(
+            Character,
+            OwnedReadHalf,
+        )>,
     ) -> Result<Self, sqlx::Error> {
         let mut unit_guid_allocator = GuidAllocator::new();
         let mut creatures = HashMap::new();
@@ -106,6 +111,7 @@ impl Server {
 
             player_update_queue: Arc::new(ConcurrentQueue::unbounded()),
             world_transition_character_queue,
+            character_transition_to_character_screen_tx,
             game_data_accessor,
         })
     }
@@ -241,6 +247,20 @@ impl Server {
                 }
                 PlayerUpdateData::ForceKick => {
                     self.characters.remove(&character_id);
+                }
+                PlayerUpdateData::TransitionToCharacterScreen { rx, decrypt_data } => {
+                    let Some(mut character) = self.characters.remove(&character_id) else {
+                        warn!(
+                            "Tried to transition a missing character (character_id: {})",
+                            character_id.get()
+                        );
+                        return;
+                    };
+                    character.decrypt_data = decrypt_data;
+                    // If this fails the connection is going to be shut due to Drop being called
+                    let _ = self
+                        .character_transition_to_character_screen_tx
+                        .send((character, rx));
                 }
             }
         }

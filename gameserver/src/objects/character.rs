@@ -25,6 +25,7 @@ pub struct Character {
     pub account_id: u32,
     pub session_key: [u8; 40],
     pub stream_tx: Arc<Mutex<OwnedWriteHalf>>,
+    // This decrypt_data is only used to pass it into a packet_handler function, once passed this is stale and must not be referenced.
     pub decrypt_data: (usize, u8),
     pub encrypt_data: Arc<Mutex<(usize, u8)>>,
 

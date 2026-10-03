@@ -1,4 +1,8 @@
 target/
 authserver.db
+authserver.db-shm
+authserver.db-wal
 **/log/
 gameserver.db
+gameserver.db-shm
+gameserver.db-wal
