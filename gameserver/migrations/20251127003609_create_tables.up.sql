@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS character(
     guild_id INT /* REFERENCES guild */,
     first_login BOOLEAN NOT NULL,
     display_id INT NOT NULL,
+    tutorial_flags INTEGER NOT NULL DEFAULT 0,
 
     /* Equipment START */
     equipment_head_id INT REFERENCES item,

@@ -4,7 +4,8 @@ use common::guid::{self, Guid};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     player::{
-        PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, QuestLogFields, VisibleItemFields,
+        PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, QuestLogFields, TutorialFlags,
+        VisibleItemFields,
     },
     unit::{
         SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2, UnitFieldBytes2Flags,
@@ -35,6 +36,8 @@ pub struct Character {
 
     pub other_visible_players: HashSet<Guid<guid::Player>>,
     pub visible_creatures: HashSet<Guid<guid::Unit>>,
+
+    pub tutorial_flags: TutorialFlags,
 }
 
 impl Character {
@@ -589,6 +592,8 @@ impl Character {
             },
             other_visible_players: HashSet::new(),
             visible_creatures: HashSet::new(),
+
+            tutorial_flags: TutorialFlags::from_bits(model.tutorial_flags as u64),
 
             items,
         })

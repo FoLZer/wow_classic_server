@@ -4,7 +4,7 @@ use bit_vec::BitVec;
 use chrono::{DateTime, Local, TimeDelta};
 use common::guid::{self, AnyGuid, Guid};
 use concurrent_queue::ConcurrentQueue;
-use gameobjects::{tracked_field::ClientUpdatable, unit::VirtualItemInfo};
+use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable, unit::VirtualItemInfo};
 use log::{error, warn};
 use packets::{
     inventory_change_result::{InventoryChangeError, InventoryChangeResult},
@@ -478,6 +478,30 @@ impl Server {
 
                     *character.unit_fields.target.get_mut_using_copy() = guid;
                 }
+                PlayerUpdateData::SetTutorialFlag { flag } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    character.tutorial_flags = TutorialFlags::from_bits(
+                        character.tutorial_flags.into_bits() | 1 << flag,
+                    );
+                }
+                PlayerUpdateData::ClearTutorials => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    character.tutorial_flags =
+                        TutorialFlags::from_bits((1 << TutorialFlags::COUNT) - 1);
+                }
+                PlayerUpdateData::ResetTutorials => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    character.tutorial_flags = TutorialFlags::new();
+                }
             }
         }
     }
@@ -563,10 +587,9 @@ impl Server {
                 return;
             };
 
-            //TODO: tutorial
             let response = packets::server::SMSG_TUTORIAL_FLAGS {
-                tutorial_data0: 0,
-                tutorial_data1: 0,
+                tutorial_data0: character.tutorial_flags.into_bits() as u32,
+                tutorial_data1: (character.tutorial_flags.into_bits() >> 32) as u32,
                 tutorial_data2: 0,
                 tutorial_data3: 0,
                 tutorial_data4: 0,

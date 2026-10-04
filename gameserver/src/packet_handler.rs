@@ -3,7 +3,10 @@ use std::{ffi::CString, io::ErrorKind, sync::Arc};
 use chrono::Local;
 use common::guid::{self, Guid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
-use gameobjects::unit::{SheathState, StandStateType};
+use gameobjects::{
+    player::TutorialFlags,
+    unit::{SheathState, StandStateType},
+};
 use log::{error, warn};
 use packets::{
     client::{ClientPacket, ParseError},
@@ -592,6 +595,41 @@ pub async fn packet_handler(
                     return;
                 };
             }
+            ClientPacket::CMSG_TUTORIAL_FLAG(packet) => {
+                if packet.i_flag >= TutorialFlags::COUNT {
+                    warn!(
+                        "Client (character_id: {}) sent an invalid tutorial flag: {}",
+                        character_id.get(),
+                        packet.i_flag
+                    );
+                    continue;
+                }
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::SetTutorialFlag {
+                        flag: packet.i_flag,
+                    },
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_TUTORIAL_CLEAR(_) => {
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::ClearTutorials,
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_TUTORIAL_RESET(_) => {
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::ResetTutorials,
+                }) {
+                    return;
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -636,6 +674,13 @@ pub enum PlayerUpdateData {
     SetSelection {
         guid: Option<SelectableGuid>,
     },
+    SetTutorialFlag {
+        flag: u32,
+    },
+    // Marks every tutorial as already shown
+    ClearTutorials,
+    // Marks every tutorial as not shown yet
+    ResetTutorials,
 }
 
 fn parse_slot(slot: u8) -> Slot {
