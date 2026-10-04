@@ -97,38 +97,38 @@ impl UpdateWritable for UnitFieldBytes1 {
 
 #[bitfield(u32)]
 pub struct UnitFlags {
-    _unkn: bool,
-    not_attackable: bool,
-    client_lost_control: bool,
-    _unkn: bool,
-    is_renamed: bool,
-    is_resting: bool, //usage unknown
-    _unkn: bool,
-    _unkn: bool,
-    not_attackable_out_of_combat: bool,
-    passive: bool,
-    is_looting: bool, //shows looting animation
-    _unkn: bool,
-    pvp: bool,
-    _unused: bool, //FIXME: check the _unused values
-    _unused: bool,
-    _unkn: bool,
-    _unkn: bool,
-    is_pacified: bool,
-    _unkn: bool,
-    in_combat: bool,
-    _unkn: bool,
-    _unkn: bool,
-    _unkn: bool,
-    _unkn: bool,
-    _unkn: bool,
-    not_selectable: bool,
-    skinnable: bool,
-    has_auras_visible: bool,
-    _unkn: bool,
-    _unkn: bool,
-    sheathe: bool,
-    _unkn: bool,
+    _unkn: bool, // never read by the client
+    pub not_attackable: bool, // can't be attacked, also overrides the loss of control flags
+    pub client_lost_control: bool, // like confused and fleeing, the client can't control the unit
+    pub player_controlled: bool, // controlled by a player, also lets the client start swimming
+    pub pet_can_rename: bool, // the pet can be renamed
+    pub pet_can_abandon: bool, // the pet can be abandoned
+    pub plus_mob: bool, // elite
+    pub not_attackable_2: bool, // can't be attacked
+    pub immune_to_player_controlled: bool, // can't attack or be attacked by player controlled units, also stops inheriting the owner's pvp state
+    pub immune_to_npc: bool, // can't attack or be attacked by non player controlled units
+    pub is_looting: bool, // shows the looting animation
+    pub in_combat_stance: bool, // treated as in combat for animations, also lets the client start swimming
+    pub pvp: bool, // flagged for pvp
+    pub silenced: bool, // can't cast spells that are prevented by silence
+    pub persuaded: bool,
+    pub can_swim: bool, // lets the client start swimming
+    pub untargetable: bool, // can't be targeted by spells or attacked
+    pub is_pacified: bool, // can't cast spells that are prevented by pacify
+    pub stunned: bool, // can't move or cast spells
+    pub in_combat: bool, // affecting combat, can't cast spells that aren't usable in combat
+    pub on_taxi: bool, // riding a taxi
+    pub disarmed: bool, // main and off hand weapons are ignored
+    pub confused: bool, // can't cast spells while confused
+    pub fleeing: bool, // can't cast spells while fleeing
+    pub possessed: bool, // controlled by the unit in charmed_by
+    pub not_selectable: bool, // only the unit in created_by can interact with it
+    pub skinnable: bool,
+    pub has_auras_visible: bool, // auras that would otherwise be hidden are shown
+    pub loot_without_animation: bool, // suppresses the looting animation, eg. while fishing
+    pub no_chat_emotes: bool, // no talk/yell/laugh animations when chatting
+    _unkn: bool, // never read by the client
+    pub restricted_gameobject_use: bool, // can't use chests and other gameobjects that don't allow it
 }
 
 impl UpdateWritable for UnitFlags {

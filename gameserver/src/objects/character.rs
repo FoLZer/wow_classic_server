@@ -273,7 +273,7 @@ impl Character {
                     .into(),
                 virtual_item_slot_displays: [0.into(); 3],
                 virtual_item_infos: [VirtualItemInfo::new().into(); 3],
-                flags: UnitFlags::new().into(),
+                flags: UnitFlags::new().with_player_controlled(true).into(),
                 aura: [0.into(); 48],
                 aura_flags: [0.into(); 6],
                 aura_levels: [0.into(); 12],
