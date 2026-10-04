@@ -115,16 +115,16 @@ MSG_MOVE_STOP_TURN 0x0BE {
 MSG_MOVE_START_PITCH_UP 0x0BF {
     movement_info: MovementInfo: LittleEndian,
 },
-MSG_MOVE_START_PITCH_DOWN 0x0C1 {
+MSG_MOVE_START_PITCH_DOWN 0x0C0 {
     movement_info: MovementInfo: LittleEndian,
 },
-MSG_MOVE_STOP_PITCH 0x0C2 {
+MSG_MOVE_STOP_PITCH 0x0C1 {
     movement_info: MovementInfo: LittleEndian,
 },
-MSG_MOVE_SET_RUN_MODE 0x0C3 {
+MSG_MOVE_SET_RUN_MODE 0x0C2 {
     movement_info: MovementInfo: LittleEndian,
 },
-MSG_MOVE_SET_WALK_MODE 0x0C4 {
+MSG_MOVE_SET_WALK_MODE 0x0C3 {
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_FALL_LAND 0x0C9 {
