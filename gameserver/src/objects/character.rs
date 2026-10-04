@@ -347,7 +347,7 @@ impl Character {
                 bytes_2: PlayerFieldBytes2::new()
                     .with_facial_hair(model.facial_hair as u8)
                     .with_bank_bag_slots(0)
-                    .with_rested_state(0)
+                    .with_rested_state(2) // Exhaustion.dbc: 1 - Rested (200%), 2 - Normal (100%)
                     .into(),
                 bytes_3: PlayerFieldBytes3::new().with_gender(model.gender).into(),
                 duel_team: 0.into(),
