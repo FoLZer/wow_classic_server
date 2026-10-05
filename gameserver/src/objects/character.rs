@@ -1,6 +1,6 @@
 use std::{collections::HashSet, num::NonZeroU32, sync::Arc};
 
-use common::guid::{self, Guid};
+use common::guid::{self, Guid, LivingGuid};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     player::{
@@ -46,6 +46,36 @@ pub struct Character {
 }
 
 impl Character {
+    pub fn guid(&self) -> Guid<guid::Player> {
+        *self.object_fields.guid.get()
+    }
+
+    pub fn sees(&self, guid: LivingGuid) -> bool {
+        match guid {
+            LivingGuid::Player(guid) => self.sees_player(guid),
+            LivingGuid::Unit(guid) => self.sees_creature(guid),
+        }
+    }
+
+    pub fn sees_player(&self, guid: Guid<guid::Player>) -> bool {
+        self.other_visible_players.contains(&guid)
+    }
+
+    pub fn sees_player_including_self(&self, guid: Guid<guid::Player>) -> bool {
+        self.guid() == guid || self.other_visible_players.contains(&guid)
+    }
+
+    pub fn sees_creature(&self, guid: Guid<guid::Unit>) -> bool {
+        self.visible_creatures.contains(&guid)
+    }
+
+    pub fn sees_including_self(&self, guid: LivingGuid) -> bool {
+        match guid {
+            LivingGuid::Player(guid) => self.sees_player_including_self(guid),
+            LivingGuid::Unit(guid) => self.sees_creature(guid),
+        }
+    }
+
     pub async fn load_from_db(
         game_data_accessor: &GameDataAccessor,
         db: &Pool<Sqlite>,
@@ -287,9 +317,9 @@ impl Character {
                 aura_levels: [0.into(); 12],
                 aura_applications: [0.into(); 12],
                 aura_state: 0.into(),
-                base_attack_time: 1.into(),
-                offhand_attack_time: 2.into(),
-                ranged_attack_time: 3.into(),
+                base_attack_time: 2000.into(),
+                offhand_attack_time: 0.into(),
+                ranged_attack_time: 0.into(),
                 bounding_radius: 4.into(),
                 combat_reach: 1.5.into(),
                 display_id: (model.display_id as u32).into(),

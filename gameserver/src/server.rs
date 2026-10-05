@@ -1,12 +1,21 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use bit_vec::BitVec;
 use chrono::{DateTime, Local, TimeDelta};
 use common::guid::{self, AnyGuid, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
-use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable, unit::VirtualItemInfo};
+use gameobjects::{
+    player::TutorialFlags,
+    tracked_field::ClientUpdatable,
+    unit::{UnitFields, VirtualItemInfo},
+};
 use log::{error, warn};
 use packets::{
+    attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDamages, VictimState},
     inventory_change_result::{InventoryChangeError, InventoryChangeResult},
     movement_info::{MovementFlags, MovementInfo},
     update_data::{
@@ -126,6 +135,7 @@ impl Server {
     }
 
     pub async fn update(&mut self, diff: TimeDelta) {
+        let now = Instant::now();
         self.add_queued_characters().await;
         self.process_player_updates().await;
 
@@ -140,6 +150,9 @@ impl Server {
         self.remove_invisible_creatures_for_players().await;
         self.send_creature_updates_to_players().await;
         self.create_new_creatures_for_players().await;
+
+        self.update_player_melee_attacks(now).await;
+        self.update_creature_melee_attacks(now).await;
     }
 
     async fn process_player_updates(&mut self) {
@@ -158,9 +171,9 @@ impl Server {
                     character.position.2 = movement_info.pos_z;
                     character.orientation = movement_info.orientation;
 
+                    // Relay movement to other players
                     for recipient in self.characters.values() {
-                        if recipient.object_fields.guid == character_id
-                            || !recipient.other_visible_players.contains(&character_id)
+                        if recipient.guid() == character_id || !recipient.sees_player(character_id)
                         {
                             continue;
                         }
@@ -487,7 +500,9 @@ impl Server {
 
                     *character.unit_fields.target.get_mut_using_copy() = guid;
 
-                    if let Some(melee_state) = &mut character.melee_state {
+                    if let Some(melee_state) = &mut character.melee_state
+                        && melee_state.victim.is_some()
+                    {
                         // TODO: targeting checks
 
                         async fn send_new_attack_target(
@@ -501,9 +516,7 @@ impl Server {
                             };
 
                             for character in characters.values() {
-                                if *character.object_fields.guid.get() != character_id
-                                    && !character.other_visible_players.contains(&character_id)
-                                {
+                                if !character.sees_player_including_self(character_id) {
                                     continue;
                                 }
 
@@ -517,7 +530,7 @@ impl Server {
                                     .await
                                 {
                                     warn!(
-                                        "Failed to send SMSG_ATTACKSTOP to client (account_id: {}). Error: {:?}",
+                                        "Failed to send SMSG_ATTACKSTART to client (account_id: {}). Error: {:?}",
                                         character.account_id, e
                                     );
                                     continue;
@@ -558,9 +571,7 @@ impl Server {
                                 };
 
                                 for character in self.characters.values() {
-                                    if *character.object_fields.guid.get() != character_id
-                                        && !character.other_visible_players.contains(&character_id)
-                                    {
+                                    if !character.sees_player_including_self(character_id) {
                                         continue;
                                     }
 
@@ -631,9 +642,7 @@ impl Server {
                     };
 
                     for character in self.characters.values() {
-                        if *character.object_fields.guid.get() != character_id
-                            && !character.other_visible_players.contains(&character_id)
-                        {
+                        if !character.sees_player_including_self(character_id) {
                             continue;
                         }
 
@@ -671,9 +680,7 @@ impl Server {
                     };
 
                     for character in self.characters.values() {
-                        if *character.object_fields.guid.get() != character_id
-                            && !character.other_visible_players.contains(&character_id)
-                        {
+                        if !character.sees_player_including_self(character_id) {
                             continue;
                         }
 
@@ -933,6 +940,186 @@ impl Server {
         // TODO
     }
 
+    /* --- Combat --- */
+
+    async fn update_player_melee_attacks(&mut self, now: Instant) {
+        let mut swings = Vec::new();
+
+        for (guid, character) in &mut self.characters {
+            let Some(melee_state) = &mut character.melee_state else {
+                continue;
+            };
+            let Some(victim) = melee_state.victim else {
+                continue;
+            };
+
+            // TODO: check that the player can attack (not dead, stunned, pacified, casting, etc.)
+            // TODO: range check, send SMSG_ATTACKSWING_NOTINRANGE without consuming the swing
+            // TODO: facing check, send SMSG_ATTACKSWING_BADFACING without consuming the swing
+
+            let main_attack_time =
+                Duration::from_millis(*character.unit_fields.base_attack_time.get() as u64);
+            if melee_state
+                .last_main_hand
+                .is_none_or(|last| now.duration_since(last) >= main_attack_time)
+            {
+                melee_state.last_main_hand = Some(now);
+                swings.push((LivingGuid::Player(*guid), victim, HitHand::Main));
+            }
+
+            /* Requires a check that offhand item is present
+            let main_attack_time =
+                Duration::from_millis(*character.unit_fields.offhand_attack_time.get() as u64);
+            if melee_state
+                .last_off_hand
+                .is_none_or(|last| now.duration_since(last) >= main_attack_time)
+            {
+                melee_state.last_off_hand = Some(now);
+                swings.push((LivingGuid::Player(*guid), victim, HitHand::Off));
+            }
+            */
+        }
+
+        for (attacker, victim, hand) in swings {
+            self.resolve_melee_swing(attacker, victim, hand).await;
+        }
+    }
+
+    async fn update_creature_melee_attacks(&mut self, now: Instant) {
+        let mut swings = Vec::new();
+
+        for (guid, creature) in &mut self.creatures {
+            let Some(melee_state) = &mut creature.melee_state else {
+                continue;
+            };
+            let Some(victim) = melee_state.victim else {
+                continue;
+            };
+
+            // TODO: check that the creature can attack (not dead, stunned, evading, casting, etc.)
+            // TODO: range check, the creature should chase instead of swinging
+            // TODO: facing check, the creature should turn to the victim instead of swinging
+
+            let main_attack_time =
+                Duration::from_millis(*creature.unit_fields.base_attack_time.get() as u64);
+            if melee_state
+                .last_main_hand
+                .is_none_or(|last| now.duration_since(last) >= main_attack_time)
+            {
+                melee_state.last_main_hand = Some(now);
+                swings.push((LivingGuid::Unit(*guid), victim, HitHand::Main));
+            }
+
+            /* Requires a check that offhand item is present
+            let main_attack_time =
+                Duration::from_millis(*creature.unit_fields.offhand_attack_time.get() as u64);
+            if melee_state
+                .last_off_hand
+                .is_none_or(|last| now.duration_since(last) >= main_attack_time)
+            {
+                melee_state.last_off_hand = Some(now);
+                swings.push((LivingGuid::Unit(*guid), victim, HitHand::Off));
+            }
+            */
+        }
+
+        for (attacker, victim, hand) in swings {
+            self.resolve_melee_swing(attacker, victim, hand).await;
+        }
+    }
+
+    async fn resolve_melee_swing(
+        &mut self,
+        attacker: LivingGuid,
+        victim: LivingGuid,
+        hand: HitHand,
+    ) {
+        // An earlier swing this tick could have killed the attacker
+        if self
+            .living_unit_fields(attacker)
+            .is_none_or(|fields| *fields.health.get() == 0)
+        {
+            return;
+        }
+
+        let Some(victim_fields) = self.living_unit_fields_mut(victim) else {
+            // TODO: victim is gone (logged out, despawned), stop the attack with SMSG_ATTACKSTOP
+            return;
+        };
+
+        if *victim_fields.health.get() == 0 {
+            // TODO: SMSG_ATTACKSWING_DEADTARGET for players, drop the victim for creatures
+            return;
+        }
+
+        // TODO: check that the victim can be attacked (not immune, not evading, faction, etc.)
+
+        // TODO: roll the hit table (miss/dodge/parry/block/crit/glancing/crushing) and calculate the damage
+        let damage = 1;
+        let hit_info = HitInfo::new()
+            .with_affects_victim(true)
+            .with_off_hand(matches!(hand, HitHand::Off));
+        let victim_state = VictimState::Normal;
+
+        let health = *victim_fields.health.get();
+        *victim_fields.health.get_mut_using_copy() = health.saturating_sub(damage);
+        // TODO: death handling once health reaches 0
+
+        let response = packets::server::SMSG_ATTACKERSTATEUPDATE {
+            hit_info,
+            attacker: attacker.into(),
+            victim: victim.into(),
+            total_damage: damage,
+            sub_damages: SubDamages(vec![SubDamage {
+                school: DamageSchool::Physical,
+                damage: damage as f32,
+                int_damage: damage,
+                absorbed: 0,
+                resisted: 0,
+            }]),
+            victim_state,
+            unkn: 0,
+            spell_id: None,
+            blocked: 0,
+        };
+
+        for character in self.characters.values() {
+            if !character.sees_including_self(attacker) && !character.sees_including_self(victim) {
+                continue;
+            }
+
+            let mut lock = character.stream_tx.lock().await;
+
+            if let Err(e) = lock
+                .write_all(&response.to_bytes(
+                    Some(character.session_key),
+                    &mut *character.encrypt_data.lock().await,
+                ))
+                .await
+            {
+                warn!(
+                    "Failed to send SMSG_ATTACKERSTATEUPDATE to client (account_id: {}). Error: {:?}",
+                    character.account_id, e
+                );
+                continue;
+            };
+        }
+    }
+
+    fn living_unit_fields(&self, guid: LivingGuid) -> Option<&UnitFields> {
+        match guid {
+            LivingGuid::Player(guid) => self.characters.get(&guid).map(|v| &v.unit_fields),
+            LivingGuid::Unit(guid) => self.creatures.get(&guid).map(|v| &v.unit_fields),
+        }
+    }
+
+    fn living_unit_fields_mut(&mut self, guid: LivingGuid) -> Option<&mut UnitFields> {
+        match guid {
+            LivingGuid::Player(guid) => self.characters.get_mut(&guid).map(|v| &mut v.unit_fields),
+            LivingGuid::Unit(guid) => self.creatures.get_mut(&guid).map(|v| &mut v.unit_fields),
+        }
+    }
+
     /* --- Visibility --- */
 
     // Players
@@ -976,9 +1163,7 @@ impl Server {
             let mut blocks = Vec::new();
 
             for (guid, block) in &update_blocks {
-                if character.other_visible_players.contains(guid)
-                    || character.object_fields.guid == *guid
-                {
+                if character.sees_player_including_self(*guid) {
                     blocks.push(block.clone());
                 }
             }
@@ -1084,7 +1269,7 @@ impl Server {
             let mut new_visible_characters = Vec::new();
 
             for (guid, potentially_new_character) in &self.characters {
-                if !character.other_visible_players.contains(guid)
+                if !character.sees_player(*guid)
                     && self.is_character_visible(character, potentially_new_character)
                 {
                     new_visible_characters.push(*guid);
@@ -1227,7 +1412,7 @@ impl Server {
             let mut blocks = Vec::new();
 
             for (guid, block) in &update_blocks {
-                if character.visible_creatures.contains(guid) {
+                if character.sees_creature(*guid) {
                     blocks.push(block.clone());
                 }
             }
@@ -1330,7 +1515,7 @@ impl Server {
             let mut new_visible_characters = Vec::new();
 
             for (guid, potentially_new_creature) in &self.creatures {
-                if !character.visible_creatures.contains(guid)
+                if !character.sees_creature(*guid)
                     && self.is_creature_visible_to_player(character, potentially_new_creature)
                 {
                     new_visible_characters.push(*guid);

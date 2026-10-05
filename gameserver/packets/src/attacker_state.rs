@@ -110,3 +110,8 @@ impl<T: ByteOrder> OrderedWrite<T> for SubDamages {
         <Vec<SubDamage> as OrderedWrite<LittleEndian>>::write(&self.0, writer)
     }
 }
+
+pub enum HitHand {
+    Main,
+    Off
+}
