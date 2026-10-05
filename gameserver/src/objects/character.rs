@@ -16,7 +16,10 @@ use packets::update_data::UpdateData;
 use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
-use crate::{game_data::GameDataAccessor, objects::item::Item};
+use crate::{
+    game_data::GameDataAccessor,
+    objects::{creature::MeleeState, item::Item},
+};
 
 pub struct Character {
     pub map_id: u32,
@@ -38,6 +41,8 @@ pub struct Character {
     pub visible_creatures: HashSet<Guid<guid::Unit>>,
 
     pub tutorial_flags: TutorialFlags,
+
+    pub melee_state: Option<MeleeState>,
 }
 
 impl Character {
@@ -286,7 +291,7 @@ impl Character {
                 offhand_attack_time: 2.into(),
                 ranged_attack_time: 3.into(),
                 bounding_radius: 4.into(),
-                combat_reach: 5.0.into(),
+                combat_reach: 1.5.into(),
                 display_id: (model.display_id as u32).into(),
                 native_display_id: 0.into(),
                 mount_display_id: 0.into(),
@@ -596,6 +601,8 @@ impl Character {
             tutorial_flags: TutorialFlags::from_bits(model.tutorial_flags as u64),
 
             items,
+
+            melee_state: None,
         })
     }
 

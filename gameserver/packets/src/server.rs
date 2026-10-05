@@ -3,19 +3,22 @@
 use std::{
     ffi::CString,
     io::{ErrorKind, Write},
+    num::NonZeroU32,
 };
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
-use common::guid::{self, Guid};
+use common::guid::{self, Guid, GuidType, LivingGuid};
 use macros::create_server_packets;
 
 use crate::{
     account_result::AccountResult,
+    attacker_state::{HitInfo, SubDamages, VictimState},
     character_info::CharacterInfo,
     inventory_change_result::InventoryChangeResult,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
     movement_info::MovementInfo,
+    packed::Packed,
     update_data::UpdateBlocks,
 };
 
@@ -112,7 +115,7 @@ SMSG_CREATURE_QUERY_RESPONSE 0x061 {
     sub_name: CString: LittleEndian,
     flags: u32: LittleEndian,
     creature_type: u32: LittleEndian,
-    family: u32: LittleEndian,
+    family: Option<NonZeroU32>: LittleEndian,
     rank: u32: LittleEndian,
     unkn: u32: LittleEndian,
     pet_spell_data_id: u32: LittleEndian,
@@ -123,87 +126,87 @@ SMSG_UPDATE_OBJECT 0x0A9 {
     update_data: UpdateBlocks: LittleEndian,
 },
 MSG_MOVE_START_FORWARD 0x0B5 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_BACKWARD 0x0B6 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_STOP 0x0B7 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_STRAFE_LEFT 0x0B8 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_STRAFE_RIGHT 0x0B9 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_STOP_STRAFE 0x0BA {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_JUMP 0x0BB {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_TURN_LEFT 0x0BC {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_TURN_RIGHT 0x0BD {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_STOP_TURN 0x0BE {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_PITCH_UP 0x0BF {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_PITCH_DOWN 0x0C0 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_STOP_PITCH 0x0C1 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_SET_RUN_MODE 0x0C2 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_SET_WALK_MODE 0x0C3 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_FALL_LAND 0x0C9 {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_START_SWIM 0x0CA {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_STOP_SWIM 0x0CB {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_SET_FACING 0x0DA {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_SET_PITCH 0x0DB {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 MSG_MOVE_HEARTBEAT 0x0EE {
-    mover: PackedPlayerGuid: LittleEndian,
+    mover: Packed<Guid<guid::Player>>: LittleEndian,
     movement_info: MovementInfo: LittleEndian,
 },
 SMSG_TUTORIAL_FLAGS 0x0FD {
@@ -218,6 +221,30 @@ SMSG_TUTORIAL_FLAGS 0x0FD {
 },
 SMSG_INVENTORY_CHANGE_FAILURE 0x112 {
     result: InventoryChangeResult: LittleEndian
+},
+SMSG_ATTACKSTART 0x143 {
+    attacker: LivingGuid: LittleEndian,
+    victim: LivingGuid: LittleEndian,
+},
+SMSG_ATTACKSTOP 0x144 {
+    attacker: Packed<LivingGuid>: LittleEndian,
+    victim: Option<Packed<LivingGuid>>: LittleEndian,
+    unkn: u32: LittleEndian, // when non-zero the client stores the attacker-victim distance, purpose unknown
+},
+SMSG_ATTACKSWING_NOTINRANGE 0x145 {},
+SMSG_ATTACKSWING_BADFACING 0x146 {},
+SMSG_ATTACKSWING_DEADTARGET 0x148 {},
+SMSG_ATTACKSWING_CANT_ATTACK 0x149 {},
+SMSG_ATTACKERSTATEUPDATE 0x14A {
+    hit_info: HitInfo: LittleEndian,
+    attacker: Packed<LivingGuid>: LittleEndian,
+    victim: Packed<LivingGuid>: LittleEndian,
+    total_damage: u32: LittleEndian,
+    sub_damages: SubDamages: LittleEndian,
+    victim_state: VictimState: LittleEndian,
+    unkn: u32: LittleEndian,
+    spell_id: Option<NonZeroU32>: LittleEndian,
+    blocked: u32: LittleEndian,
 },
 SMSG_BINDPOINTUPDATE 0x155 {
     homebind_x: f32: LittleEndian,
@@ -277,6 +304,12 @@ impl<T: ByteOrder> OrderedWrite<T> for u32 {
     }
 }
 
+impl<T: ByteOrder> OrderedWrite<T> for Option<NonZeroU32> {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        writer.write_u32::<T>(self.map_or(0, |v| v.get()))
+    }
+}
+
 impl<T: ByteOrder> OrderedWrite<T> for f32 {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_f32::<T>(*self)
@@ -327,29 +360,5 @@ impl<T: ByteOrder, Tz: TimeZone> OrderedWrite<T> for DateTime<Tz> {
             | self.minute();
 
         writer.write_u32::<T>(v)
-    }
-}
-
-pub struct PackedPlayerGuid(pub Guid<guid::Player>);
-
-impl From<Guid<guid::Player>> for PackedPlayerGuid {
-    fn from(value: Guid<guid::Player>) -> Self {
-        Self(value)
-    }
-}
-
-impl<T: ByteOrder> OrderedWrite<T> for PackedPlayerGuid {
-    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        let bytes = self.0.get().get().to_le_bytes();
-        let mask = bytes.iter().enumerate().fold(0_u8, |mask, (index, byte)| {
-            mask | (u8::from(*byte != 0) << index)
-        });
-
-        writer.write_u8(mask)?;
-        for byte in bytes.into_iter().filter(|byte| *byte != 0) {
-            writer.write_u8(byte)?;
-        }
-
-        Ok(())
     }
 }

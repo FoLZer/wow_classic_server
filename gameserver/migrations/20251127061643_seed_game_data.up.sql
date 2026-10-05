@@ -1,40 +1,40 @@
 /* Races START */
-INSERT INTO race(id)
-VALUES(1);
-INSERT INTO race(id)
-VALUES(2);
-INSERT INTO race(id)
-VALUES(3);
-INSERT INTO race(id)
-VALUES(4);
-INSERT INTO race(id)
-VALUES(5);
-INSERT INTO race(id)
-VALUES(6);
-INSERT INTO race(id)
-VALUES(7);
-INSERT INTO race(id)
-VALUES(8);
+INSERT INTO race(id, name)
+VALUES(1, "Human");
+INSERT INTO race(id, name)
+VALUES(2, "Orc");
+INSERT INTO race(id, name)
+VALUES(3, "Dwarf");
+INSERT INTO race(id, name)
+VALUES(4, "Night Elf");
+INSERT INTO race(id, name)
+VALUES(5, "Undead");
+INSERT INTO race(id, name)
+VALUES(6, "Tauren");
+INSERT INTO race(id, name)
+VALUES(7, "Gnome");
+INSERT INTO race(id, name)
+VALUES(8, "Troll");
 /* Races END */
 /* Classes START */
-INSERT INTO class(id)
-VALUES(1);
-INSERT INTO class(id)
-VALUES(2);
-INSERT INTO class(id)
-VALUES(3);
-INSERT INTO class(id)
-VALUES(4);
-INSERT INTO class(id)
-VALUES(5);
-INSERT INTO class(id)
-VALUES(6);
-INSERT INTO class(id)
-VALUES(7);
-INSERT INTO class(id)
-VALUES(8);
-INSERT INTO class(id)
-VALUES(9);
+INSERT INTO class(id, name)
+VALUES(1, "Warrior");
+INSERT INTO class(id, name)
+VALUES(2, "Paladin");
+INSERT INTO class(id, name)
+VALUES(3, "Hunter");
+INSERT INTO class(id, name)
+VALUES(4, "Rogue");
+INSERT INTO class(id, name)
+VALUES(5, "Priest");
+INSERT INTO class(id, name)
+VALUES(7, "Shaman");
+INSERT INTO class(id, name)
+VALUES(8, "Mage");
+INSERT INTO class(id, name)
+VALUES(9, "Warlock");
+INSERT INTO class(id, name)
+VALUES(11, "Druid");
 /* Classes END */
 /* Character Display Ids START */
 INSERT INTO character_display_id(race, gender, display_id)
@@ -343,16 +343,14 @@ VALUES(
     );
 /* Player Start Data END */
 /* Factions START */
-INSERT INTO faction(id)
-VALUES(25);
+INSERT INTO faction(id, name)
+VALUES(25, "Kobold");
 /* Factions END */
 /* Creature Type START */
-INSERT INTO creature_type(id)
-VALUES(7);
+INSERT INTO creature_type(id, name)
+VALUES(7, "Humanoid");
 /* Creature Type END */
 /* Creature Family START */
-INSERT INTO creature_family(id)
-VALUES(0);
 /* Creature Family END */
 
 /* Creatures START */
@@ -410,7 +408,7 @@ VALUES(
         NULL,
         0,
         7,
-        0,
+        NULL,
         2,
         0
     );

@@ -127,3 +127,28 @@ impl SelectableGuid {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LivingGuid {
+    Unit(Guid<Unit>),
+    Player(Guid<Player>),
+}
+
+impl LivingGuid {
+    pub fn get(&self) -> NonZeroU64 {
+        match self {
+            LivingGuid::Unit(guid) => guid.get(),
+            LivingGuid::Player(guid) => guid.get(),
+        }
+    }
+
+    pub fn try_from_u64(v: u64) -> Option<Self> {
+        let prefix = (v >> 48) as u16;
+
+        match prefix {
+            Unit::PREFIX => Guid::<Unit>::try_from_u64(v).map(Self::Unit),
+            Player::PREFIX => Guid::<Player>::try_from_u64(v).map(Self::Player),
+            _ => None,
+        }
+    }
+}

@@ -131,11 +131,15 @@ CREATE TABLE IF NOT EXISTS item_prototype(
 
     duration INT
 );
+/* Unchangeable for now: requires patching .dbc */
 CREATE TABLE IF NOT EXISTS race(
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
 );
+/* Unchangeable for now: requires patching .dbc */
 CREATE TABLE IF NOT EXISTS class(
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS character_display_id(
     race TINYINT NOT NULL,
@@ -185,14 +189,20 @@ CREATE TABLE IF NOT EXISTS player_start_data(
 
     PRIMARY KEY(race, class)
 );
+/* Unchangeable for now: requires patching .dbc */
 CREATE TABLE IF NOT EXISTS faction(
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
 );
+/* Unchangeable for now: requires patching .dbc */
 CREATE TABLE IF NOT EXISTS creature_type(
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
 );
+/* Unchangeable for now: requires patching .dbc */
 CREATE TABLE IF NOT EXISTS creature_family(
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
 );
 /* ---------------- Game data END ---------------- */
 
@@ -322,7 +332,7 @@ CREATE TABLE IF NOT EXISTS creature(
 
     flags INT NOT NULL,
     type INT NOT NULL REFERENCES creature_type,
-    family INT NOT NULL REFERENCES creature_family,
+    family INT REFERENCES creature_family,
     rank INT NOT NULL,
     civilian INT NOT NULL
 );

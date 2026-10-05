@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bit_vec::BitVec;
 use chrono::{DateTime, Local, TimeDelta};
-use common::guid::{self, AnyGuid, Guid};
+use common::guid::{self, AnyGuid, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable, unit::VirtualItemInfo};
 use log::{error, warn};
@@ -17,7 +17,16 @@ use rand::{RngExt, rng};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
-    creature_spawner::{CreatureSpawnInfo, CreatureSpawner}, game_data::GameDataAccessor, guid_allocator::GuidAllocator, objects::{character::Character, creature::Creature, creature_prototype::CreaturePrototype}, packet_handler::{MovementOpcode, PlayerUpdate, PlayerUpdateData, packet_handler}, sparse_set::SparseSet,
+    creature_spawner::{CreatureSpawnInfo, CreatureSpawner},
+    game_data::GameDataAccessor,
+    guid_allocator::GuidAllocator,
+    objects::{
+        character::Character,
+        creature::{Creature, MeleeState},
+        creature_prototype::CreaturePrototype,
+    },
+    packet_handler::{MovementOpcode, PlayerUpdate, PlayerUpdateData, packet_handler},
+    sparse_set::SparseSet,
 };
 
 pub struct Server {
@@ -457,7 +466,7 @@ impl Server {
                     self.characters.remove(&character_id);
                 }
                 PlayerUpdateData::TransitionToCharacterScreen { rx, decrypt_data } => {
-                    let Some(mut character) = self.characters.remove(&character_id) else {
+                    let Some(character) = self.characters.remove(&character_id) else {
                         warn!(
                             "Tried to transition a missing character (character_id: {})",
                             character_id.get()
@@ -477,15 +486,111 @@ impl Server {
                     };
 
                     *character.unit_fields.target.get_mut_using_copy() = guid;
+
+                    if let Some(melee_state) = &mut character.melee_state {
+                        // TODO: targeting checks
+
+                        async fn send_new_attack_target(
+                            character_id: Guid<guid::Player>,
+                            victim: LivingGuid,
+                            characters: &mut HashMap<Guid<guid::Player>, Character>,
+                        ) {
+                            let response = packets::server::SMSG_ATTACKSTART {
+                                attacker: LivingGuid::Player(character_id).into(),
+                                victim,
+                            };
+
+                            for character in characters.values() {
+                                if *character.object_fields.guid.get() != character_id
+                                    && !character.other_visible_players.contains(&character_id)
+                                {
+                                    continue;
+                                }
+
+                                let mut lock = character.stream_tx.lock().await;
+
+                                if let Err(e) = lock
+                                    .write_all(&response.to_bytes(
+                                        Some(character.session_key),
+                                        &mut *character.encrypt_data.lock().await,
+                                    ))
+                                    .await
+                                {
+                                    warn!(
+                                        "Failed to send SMSG_ATTACKSTOP to client (account_id: {}). Error: {:?}",
+                                        character.account_id, e
+                                    );
+                                    continue;
+                                };
+                            }
+                        }
+
+                        match guid {
+                            Some(SelectableGuid::Player(guid)) => {
+                                let new_victim = LivingGuid::Player(guid);
+                                melee_state.victim = Some(new_victim);
+                                send_new_attack_target(
+                                    character_id,
+                                    new_victim,
+                                    &mut self.characters,
+                                )
+                                .await;
+                            }
+                            Some(SelectableGuid::Unit(guid)) => {
+                                let new_victim = LivingGuid::Unit(guid);
+                                melee_state.victim = Some(LivingGuid::Unit(guid));
+                                send_new_attack_target(
+                                    character_id,
+                                    new_victim,
+                                    &mut self.characters,
+                                )
+                                .await;
+                            }
+                            _ => {
+                                let Some(previous_victim) = melee_state.victim.take() else {
+                                    continue;
+                                };
+
+                                let response = packets::server::SMSG_ATTACKSTOP {
+                                    attacker: LivingGuid::Player(character_id).into(),
+                                    victim: Some(previous_victim.into()),
+                                    unkn: 0,
+                                };
+
+                                for character in self.characters.values() {
+                                    if *character.object_fields.guid.get() != character_id
+                                        && !character.other_visible_players.contains(&character_id)
+                                    {
+                                        continue;
+                                    }
+
+                                    let mut lock = character.stream_tx.lock().await;
+
+                                    if let Err(e) = lock
+                                        .write_all(&response.to_bytes(
+                                            Some(character.session_key),
+                                            &mut *character.encrypt_data.lock().await,
+                                        ))
+                                        .await
+                                    {
+                                        warn!(
+                                            "Failed to send SMSG_ATTACKSTOP to client (account_id: {}). Error: {:?}",
+                                            character.account_id, e
+                                        );
+                                        continue;
+                                    };
+                                }
+                            }
+                        }
+                    }
                 }
                 PlayerUpdateData::SetTutorialFlag { flag } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
-                    character.tutorial_flags = TutorialFlags::from_bits(
-                        character.tutorial_flags.into_bits() | 1 << flag,
-                    );
+                    character.tutorial_flags =
+                        TutorialFlags::from_bits(character.tutorial_flags.into_bits() | 1 << flag);
                 }
                 PlayerUpdateData::ClearTutorials => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
@@ -501,6 +606,93 @@ impl Server {
                     };
 
                     character.tutorial_flags = TutorialFlags::new();
+                }
+                PlayerUpdateData::StartCombat { victim } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    //TODO: need to check victim being targetable for combat, e.g. not dead, range checks
+
+                    match &mut character.melee_state {
+                        Some(state) => state.victim = Some(victim),
+                        None => {
+                            character.melee_state = Some(MeleeState {
+                                victim: Some(victim),
+                                last_main_hand: None,
+                                last_off_hand: None,
+                            });
+                        }
+                    }
+
+                    let response = packets::server::SMSG_ATTACKSTART {
+                        attacker: LivingGuid::Player(character_id),
+                        victim,
+                    };
+
+                    for character in self.characters.values() {
+                        if *character.object_fields.guid.get() != character_id
+                            && !character.other_visible_players.contains(&character_id)
+                        {
+                            continue;
+                        }
+
+                        let mut lock = character.stream_tx.lock().await;
+
+                        if let Err(e) = lock
+                            .write_all(&response.to_bytes(
+                                Some(character.session_key),
+                                &mut *character.encrypt_data.lock().await,
+                            ))
+                            .await
+                        {
+                            warn!(
+                                "Failed to send SMSG_ATTACKSTART to client (account_id: {}). Error: {:?}",
+                                character.account_id, e
+                            );
+                            continue;
+                        };
+                    }
+                }
+                PlayerUpdateData::StopCombat => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    let previous_victim = character
+                        .melee_state
+                        .as_mut()
+                        .and_then(|state| state.victim.take());
+
+                    let response = packets::server::SMSG_ATTACKSTOP {
+                        attacker: LivingGuid::Player(character_id).into(),
+                        victim: previous_victim.map(|v| v.into()),
+                        unkn: 0,
+                    };
+
+                    for character in self.characters.values() {
+                        if *character.object_fields.guid.get() != character_id
+                            && !character.other_visible_players.contains(&character_id)
+                        {
+                            continue;
+                        }
+
+                        let mut lock = character.stream_tx.lock().await;
+
+                        if let Err(e) = lock
+                            .write_all(&response.to_bytes(
+                                Some(character.session_key),
+                                &mut *character.encrypt_data.lock().await,
+                            ))
+                            .await
+                        {
+                            warn!(
+                                "Failed to send SMSG_ATTACKSTOP to client (account_id: {}). Error: {:?}",
+                                character.account_id, e
+                            );
+                            continue;
+                        };
+                    }
                 }
             }
         }
@@ -1466,6 +1658,7 @@ impl Server {
                     power_cost_multipliers: [1.into(); 7],
                     _padding: 0.into(),
                 },
+                melee_state: None,
             },
         );
     }

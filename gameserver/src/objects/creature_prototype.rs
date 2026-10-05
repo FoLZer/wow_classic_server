@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use sqlx::{Pool, Sqlite};
 
 use crate::{game_data::GameDataAccessor, objects::item_prototype::ItemPrototype};
@@ -29,7 +31,7 @@ pub struct CreaturePrototype {
 
     pub flags: u32,
     pub r#type: u32,
-    pub family: u32,
+    pub family: Option<NonZeroU32>,
     pub rank: u32,
     pub civilian: u16,
 }
@@ -92,7 +94,7 @@ impl CreaturePrototype {
 
             flags: model.flags as u32,
             r#type: model.r#type as u32,
-            family: model.family as u32,
+            family: NonZeroU32::new(model.family.unwrap_or(0) as u32),
             rank: model.rank as u32,
             civilian: model.civilian as u16,
         })

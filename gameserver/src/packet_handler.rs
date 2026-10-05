@@ -1,7 +1,7 @@
 use std::{ffi::CString, io::ErrorKind, sync::Arc};
 
 use chrono::Local;
-use common::guid::{self, Guid, SelectableGuid};
+use common::guid::{self, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::{
     player::TutorialFlags,
@@ -630,6 +630,50 @@ pub async fn packet_handler(
                     return;
                 };
             }
+            ClientPacket::CMSG_ATTACKSWING(packet) => {
+                let Some(victim) = LivingGuid::try_from_u64(packet.guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_ATTACKSWING with an invalid guid: {}",
+                        character_id.get(),
+                        packet.guid
+                    );
+
+                    let response = packets::server::SMSG_ATTACKSWING_CANT_ATTACK {};
+
+                    if let Err(e) = tx
+                        .lock()
+                        .await
+                        .write_all(
+                            &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                        )
+                        .await
+                    {
+                        warn!(
+                            "Failed to send SMSG_ATTACKSWING_CANT_ATTACK to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            e
+                        )
+                    };
+                    continue;
+                };
+
+                //TODO: check that guid actually resolves to something
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::StartCombat { victim },
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_ATTACKSTOP(_) => {
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::StopCombat,
+                }) {
+                    return;
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -681,6 +725,10 @@ pub enum PlayerUpdateData {
     ClearTutorials,
     // Marks every tutorial as not shown yet
     ResetTutorials,
+    StartCombat {
+        victim: LivingGuid,
+    },
+    StopCombat
 }
 
 fn parse_slot(slot: u8) -> Slot {
