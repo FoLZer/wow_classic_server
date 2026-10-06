@@ -52,8 +52,8 @@ struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            mpq_directory_path: PathBuf::from_str("./worldeditor/Data").unwrap(),
-            database_path: PathBuf::from_str("./gameserver/gameserver.db").unwrap(),
+            mpq_directory_path: PathBuf::from_str("./Data").unwrap(),
+            database_path: PathBuf::from_str("../gameserver/gameserver.db").unwrap(),
             terrain_view_distance: 50_000.0,
             object_view_distance: 3_000.0,
             small_object_distance_scale: 1.0,
@@ -64,8 +64,24 @@ impl Default for AppSettings {
     }
 }
 
+const CONFIG_FILE: &str = "worldeditor_config.toml";
+
+#[cfg(debug_assertions)]
+fn locate_working_dir() {
+    if std::path::Path::new(CONFIG_FILE).exists() {
+        return;
+    }
+    let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    if crate_dir.join(CONFIG_FILE).exists() {
+        std::env::set_current_dir(crate_dir).unwrap();
+    }
+}
+
 fn main() {
-    let config: AppSettings = confy::load_path("./worldeditor_config.toml").unwrap();
+    #[cfg(debug_assertions)]
+    locate_working_dir();
+
+    let config: AppSettings = confy::load_path(CONFIG_FILE).unwrap();
     let render_settings = RenderSettings {
         render_adts: true,
         render_objects: true,

@@ -78,11 +78,27 @@ impl Default for AppSettings {
 
 const TICKRATE: u32 = 20; // Ticks per second
 
+const CONFIG_FILE: &str = "gameserver_config.toml";
+
+#[cfg(debug_assertions)]
+fn locate_working_dir() {
+    if std::path::Path::new(CONFIG_FILE).exists() {
+        return;
+    }
+    let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    if crate_dir.join(CONFIG_FILE).exists() {
+        std::env::set_current_dir(crate_dir).unwrap();
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    #[cfg(debug_assertions)]
+    locate_working_dir();
+
     log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
 
-    let config: AppSettings = confy::load_path("./gameserver_config.toml").unwrap();
+    let config: AppSettings = confy::load_path(CONFIG_FILE).unwrap();
 
     let db = SqlitePoolOptions::new()
         .connect(&format!(

@@ -66,11 +66,27 @@ lazy_static! {
     static ref SECURE_RNG: Mutex<StdRng> = Mutex::new(rand::make_rng());
 }
 
+const CONFIG_FILE: &str = "authserver_config.toml";
+
+#[cfg(debug_assertions)]
+fn locate_working_dir() {
+    if std::path::Path::new(CONFIG_FILE).exists() {
+        return;
+    }
+    let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    if crate_dir.join(CONFIG_FILE).exists() {
+        std::env::set_current_dir(crate_dir).unwrap();
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    #[cfg(debug_assertions)]
+    locate_working_dir();
+
     log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
 
-    let config: AppSettings = confy::load_path("./authserver_config.toml").unwrap();
+    let config: AppSettings = confy::load_path(CONFIG_FILE).unwrap();
 
     let db: DatabaseConnection = Database::connect(format!(
         "sqlite://{}?mode=rwc",
