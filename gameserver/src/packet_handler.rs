@@ -735,11 +735,25 @@ pub async fn packet_handler(
                 if !packet.chat.is_addon_message() {
                     match packet.chat.ty {
                         ChatType::AFK => {
-                            // TODO
+                            if let Err(_) = player_update_queue.push(PlayerUpdate {
+                                character_id,
+                                data: PlayerUpdateData::SetAFK {
+                                    message: packet.chat.message,
+                                },
+                            }) {
+                                return;
+                            };
                             continue;
                         }
                         ChatType::DND => {
-                            // TODO
+                            if let Err(_) = player_update_queue.push(PlayerUpdate {
+                                character_id,
+                                data: PlayerUpdateData::SetDND {
+                                    message: packet.chat.message,
+                                },
+                            }) {
+                                return;
+                            };
                             continue;
                         }
                         _ => (),
@@ -864,6 +878,12 @@ pub enum PlayerUpdateData {
     },
     StopCombat,
     ChatMessage(ChatMessage),
+    SetAFK {
+        message: CString,
+    },
+    SetDND {
+        message: CString,
+    },
 }
 
 fn parse_slot(slot: u8) -> Slot {

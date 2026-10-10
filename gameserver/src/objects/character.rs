@@ -4,8 +4,8 @@ use common::guid::{self, Guid, LivingGuid};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     player::{
-        PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, QuestLogFields, TutorialFlags,
-        VisibleItemFields,
+        PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, PlayerFlags, QuestLogFields,
+        TutorialFlags, VisibleItemFields,
     },
     unit::{
         SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2, UnitFieldBytes2Flags,
@@ -385,7 +385,7 @@ impl Character {
             },
             player_fields: PlayerFields {
                 duel_arbiter: None.into(),
-                flags: 0.into(),
+                flags: PlayerFlags::new().into(),
                 guild_id: 0.into(),
                 guild_rank: 0.into(),
                 _unknown_bytes_1: 0.into(),

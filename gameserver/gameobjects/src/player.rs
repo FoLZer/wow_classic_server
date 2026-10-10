@@ -7,7 +7,7 @@ use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
 #[tracked]
 pub struct PlayerFields {
     pub duel_arbiter: Option<Guid<guid::GameObject>>,
-    pub flags: u32,
+    pub flags: PlayerFlags,
     pub guild_id: u32,
     pub guild_rank: u32,
     pub _unknown_bytes_1: u32,
@@ -134,6 +134,33 @@ impl UpdateWritable for VisibleItemFields {
         }
         blocks[10] = self.random_properties_id;
         blocks[11] = self.property_seed;
+    }
+}
+
+#[bitfield(u32)]
+#[derive(PartialEq, Eq)]
+pub struct PlayerFlags {
+    pub group_leader: bool,
+    pub afk: bool, // <AFK> chat tag
+    pub dnd: bool, // <DND> chat tag
+    pub gm: bool,  // <GM> chat tag, all languages are untranslated and unfiltered
+    pub ghost: bool,
+    pub resting: bool,
+    _unkn: bool,             // never read by the client
+    pub ffa_pvp: bool,       // hostile to every other player with this flag
+    pub contested_pvp: bool, // hostile to contested guards
+    pub pvp_desired: bool,
+    pub hide_helm: bool,
+    pub hide_cloak: bool,
+    pub partial_play_time: bool,
+    pub no_play_time: bool,
+    #[bits(18)]
+    _unkn: u32, // never read by the client
+}
+
+impl UpdateWritable for PlayerFlags {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.0;
     }
 }
 

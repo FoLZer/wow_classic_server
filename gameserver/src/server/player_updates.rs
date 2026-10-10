@@ -585,6 +585,44 @@ impl Server {
                         ChatMessage::BattleGroundLeader { language, text } => todo!(),
                     }
                 }
+                PlayerUpdateData::SetAFK { message } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    if message.is_empty() {
+                        character
+                            .player_fields
+                            .flags
+                            .get_mut_using_copy()
+                            .set_afk(false);
+                    } else {
+                        character
+                            .player_fields
+                            .flags
+                            .get_mut_using_copy()
+                            .set_afk(true);
+                    }
+                }
+                PlayerUpdateData::SetDND { message } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    if message.is_empty() {
+                        character
+                            .player_fields
+                            .flags
+                            .get_mut_using_copy()
+                            .set_dnd(false);
+                    } else {
+                        character
+                            .player_fields
+                            .flags
+                            .get_mut_using_copy()
+                            .set_dnd(true);
+                    }
+                }
             }
         }
     }
