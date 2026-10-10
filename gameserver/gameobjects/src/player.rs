@@ -10,7 +10,7 @@ pub struct PlayerFields {
     pub flags: PlayerFlags,
     pub guild_id: u32,
     pub guild_rank: u32,
-    pub _unknown_bytes_1: u32,
+    pub bytes_1: PlayerFieldBytes1,
     pub bytes_2: PlayerFieldBytes2,
     pub bytes_3: PlayerFieldBytes3,
     pub duel_team: u32,
@@ -159,6 +159,20 @@ pub struct PlayerFlags {
 }
 
 impl UpdateWritable for PlayerFlags {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.0;
+    }
+}
+
+#[bitfield(u32)]
+pub struct PlayerFieldBytes1 {
+    pub skin: u8,
+    pub face: u8,
+    pub hair_style: u8,
+    pub hair_color: u8,
+}
+
+impl UpdateWritable for PlayerFieldBytes1 {
     fn write(&self, blocks: &mut [u32]) {
         blocks[0] = self.0;
     }

@@ -4,8 +4,8 @@ use common::guid::{self, Guid, LivingGuid};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     player::{
-        PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, PlayerFlags, QuestLogFields,
-        TutorialFlags, VisibleItemFields,
+        PlayerFieldBytes1, PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, PlayerFlags,
+        QuestLogFields, TutorialFlags, VisibleItemFields,
     },
     unit::{
         SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2, UnitFieldBytes2Flags,
@@ -388,7 +388,12 @@ impl Character {
                 flags: PlayerFlags::new().into(),
                 guild_id: 0.into(),
                 guild_rank: 0.into(),
-                _unknown_bytes_1: 0.into(),
+                bytes_1: PlayerFieldBytes1::new()
+                    .with_skin(model.skin as u8)
+                    .with_face(model.face as u8)
+                    .with_hair_style(model.hair_style as u8)
+                    .with_hair_color(model.hair_color as u8)
+                    .into(),
                 bytes_2: PlayerFieldBytes2::new()
                     .with_facial_hair(model.facial_hair as u8)
                     .with_bank_bag_slots(0)
