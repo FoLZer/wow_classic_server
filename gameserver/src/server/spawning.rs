@@ -22,10 +22,11 @@ impl Server {
         creatures: &mut HashMap<Guid<guid::Unit>, Creature>,
     ) {
         let mut to_deactivate = Vec::new();
-        for (index, spawner) in creature_spawners.iter().enumerate() {
-            let (spawn_infos, keep_active) = spawner.force_first_spawn();
 
-            for spawn_info in spawn_infos {
+        creature_spawners.for_each_async(async |index, spawner| {
+            let spawner_result = spawner.force_first_spawn();
+
+            for spawn_info in spawner_result.creatures_to_spawn {
                 // TODO: prefetch for faster loading time
                 let prototype = match game_data_accessor
                     .get_creature_prototype(spawn_info.spawn_creature_id)
@@ -48,13 +49,14 @@ impl Server {
                     }
                 };
 
-                Self::spawn_creature(unit_guid_allocator, prototype, spawn_info, creatures);
+                Self::spawn_creature(unit_guid_allocator, prototype, spawn_info, creatures, Some(index));
             }
 
-            if !keep_active {
+            if !spawner_result.keep_active {
                 to_deactivate.push(index);
             }
-        }
+        }).await;
+
         for index in to_deactivate {
             creature_spawners.deactivate(index);
         }
@@ -70,10 +72,11 @@ impl Server {
 
     pub(super) async fn process_queued_creature_spawners(&mut self) {
         let mut to_deactivate = Vec::new();
-        for (index, spawner) in self.creature_spawners.iter().enumerate() {
-            let (spawn_infos, keep_active) = spawner.get_creatures_to_spawn();
 
-            for spawn_info in spawn_infos {
+        self.creature_spawners.for_each_async(async |index, spawner| {
+            let spawner_result = spawner.get_creatures_to_spawn();
+
+            for spawn_info in spawner_result.creatures_to_spawn {
                 // TODO: prefetch, a tick should not be stuck waiting for db access here, especially sequentially like that
                 let prototype = match self
                     .game_data_accessor
@@ -102,13 +105,15 @@ impl Server {
                     prototype,
                     spawn_info,
                     &mut self.creatures,
+                    Some(index),
                 );
             }
 
-            if !keep_active {
+            if !spawner_result.keep_active {
                 to_deactivate.push(index);
             }
-        }
+        }).await;
+
         for index in to_deactivate {
             self.creature_spawners.deactivate(index);
         }
@@ -119,6 +124,7 @@ impl Server {
         prototype: CreaturePrototype,
         spawn_info: CreatureSpawnInfo,
         creatures_out: &mut HashMap<Guid<guid::Unit>, Creature>,
+        spawner_index: Option<usize>,
     ) {
         let guid = unit_guid_allocator
             .allocate()
@@ -283,6 +289,7 @@ impl Server {
                     power_cost_multipliers: [1.into(); 7],
                     _padding: 0.into(),
                 },
+                spawner_index,
                 melee_state: None,
             },
         );

@@ -387,7 +387,8 @@ VALUES(
         6,
         "Kobold Vermin",
         NULL,
-        100,
+        /* 100, */
+        2,
         500,
         1,
         1,
@@ -428,6 +429,7 @@ VALUES(
         83.5312,
         0.0,
         6,
-        30000
+        /* 30000 */
+        10000
     );
 /* Static Creature Spawners END */

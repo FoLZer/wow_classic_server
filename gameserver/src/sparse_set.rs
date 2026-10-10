@@ -62,6 +62,30 @@ impl<T> SparseSet<T> {
             .iter()
             .map(|&index| &self.entries[index].value)
     }
+
+    pub fn for_each(&self, mut f: impl FnMut(usize, &T)) {
+        for &index in &self.active_indices {
+            f(index, &self.entries[index].value);
+        }
+    }
+
+    pub fn for_each_mut(&mut self, mut f: impl FnMut(usize, &mut T)) {
+        for &index in &self.active_indices {
+            f(index, &mut self.entries[index].value);
+        }
+    }
+
+    pub async fn for_each_async(&self, mut f: impl AsyncFnMut(usize, &T)) {
+        for &index in &self.active_indices {
+            f(index, &self.entries[index].value).await;
+        }
+    }
+
+    pub async fn for_each_mut_async(&mut self, mut f: impl AsyncFnMut(usize, &mut T)) {
+        for &index in &self.active_indices {
+            f(index, &mut self.entries[index].value).await;
+        }
+    }
 }
 
 struct Entry<T> {

@@ -11,16 +11,14 @@ impl CreatureSpawner {
         }
     }
 
-    // Skips the respawn time check, used to create creatures immediately on server startup instead of waiting for respawn
-    // (spawnInfo, keepActive)
-    pub fn force_first_spawn(&self) -> (Vec<CreatureSpawnInfo>, bool) {
+    /// Skips the respawn time check, used to create creatures immediately on server startup instead of waiting for respawn
+    pub fn force_first_spawn(&self) -> SpawnerResult {
         match self {
             CreatureSpawner::Static(spawner) => spawner.force_first_spawn(),
         }
     }
 
-    // (spawnInfo, keepActive)
-    pub fn get_creatures_to_spawn(&self) -> (Vec<CreatureSpawnInfo>, bool) {
+    pub fn get_creatures_to_spawn(&self) -> SpawnerResult {
         match self {
             CreatureSpawner::Static(spawner) => spawner.get_creatures_to_spawn(),
         }
@@ -34,6 +32,7 @@ pub struct StaticCreatureSpawner {
     spawn_creature_id: u32,
 
     respawn_time: Duration,
+
     died_at: Instant,
 }
 
@@ -57,29 +56,32 @@ impl StaticCreatureSpawner {
         self.died_at = Instant::now();
     }
 
-    pub fn force_first_spawn(&self) -> (Vec<CreatureSpawnInfo>, bool) {
-        (
-            vec![CreatureSpawnInfo {
+    pub fn force_first_spawn(&self) -> SpawnerResult {
+        SpawnerResult {
+            creatures_to_spawn: vec![CreatureSpawnInfo {
                 position: self.position,
                 orientation: self.orientation,
                 spawn_creature_id: self.spawn_creature_id,
             }],
-            false,
-        )
+            keep_active: false,
+        }
     }
 
-    pub fn get_creatures_to_spawn(&self) -> (Vec<CreatureSpawnInfo>, bool) {
+    pub fn get_creatures_to_spawn(&self) -> SpawnerResult {
         if self.died_at.elapsed() > self.respawn_time {
-            (
-                vec![CreatureSpawnInfo {
+            SpawnerResult {
+                creatures_to_spawn: vec![CreatureSpawnInfo {
                     position: self.position,
                     orientation: self.orientation,
                     spawn_creature_id: self.spawn_creature_id,
                 }],
-                false,
-            )
+                keep_active: false,
+            }
         } else {
-            (Vec::new(), true)
+            SpawnerResult {
+                creatures_to_spawn: Vec::new(),
+                keep_active: true,
+            }
         }
     }
 }
@@ -88,4 +90,9 @@ pub struct CreatureSpawnInfo {
     pub position: (f32, f32, f32),
     pub orientation: f32,
     pub spawn_creature_id: u32,
+}
+
+pub struct SpawnerResult {
+    pub creatures_to_spawn: Vec<CreatureSpawnInfo>,
+    pub keep_active: bool,
 }

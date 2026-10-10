@@ -4,7 +4,7 @@ use common::guid::LivingGuid;
 use gameobjects::unit::UnitFields;
 use packets::attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDamages, VictimState};
 
-use crate::server::Server;
+use crate::{objects::creature_corpse::CreatureCorpse, server::Server};
 
 impl Server {
     pub(super) async fn update_player_melee_attacks(&mut self, now: Instant) {
@@ -158,6 +158,27 @@ impl Server {
 
         let health = *victim_fields.health.get();
         *victim_fields.health.get_mut_using_copy() = health.saturating_sub(damage);
+        if *victim_fields.health.get() == 0 {
+            if let LivingGuid::Unit(victim_guid) = victim {
+                let Some(victim) = self.creatures.remove(&victim_guid) else {
+                    // Not really supposed to happen, I guess returning is fine for now
+                    return;
+                };
+                if let Some(spawner_index) = victim.spawner_index {
+                    self.notify_creature_spawner(spawner_index);
+                    self.creature_corpses.insert(
+                        victim_guid,
+                        CreatureCorpse {
+                            position: victim.position,
+                            orientation: victim.orientation,
+                            object_fields: victim.object_fields,
+                            unit_fields: victim.unit_fields,
+                            died_at: Instant::now(),
+                        },
+                    );
+                }
+            }
+        }
         // TODO: death handling once health reaches 0
     }
 

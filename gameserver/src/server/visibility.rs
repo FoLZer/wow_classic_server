@@ -14,7 +14,7 @@ use packets::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    objects::{character::Character, creature::Creature},
+    objects::{character::Character, creature::Creature, creature_corpse::CreatureCorpse},
     server::Server,
 };
 
@@ -276,33 +276,38 @@ impl Server {
     pub(super) async fn send_creature_updates_to_players(&mut self) {
         let mut update_blocks = HashMap::new();
 
-        for creature in self.creatures.values_mut() {
+        let creature_fields = self
+            .creatures
+            .values_mut()
+            .map(|v| (&mut v.object_fields, &mut v.unit_fields));
+        let corpse_fields = self
+            .creature_corpses
+            .values_mut()
+            .map(|v| (&mut v.object_fields, &mut v.unit_fields));
+
+        for (object_fields, unit_fields) in creature_fields.chain(corpse_fields) {
             let mut mask_blocks = BitVec::new();
             let mut values_blocks = Vec::new();
 
-            creature
-                .object_fields
-                .write_update_block(&mut mask_blocks, &mut values_blocks);
-            creature
-                .unit_fields
-                .write_update_block(&mut mask_blocks, &mut values_blocks);
+            object_fields.write_update_block(&mut mask_blocks, &mut values_blocks);
+            unit_fields.write_update_block(&mut mask_blocks, &mut values_blocks);
 
             if values_blocks.is_empty() {
                 continue;
             }
 
-            creature.object_fields.clear_update_flags();
-            creature.unit_fields.clear_update_flags();
+            object_fields.clear_update_flags();
+            unit_fields.clear_update_flags();
 
             let block = UpdateData::UpdateObject {
-                guid: AnyGuid::Unit(creature.object_fields.guid.get().clone()),
+                guid: AnyGuid::Unit(object_fields.guid.get().clone()),
                 values: ValuesUpdate {
                     mask_blocks,
                     values_blocks,
                 },
             };
 
-            update_blocks.insert(creature.object_fields.guid.get().clone(), block);
+            update_blocks.insert(object_fields.guid.get().clone(), block);
         }
 
         for character in self.characters.values_mut() {
@@ -346,9 +351,13 @@ impl Server {
             let mut guids_to_remove = Vec::new();
 
             for guid in &character.visible_creatures {
-                let Some(other_character) = self.creatures.get(guid) else {
+                let is_visible = if let Some(creature) = self.creatures.get(guid) {
+                    self.is_creature_visible_to_player(&character, creature)
+                } else if let Some(corpse) = self.creature_corpses.get(guid) {
+                    self.is_corpse_visible_to_player(&character, corpse)
+                } else {
                     warn!(
-                        "Character got removed but was not cleaned up, removing. (character still in view of other characters, from: {}, to: {})",
+                        "Creature got removed but was not cleaned up, removing. (creature still in view of other characters, from: {}, to: {})",
                         character.object_fields.guid.get().get_u32(),
                         guid.get_u32()
                     );
@@ -356,7 +365,7 @@ impl Server {
                     continue;
                 };
 
-                if !self.is_creature_visible_to_player(&character, other_character) {
+                if !is_visible {
                     guids_to_remove.push(*guid);
                 }
             }
@@ -419,6 +428,14 @@ impl Server {
                 }
             }
 
+            for (guid, potentially_new_corpse) in &self.creature_corpses {
+                if !character.sees_creature(*guid)
+                    && self.is_corpse_visible_to_player(character, potentially_new_corpse)
+                {
+                    new_visible_characters.push(*guid);
+                }
+            }
+
             new_visible_creatures_for_characters.insert(*guid, new_visible_characters);
         }
 
@@ -429,33 +446,44 @@ impl Server {
             let mut blocks = Vec::new();
 
             for guid in &new_visible_creatures {
-                let Some(creature) = self.creatures.get_mut(&guid) else {
-                    // Not possible due to how this vec got constructed above
-                    unreachable!();
-                };
+                let (position, orientation, object_fields, unit_fields) =
+                    if let Some(creature) = self.creatures.get_mut(&guid) {
+                        (
+                            creature.position,
+                            creature.orientation,
+                            &mut creature.object_fields,
+                            &mut creature.unit_fields,
+                        )
+                    } else if let Some(corpse) = self.creature_corpses.get_mut(&guid) {
+                        (
+                            corpse.position,
+                            corpse.orientation,
+                            &mut corpse.object_fields,
+                            &mut corpse.unit_fields,
+                        )
+                    } else {
+                        // Not possible due to how this vec got constructed above
+                        unreachable!();
+                    };
 
                 let mut mask_blocks = BitVec::new();
                 let mut values_blocks = Vec::new();
 
-                creature
-                    .object_fields
-                    .write_full_update_block(&mut mask_blocks, &mut values_blocks);
-                creature
-                    .unit_fields
-                    .write_full_update_block(&mut mask_blocks, &mut values_blocks);
+                object_fields.write_full_update_block(&mut mask_blocks, &mut values_blocks);
+                unit_fields.write_full_update_block(&mut mask_blocks, &mut values_blocks);
 
                 blocks.push(UpdateData::CreateNewObject {
-                    guid: AnyGuid::Unit(creature.object_fields.guid.get().clone()),
+                    guid: AnyGuid::Unit(object_fields.guid.get().clone()),
                     movement: MovementUpdate {
                         is_self_update: false,
                         position: Some(PositionUpdate::Living {
                             movement_info: MovementInfo {
                                 movement_flags: MovementFlags::new(),
                                 timestamp: 0,
-                                pos_x: creature.position.0,
-                                pos_y: creature.position.1,
-                                pos_z: creature.position.2,
-                                orientation: creature.orientation,
+                                pos_x: position.0,
+                                pos_y: position.1,
+                                pos_z: position.2,
+                                orientation,
                                 on_transport_data: None,
                                 swimming_pitch: None,
                                 fall_time: 0,
@@ -520,11 +548,18 @@ impl Server {
     }
 
     fn is_creature_visible_to_player(&self, from: &Character, to: &Creature) -> bool {
-        let dist = (from.position.0 - to.position.0).powi(2)
-            + (from.position.1 - to.position.1).powi(2)
-            + (from.position.2 - to.position.2).powi(2);
+        Self::is_in_visibility_distance(from.position, to.position)
+        // TODO
+    }
+
+    fn is_corpse_visible_to_player(&self, from: &Character, to: &CreatureCorpse) -> bool {
+        Self::is_in_visibility_distance(from.position, to.position)
+        // TODO
+    }
+
+    fn is_in_visibility_distance(from: (f32, f32, f32), to: (f32, f32, f32)) -> bool {
+        let dist = (from.0 - to.0).powi(2) + (from.1 - to.1).powi(2) + (from.2 - to.2).powi(2);
 
         dist < 20000.0
-        // TODO
     }
 }

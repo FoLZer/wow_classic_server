@@ -1,9 +1,14 @@
 mod combat;
+mod despawning;
 mod player_updates;
 mod spawning;
 mod visibility;
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Local, TimeDelta};
 use common::guid::{self, Guid};
@@ -16,7 +21,7 @@ use crate::{
     creature_spawner::CreatureSpawner,
     game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
-    objects::{character::Character, creature::Creature},
+    objects::{character::Character, creature::Creature, creature_corpse::CreatureCorpse},
     packet_handler::PlayerUpdate,
     sparse_set::SparseSet,
 };
@@ -24,9 +29,13 @@ use crate::{
 pub struct Server {
     pub game_time: DateTime<Local>,
 
+    // TODO: This needs to be either a configuration or dynamically computed
+    corpse_despawn_time: Duration,
+
     creature_spawners: SparseSet<CreatureSpawner>,
     creatures: HashMap<Guid<guid::Unit>, Creature>,
     characters: HashMap<Guid<guid::Player>, Character>,
+    creature_corpses: HashMap<Guid<guid::Unit>, CreatureCorpse>,
 
     unit_guid_allocator: GuidAllocator<guid::Unit>,
 
@@ -68,10 +77,13 @@ impl Server {
         Ok(Self {
             game_time: Local::now(),
 
+            corpse_despawn_time: Duration::from_secs(10),
+
             creature_spawners,
 
             creatures,
             characters: HashMap::new(),
+            creature_corpses: HashMap::new(),
 
             unit_guid_allocator,
 
@@ -87,6 +99,7 @@ impl Server {
         self.add_queued_characters().await;
         self.process_player_updates().await;
 
+        self.despawn_corpses(now).await;
         self.process_queued_creature_spawners().await;
 
         // Update order: Remove -> Update -> Create

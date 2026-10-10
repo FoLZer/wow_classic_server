@@ -10,6 +10,7 @@ pub struct Creature {
     pub object_fields: ObjectFields<guid::Unit>,
     pub unit_fields: UnitFields,
 
+    pub spawner_index: Option<usize>,
     pub melee_state: Option<MeleeState>,
 }
 
