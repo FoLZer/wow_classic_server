@@ -5,6 +5,7 @@ use common::guid::{self, AnyGuid, Guid, LivingGuid, SelectableGuid};
 use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable};
 use log::{error, warn};
 use packets::{
+    chat_message::{ChatTag, ServerChatMessage, ServerChatType},
     inventory_change_result::{InventoryChangeError, InventoryChangeResult},
     movement_info::{MovementFlags, MovementInfo},
     server::ServerPacket,
@@ -16,7 +17,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     objects::{character::Character, creature::MeleeState},
-    packet_handler::{MovementOpcode, PlayerUpdateData, packet_handler},
+    packet_handler::{ChatMessage, MovementOpcode, PlayerUpdateData, packet_handler},
     server::Server,
 };
 
@@ -516,6 +517,74 @@ impl Server {
                     })
                     .await;
                 }
+                PlayerUpdateData::ChatMessage(message) => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    let source_position = character.position;
+                    match message {
+                        ChatMessage::Say { language, text } => {
+                            let response = packets::server::SMSG_MESSAGECHAT {
+                                chat: ServerChatMessage {
+                                    ty: ServerChatType::Say {
+                                        sender: character_id,
+                                        lang: language.get(),
+                                        tag: ChatTag::None, // TODO
+                                    },
+                                    text,
+                                },
+                            };
+
+                            self.broadcast_packet_in_range(
+                                &response,
+                                source_position,
+                                self.say_message_range,
+                                |_| false,
+                            )
+                            .await;
+                        }
+                        ChatMessage::Party { language, text } => todo!(),
+                        ChatMessage::Raid { language, text } => todo!(),
+                        ChatMessage::Guild { language, text } => todo!(),
+                        ChatMessage::Officer { language, text } => todo!(),
+                        ChatMessage::Yell { language, text } => {
+                            let response = packets::server::SMSG_MESSAGECHAT {
+                                chat: ServerChatMessage {
+                                    ty: ServerChatType::Yell {
+                                        sender: character_id,
+                                        lang: language.get(),
+                                        tag: ChatTag::None, // TODO
+                                    },
+                                    text,
+                                },
+                            };
+
+                            self.broadcast_packet_in_range(
+                                &response,
+                                source_position,
+                                self.yell_message_range,
+                                |_| false,
+                            )
+                            .await;
+                        }
+                        ChatMessage::Whisper {
+                            language,
+                            target_name,
+                            text,
+                        } => todo!(),
+                        ChatMessage::Emote { language, text } => todo!(),
+                        ChatMessage::Channel {
+                            language,
+                            channel_name,
+                            text,
+                        } => todo!(),
+                        ChatMessage::RaidLeader { language, text } => todo!(),
+                        ChatMessage::RaidWarning { language, text } => todo!(),
+                        ChatMessage::BattleGround { language, text } => todo!(),
+                        ChatMessage::BattleGroundLeader { language, text } => todo!(),
+                    }
+                }
             }
         }
     }
@@ -738,6 +807,7 @@ impl Server {
                 character_id,
                 self.player_update_queue.clone(),
                 self.game_data_accessor.clone(),
+                self.db.clone(),
             ));
         }
     }

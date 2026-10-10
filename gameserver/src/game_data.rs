@@ -22,24 +22,36 @@ impl GameDataAccessor {
     }
 
     pub async fn validate_race(&self, race: u8) -> Result<Option<ValidRace>, sqlx::Error> {
-        match sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM race WHERE id = ?)", race)
+        let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM race WHERE id = ?)", race)
             .fetch_one(&self.db)
-            .await
-        {
-            Ok(_) => Ok(Some(ValidRace(race))),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(e),
+            .await?;
+        if exists != 0 {
+            Ok(Some(ValidRace(race)))
+        } else {
+            Ok(None)
         }
     }
 
     pub async fn validate_class(&self, class: u8) -> Result<Option<ValidClass>, sqlx::Error> {
-        match sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM class WHERE id = ?)", class)
+        let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM class WHERE id = ?)", class)
             .fetch_one(&self.db)
-            .await
-        {
-            Ok(_) => Ok(Some(ValidClass(class))),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(e),
+            .await?;
+        if exists != 0 {
+            Ok(Some(ValidClass(class)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn validate_language(&self, lang: u32) -> Result<Option<ValidLanguage>, sqlx::Error> {
+        let exists =
+            sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM language WHERE id = ?)", lang)
+                .fetch_one(&self.db)
+                .await?;
+        if exists != 0 {
+            Ok(Some(ValidLanguage(lang)))
+        } else {
+            Ok(None)
         }
     }
 
@@ -506,5 +518,13 @@ impl ValidClass {
 impl Display for ValidClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ValidClass({})", self.0)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ValidLanguage(u32);
+impl ValidLanguage {
+    pub fn get(&self) -> u32 {
+        self.0
     }
 }

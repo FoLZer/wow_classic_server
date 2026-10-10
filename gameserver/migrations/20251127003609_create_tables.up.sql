@@ -204,6 +204,11 @@ CREATE TABLE IF NOT EXISTS creature_family(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     name TEXT NOT NULL
 );
+/* Unchangeable for now: requires patching .dbc */
+CREATE TABLE IF NOT EXISTS language(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
+);
 /* ---------------- Game data END ---------------- */
 
 CREATE TABLE IF NOT EXISTS item(

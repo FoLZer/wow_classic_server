@@ -76,6 +76,13 @@ impl Character {
         }
     }
 
+    pub fn distance_to_squared(&self, position: (f32, f32, f32)) -> f32 {
+        let dx = self.position.0 - position.0;
+        let dy = self.position.1 - position.1;
+        let dz = self.position.2 - position.2;
+        dx * dx + dy * dy + dz * dz
+    }
+
     pub async fn load_from_db(
         game_data_accessor: &GameDataAccessor,
         db: &Pool<Sqlite>,

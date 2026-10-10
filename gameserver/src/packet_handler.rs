@@ -9,17 +9,19 @@ use gameobjects::{
 };
 use log::{error, warn};
 use packets::{
+    chat_message::ChatType,
     client::{ClientPacket, ParseError},
     movement_info::MovementInfo,
     server::ServerPacket,
 };
+use sqlx::{Pool, Sqlite};
 use tokio::{
     io::AsyncWriteExt,
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
     sync::Mutex,
 };
 
-use crate::game_data::GameDataAccessor;
+use crate::game_data::{GameDataAccessor, ValidLanguage};
 
 pub async fn packet_handler(
     mut rx: OwnedReadHalf,
@@ -30,6 +32,7 @@ pub async fn packet_handler(
     character_id: Guid<guid::Player>,
     player_update_queue: Arc<ConcurrentQueue<PlayerUpdate>>,
     game_data_accessor: GameDataAccessor,
+    db: Pool<Sqlite>,
 ) {
     loop {
         let packet =
@@ -354,6 +357,59 @@ pub async fn packet_handler(
                     return;
                 };
             }
+            ClientPacket::CMSG_NAME_QUERY(packet) => {
+                let Some(guid) = Guid::<guid::Player>::try_from_u64(packet.guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_NAME_QUERY with a non-player guid: {}",
+                        character_id.get(),
+                        packet.guid
+                    );
+                    continue;
+                };
+
+                let response = match CharacterNameQueryData::load_from_db(&db, guid).await {
+                    Ok(Some(data)) => packets::server::SMSG_NAME_QUERY_RESPONSE {
+                        guid,
+                        name: Some(CString::new(data.name).unwrap()),
+                        realm_name: None,
+                        race: data.race as u32,
+                        gender: data.gender as u32,
+                        class: data.class as u32,
+                    },
+                    Ok(None) => packets::server::SMSG_NAME_QUERY_RESPONSE {
+                        guid,
+                        name: None,
+                        realm_name: None,
+                        race: 0,
+                        gender: 0,
+                        class: 0,
+                    },
+                    Err(e) => {
+                        error!(
+                            "Failed to query character due to a DB error (target: {}, requesting character_id: {}). Error: {}",
+                            guid.get(),
+                            character_id.get(),
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                let mut lock = tx.lock().await;
+
+                if let Err(e) = lock
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_NAME_QUERY_RESPONSE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
             ClientPacket::CMSG_ITEM_QUERY_SINGLE(packet) => {
                 let item_id = packet.item_id;
 
@@ -675,6 +731,83 @@ pub async fn packet_handler(
                     return;
                 };
             }
+            ClientPacket::CMSG_MESSAGECHAT(packet) => {
+                if !packet.chat.is_addon_message() {
+                    match packet.chat.ty {
+                        ChatType::AFK => {
+                            // TODO
+                            continue;
+                        }
+                        ChatType::DND => {
+                            // TODO
+                            continue;
+                        }
+                        _ => (),
+                    };
+
+                    let language = match game_data_accessor
+                        .validate_language(packet.chat.lang)
+                        .await
+                    {
+                        Ok(Some(language)) => language,
+                        Ok(None) => {
+                            warn!(
+                                "Client (character_id: {}) sent CMSG_MESSAGECHAT with an invalid language: {}",
+                                character_id.get(),
+                                packet.chat.lang
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to query language due to a DB error (language: {}, requesting character_id: {}). Error: {}",
+                                packet.chat.lang,
+                                character_id.get(),
+                                e
+                            );
+                            continue;
+                        }
+                    };
+
+                    let text = packet.chat.message;
+                    let message = match packet.chat.ty {
+                        ChatType::Say => ChatMessage::Say { language, text },
+                        ChatType::Party => ChatMessage::Party { language, text },
+                        ChatType::Raid => ChatMessage::Raid { language, text },
+                        ChatType::Guild => ChatMessage::Guild { language, text },
+                        ChatType::Officer => ChatMessage::Officer { language, text },
+                        ChatType::Yell => ChatMessage::Yell { language, text },
+                        ChatType::Whisper { target_name } => ChatMessage::Whisper {
+                            language,
+                            target_name,
+                            text,
+                        },
+                        ChatType::Emote => ChatMessage::Emote { language, text },
+                        ChatType::Channel { channel_name } => ChatMessage::Channel {
+                            language,
+                            channel_name,
+                            text,
+                        },
+                        ChatType::RaidLeader => ChatMessage::RaidLeader { language, text },
+                        ChatType::RaidWarning => ChatMessage::RaidWarning { language, text },
+                        ChatType::BattleGround => ChatMessage::BattleGround { language, text },
+                        ChatType::BattleGroundLeader => {
+                            ChatMessage::BattleGroundLeader { language, text }
+                        }
+                        ty => {
+                            warn!("Unprocessed chat type: {:?}", ty);
+                            continue;
+                        }
+                    };
+
+                    if let Err(_) = player_update_queue.push(PlayerUpdate {
+                        character_id,
+                        data: PlayerUpdateData::ChatMessage(message),
+                    }) {
+                        return;
+                    };
+                }
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -730,6 +863,7 @@ pub enum PlayerUpdateData {
         victim: LivingGuid,
     },
     StopCombat,
+    ChatMessage(ChatMessage),
 }
 
 fn parse_slot(slot: u8) -> Slot {
@@ -768,4 +902,92 @@ pub enum MovementOpcode {
     SetFacing,
     SetPitch,
     Heartbeat,
+}
+
+pub enum ChatMessage {
+    Say {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Party {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Raid {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Guild {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Officer {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Yell {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Whisper {
+        language: ValidLanguage,
+        target_name: CString,
+        text: CString,
+    },
+    Emote {
+        language: ValidLanguage,
+        text: CString,
+    },
+    Channel {
+        language: ValidLanguage,
+        channel_name: CString,
+        text: CString,
+    },
+    RaidLeader {
+        language: ValidLanguage,
+        text: CString,
+    },
+    RaidWarning {
+        language: ValidLanguage,
+        text: CString,
+    },
+    BattleGround {
+        language: ValidLanguage,
+        text: CString,
+    },
+    BattleGroundLeader {
+        language: ValidLanguage,
+        text: CString,
+    },
+}
+
+struct CharacterNameQueryData {
+    pub name: String,
+    pub race: u8,
+    pub gender: u8,
+    pub class: u8,
+}
+
+impl CharacterNameQueryData {
+    pub async fn load_from_db(
+        db: &Pool<Sqlite>,
+        guid: Guid<guid::Player>,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        let character_id = guid.get_u32();
+        let model = match sqlx::query!("SELECT * FROM character WHERE id = ?", character_id)
+            .fetch_one(db)
+            .await
+        {
+            Ok(v) => v,
+            Err(sqlx::Error::RowNotFound) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+        Ok(Some(Self {
+            name: model.name,
+            race: model.race as u8,
+            gender: model.gender as u8,
+            class: model.class as u8,
+        }))
+    }
 }

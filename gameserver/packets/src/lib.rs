@@ -10,3 +10,4 @@ pub mod movement_info;
 pub mod server;
 pub mod update_data;
 pub mod packed;
+pub mod chat_message;

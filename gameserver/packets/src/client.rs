@@ -7,7 +7,7 @@ use macros::create_client_packets;
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use tokio::io::AsyncRead;
 
-use crate::movement_info::MovementInfo;
+use crate::{chat_message::ClientChatMessage, movement_info::MovementInfo};
 
 create_client_packets!(
 CMSG_WORLD_TELEPORT 0x008 {
@@ -71,9 +71,7 @@ CMSG_DEL_IGNORE 0x06D {
     guid: u64: LittleEndian
 },
 CMSG_MESSAGECHAT 0x095 {
-    ty: u32: LittleEndian,
-    lang: u32: LittleEndian,
-    data: EndDataVec: LittleEndian
+    chat: ClientChatMessage: LittleEndian
 },
 CMSG_JOIN_CHANNEL 0x097 {
     channel_name: CString: LittleEndian,
@@ -273,6 +271,7 @@ impl<T: ByteOrder, const SIZE: usize> OrderedRead<T> for [u8; SIZE] {
 
 pub enum ParseError {
     Io(std::io::Error),
+    Malformed(std::io::Error),
     Utf8(std::string::FromUtf8Error),
     //InvalidData,
     InvalidOpcode(u32),
@@ -283,6 +282,7 @@ impl core::fmt::Debug for ParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
             ParseError::Io(f0) => f.debug_tuple("Io").field(&f0).finish(),
+            ParseError::Malformed(f0) => f.debug_tuple("Malformed").field(&f0).finish(),
             ParseError::Utf8(f0) => f.debug_tuple("Utf8").field(&f0).finish(),
             ParseError::InvalidOpcode(f0) => f
                 .debug_tuple("InvalidOpcode")

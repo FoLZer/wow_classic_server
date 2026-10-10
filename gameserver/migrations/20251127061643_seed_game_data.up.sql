@@ -352,6 +352,34 @@ VALUES(7, "Humanoid");
 /* Creature Type END */
 /* Creature Family START */
 /* Creature Family END */
+/* Languages START */
+INSERT INTO language(id, name)
+VALUES(1, "Orcish");
+INSERT INTO language(id, name)
+VALUES(2, "Darnassian");
+INSERT INTO language(id, name)
+VALUES(3, "Taurahe");
+INSERT INTO language(id, name)
+VALUES(6, "Dwarvish");
+INSERT INTO language(id, name)
+VALUES(7, "Common");
+INSERT INTO language(id, name)
+VALUES(8, "Demonic");
+INSERT INTO language(id, name)
+VALUES(9, "Titan");
+INSERT INTO language(id, name)
+VALUES(10, "Thalassian");
+INSERT INTO language(id, name)
+VALUES(11, "Draconic");
+INSERT INTO language(id, name)
+VALUES(12, "Kalimag");
+INSERT INTO language(id, name)
+VALUES(13, "Gnomish");
+INSERT INTO language(id, name)
+VALUES(14, "Troll");
+INSERT INTO language(id, name)
+VALUES(33, "Gutterspeak");
+/* Languages END */
 
 /* Creatures START */
 INSERT INTO creature(

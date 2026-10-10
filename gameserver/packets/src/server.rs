@@ -15,6 +15,7 @@ use crate::{
     account_result::AccountResult,
     attacker_state::{HitInfo, SubDamages, VictimState},
     character_info::CharacterInfo,
+    chat_message::ServerChatMessage,
     inventory_change_result::InventoryChangeResult,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
     movement_info::MovementInfo,
@@ -49,6 +50,14 @@ SMSG_LOGOUT_RESPONSE 0x04C {
     instant: u8: LittleEndian,
 },
 SMSG_LOGOUT_COMPLETE 0x04D {},
+SMSG_NAME_QUERY_RESPONSE 0x051 {
+    guid: Guid<guid::Player>: LittleEndian,
+    name: Option<CString>: LittleEndian, // Max 48 bytes with NUL
+    realm_name: Option<CString>: LittleEndian, // Max 256 bytes with NUL
+    race: u32: LittleEndian,
+    gender: u32: LittleEndian,
+    class: u32: LittleEndian,
+},
 SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
     item_id: u32: LittleEndian,
     class: u32: LittleEndian,
@@ -126,6 +135,9 @@ SMSG_CREATURE_QUERY_RESPONSE 0x061 {
     pet_spell_data_id: u32: LittleEndian,
     display_id: u32: LittleEndian,
     civilian: u16: LittleEndian, //mask?
+},
+SMSG_MESSAGECHAT 0x096 {
+    chat: ServerChatMessage: LittleEndian,
 },
 SMSG_UPDATE_OBJECT 0x0A9 {
     update_data: UpdateBlocks: LittleEndian,
@@ -334,6 +346,15 @@ impl<B: ByteOrder, T: OrderedWrite<B>, const N: usize> OrderedWrite<B> for [T; N
 impl<T: ByteOrder> OrderedWrite<T> for CString {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_all(self.as_bytes_with_nul())
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for Option<CString> {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        writer.write_all(match self {
+            Some(v) => v.as_bytes_with_nul(),
+            None => &[b'\0'],
+        })
     }
 }
 

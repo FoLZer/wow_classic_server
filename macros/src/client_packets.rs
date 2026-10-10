@@ -107,7 +107,7 @@ pub fn create_client_packets_impl(input: TokenStream) -> TokenStream {
     let decode_function_match_statements = parsed.0.iter().map(|v| {
         let name = &v.name;
         let opcode = &v.id;
-        quote!(#opcode => Ok(ClientPacket::#name(#name::from_reader(cursor).map_err(ParseError::Io)?)))
+        quote!(#opcode => Ok(ClientPacket::#name(#name::from_reader(cursor).map_err(ParseError::Malformed)?)))
     });
 
     let output = quote! {

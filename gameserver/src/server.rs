@@ -15,6 +15,7 @@ use common::guid::{self, Guid};
 use concurrent_queue::ConcurrentQueue;
 use log::warn;
 use packets::server::ServerPacket;
+use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
@@ -31,6 +32,8 @@ pub struct Server {
 
     // TODO: This needs to be either a configuration or dynamically computed
     corpse_despawn_time: Duration,
+    say_message_range: f32,
+    yell_message_range: f32,
 
     creature_spawners: SparseSet<CreatureSpawner>,
     creatures: HashMap<Guid<guid::Unit>, Creature>,
@@ -46,6 +49,7 @@ pub struct Server {
     character_transition_to_character_screen_tx:
         mpsc::UnboundedSender<(Character, OwnedReadHalf, (usize, u8))>,
     game_data_accessor: GameDataAccessor,
+    db: Pool<Sqlite>,
 }
 
 impl Server {
@@ -59,6 +63,7 @@ impl Server {
             OwnedReadHalf,
             (usize, u8),
         )>,
+        db: Pool<Sqlite>,
     ) -> Result<Self, sqlx::Error> {
         let mut unit_guid_allocator = GuidAllocator::new();
         let mut creatures = HashMap::new();
@@ -78,6 +83,8 @@ impl Server {
             game_time: Local::now(),
 
             corpse_despawn_time: Duration::from_secs(10),
+            say_message_range: 500.0,
+            yell_message_range: 90000.0,
 
             creature_spawners,
 
@@ -91,6 +98,7 @@ impl Server {
             world_transition_character_queue,
             character_transition_to_character_screen_tx,
             game_data_accessor,
+            db,
         })
     }
 
@@ -123,6 +131,38 @@ impl Server {
     ) {
         for character in self.characters.values() {
             if except(character) {
+                continue;
+            }
+
+            let mut lock = character.stream_tx.lock().await;
+
+            if let Err(e) = lock
+                .write_all(&packet.to_bytes(
+                    Some(character.session_key),
+                    &mut *character.encrypt_data.lock().await,
+                ))
+                .await
+            {
+                warn!(
+                    "Failed to send {} to client (account_id: {}). Error: {:?}",
+                    T::PACKET_NAME,
+                    character.account_id,
+                    e
+                );
+                continue;
+            };
+        }
+    }
+
+    async fn broadcast_packet_in_range<T: ServerPacket, F: Fn(&Character) -> bool>(
+        &self,
+        packet: &T,
+        source_position: (f32, f32, f32),
+        range: f32,
+        except: F,
+    ) {
+        for character in self.characters.values() {
+            if character.distance_to_squared(source_position) > range || except(character) {
                 continue;
             }
 

@@ -190,6 +190,7 @@ async fn main() {
             character_transition_to_character_screen_rx;
         let game_data_accessor = game_data_accessor.clone();
         let world_transition_character_queue = world_transition_character_queue.clone();
+        let db = db.clone();
         tokio::spawn(async move {
             loop {
                 let Some((character, read_half, decrypt_data)) =
@@ -231,6 +232,7 @@ async fn main() {
         world_transition_character_queue,
         game_data_accessor,
         character_transition_to_character_screen_tx,
+        db,
     )
     .await
     .expect("failed to fetch all required data from database");
