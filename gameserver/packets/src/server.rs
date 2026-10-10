@@ -16,7 +16,7 @@ use crate::{
     attacker_state::{HitInfo, SubDamages, VictimState},
     character_info::CharacterInfo,
     chat_message::ServerChatMessage,
-    inventory_change_result::InventoryChangeResult,
+    inventory_change_result::InventoryChangeError,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
     movement_info::MovementInfo,
     packed::Packed,
@@ -240,7 +240,7 @@ SMSG_TUTORIAL_FLAGS 0x0FD {
     tutorial_data7: u32: LittleEndian,
 },
 SMSG_INVENTORY_CHANGE_FAILURE 0x112 {
-    result: InventoryChangeResult: LittleEndian
+    result: InventoryChangeError: LittleEndian
 },
 SMSG_ATTACKSTART 0x143 {
     attacker: LivingGuid: LittleEndian,

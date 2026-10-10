@@ -12,13 +12,21 @@ use gameobjects::{
         UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags, VirtualItemInfo,
     },
 };
-use packets::update_data::UpdateData;
+use packets::{
+    inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
+    update_data::UpdateData,
+};
 use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
 use crate::{
     game_data::GameDataAccessor,
-    objects::{creature::MeleeState, item::Item},
+    objects::{
+        creature::MeleeState,
+        item::Item,
+        item_prototype::{InventoryType, ItemPrototype},
+    },
+    packet_handler::{EquipmentSlot, Slot},
 };
 
 pub struct Character {
@@ -648,6 +656,10 @@ impl Character {
         })
     }
 
+    pub fn is_alive(&self) -> bool {
+        *self.unit_fields.health.get() != 0
+    }
+
     pub async fn create_new_character(
         packet: &packets::client::CMSG_CHAR_CREATE,
         account_id: u32,
@@ -947,6 +959,351 @@ impl Character {
         Ok(())
     }
 
+    pub async fn swap_items(
+        &mut self,
+        game_data_accessor: &GameDataAccessor,
+        src: Slot,
+        dst: Slot,
+    ) -> Result<(), MoveItemError> {
+        let error = |error| {
+            MoveItemError::Inventory(InventoryChangeError {
+                error,
+                item1: self
+                    .items
+                    .get(src)
+                    .as_ref()
+                    .map(|v| *v.object_fields.guid.get()),
+                item2: self
+                    .items
+                    .get(dst)
+                    .as_ref()
+                    .map(|v| *v.object_fields.guid.get()),
+            })
+        };
+
+        // Which slot's item ends up in the given slot after the swap
+        let after_swap = |slot: Slot| {
+            if slot == dst {
+                src
+            } else if slot == src {
+                dst
+            } else {
+                slot
+            }
+        };
+
+        let load_prototype = async |slot| {
+            let Some(item) = self.items.get(slot) else {
+                return Ok(None);
+            };
+
+            match item.load_prototype(game_data_accessor).await? {
+                Some(v) => Ok(Some(v)),
+                None => Err(error(InventoryChangeErrorType::ItemNotFound)),
+            }
+        };
+
+        let Some(src_prototype) = load_prototype(src).await? else {
+            return Err(error(InventoryChangeErrorType::SlotIsEmpty));
+        };
+        let dst_prototype = load_prototype(dst).await?;
+        let main_hand_prototype =
+            load_prototype(after_swap(Slot::Equipment(EquipmentSlot::MainHand))).await?;
+        let off_hand_prototype =
+            load_prototype(after_swap(Slot::Equipment(EquipmentSlot::OffHand))).await?;
+
+        if src == dst {
+            return Ok(());
+        }
+
+        if !self.is_alive() {
+            return Err(error(InventoryChangeErrorType::YouAreDead));
+        }
+
+        if let Err(e) = self.can_move_item(&src_prototype, src, dst) {
+            return Err(error(e));
+        }
+        if let Some(dst_prototype) = &dst_prototype
+            && let Err(e) = self.can_move_item(dst_prototype, dst, src)
+        {
+            return Err(error(e));
+        }
+
+        // An off hand item that has to be moved to the backpack to make room for a two-handed weapon
+        let mut displaced_off_hand = None;
+        if let (Some(main_hand_prototype), Some(off_hand_prototype)) =
+            (&main_hand_prototype, &off_hand_prototype)
+            && main_hand_prototype.inventory_type == InventoryType::TwoHandWeapon
+        {
+            if matches!(src, Slot::Equipment(EquipmentSlot::OffHand))
+                || matches!(dst, Slot::Equipment(EquipmentSlot::OffHand))
+            {
+                return Err(error(InventoryChangeErrorType::CantEquipWithTwohanded));
+            }
+
+            if let Err(e) = self.can_move_item(
+                off_hand_prototype,
+                Slot::Equipment(EquipmentSlot::OffHand),
+                Slot::MainBag(0),
+            ) {
+                return Err(error(e));
+            }
+
+            let free_slot = (0..self.items.main_backpack.len() as u8)
+                .map(Slot::MainBag)
+                .find(|&slot| self.items.get(after_swap(slot)).is_none());
+            let Some(free_slot) = free_slot else {
+                return Err(error(if dst_prototype.is_some() {
+                    InventoryChangeErrorType::ItemsCantBeSwapped
+                } else {
+                    InventoryChangeErrorType::InventoryFull
+                }));
+            };
+            displaced_off_hand = Some(free_slot);
+        }
+
+        let src_item = self.items.get_mut(src).take();
+        let dst_item = self.items.get_mut(dst).take();
+        *self.items.get_mut(dst) = src_item;
+        *self.items.get_mut(src) = dst_item;
+        self.update_slot_fields(src);
+        self.update_slot_fields(dst);
+
+        if let Some(free_slot) = displaced_off_hand {
+            *self.items.get_mut(free_slot) = self
+                .items
+                .get_mut(Slot::Equipment(EquipmentSlot::OffHand))
+                .take();
+            self.update_slot_fields(Slot::Equipment(EquipmentSlot::OffHand));
+            self.update_slot_fields(free_slot);
+        }
+
+        Ok(())
+    }
+
+    pub async fn auto_equip_item(
+        &mut self,
+        game_data_accessor: &GameDataAccessor,
+        src: Slot,
+    ) -> Result<(), MoveItemError> {
+        let Some(item) = self.items.get(src) else {
+            return Err(MoveItemError::Inventory(InventoryChangeError {
+                error: InventoryChangeErrorType::SlotIsEmpty,
+                item1: None,
+                item2: None,
+            }));
+        };
+        let Some(prototype) = item.load_prototype(game_data_accessor).await? else {
+            return Err(MoveItemError::Inventory(InventoryChangeError {
+                error: InventoryChangeErrorType::ItemNotFound,
+                item1: Some(*item.object_fields.guid.get()),
+                item2: None,
+            }));
+        };
+
+        let Some(dst) = self.find_equip_slot(&prototype) else {
+            return Err(MoveItemError::Inventory(InventoryChangeError {
+                error: InventoryChangeErrorType::ItemCantBeEquipped,
+                item1: self
+                    .items
+                    .get(src)
+                    .as_ref()
+                    .map(|v| *v.object_fields.guid.get()),
+                item2: None,
+            }));
+        };
+
+        self.swap_items(game_data_accessor, src, dst).await
+    }
+
+    pub async fn store_item_in_backpack(
+        &mut self,
+        game_data_accessor: &GameDataAccessor,
+        src: Slot,
+    ) -> Result<(), MoveItemError> {
+        let error = |error| {
+            MoveItemError::Inventory(InventoryChangeError {
+                error,
+                item1: self
+                    .items
+                    .get(src)
+                    .as_ref()
+                    .map(|v| *v.object_fields.guid.get()),
+                item2: None,
+            })
+        };
+
+        if self.items.get(src).is_none() {
+            return Err(error(InventoryChangeErrorType::SlotIsEmpty));
+        }
+
+        if matches!(src, Slot::MainBag(_)) {
+            return Err(error(InventoryChangeErrorType::None));
+        }
+
+        let Some(dst) = (0..self.items.main_backpack.len() as u8)
+            .map(Slot::MainBag)
+            .find(|&slot| self.items.get(slot).is_none())
+        else {
+            return Err(error(InventoryChangeErrorType::BagFull));
+        };
+
+        self.swap_items(game_data_accessor, src, dst).await
+    }
+
+    /// Picks an empty slot out of the ones the item fits into, or the first one if all of them are taken
+    fn find_equip_slot(&self, prototype: &ItemPrototype) -> Option<Slot> {
+        use EquipmentSlot::*;
+
+        let slots: &[Slot] = match prototype.inventory_type {
+            InventoryType::Head => &[Slot::Equipment(Head)],
+            InventoryType::Neck => &[Slot::Equipment(Neck)],
+            InventoryType::Shoulders => &[Slot::Equipment(Shoulders)],
+            InventoryType::Body => &[Slot::Equipment(Body)],
+            InventoryType::Chest | InventoryType::Robe => &[Slot::Equipment(Chest)],
+            InventoryType::Waist => &[Slot::Equipment(Waist)],
+            InventoryType::Legs => &[Slot::Equipment(Legs)],
+            InventoryType::Feet => &[Slot::Equipment(Feet)],
+            InventoryType::Wrists => &[Slot::Equipment(Wrists)],
+            InventoryType::Hands => &[Slot::Equipment(Hands)],
+            InventoryType::Finger => &[Slot::Equipment(Finger1), Slot::Equipment(Finger2)],
+            InventoryType::Trinket => &[Slot::Equipment(Trinket1), Slot::Equipment(Trinket2)],
+            InventoryType::Cloak => &[Slot::Equipment(Back)],
+            //TODO: Should also try OffHand if the player can dual wield
+            InventoryType::Weapon
+            | InventoryType::TwoHandWeapon
+            | InventoryType::WeaponMainHand => &[Slot::Equipment(MainHand)],
+            InventoryType::Shield | InventoryType::WeaponOffHand | InventoryType::Holdable => {
+                &[Slot::Equipment(OffHand)]
+            }
+            InventoryType::Ranged
+            | InventoryType::Thrown
+            | InventoryType::RangedRight
+            | InventoryType::Relic => &[Slot::Equipment(Ranged)],
+            InventoryType::Tabard => &[Slot::Equipment(Tabard)],
+            InventoryType::Bag | InventoryType::Quiver => &[
+                Slot::BagItem(0),
+                Slot::BagItem(1),
+                Slot::BagItem(2),
+                Slot::BagItem(3),
+            ],
+            _ => return None,
+        };
+
+        slots
+            .iter()
+            .copied()
+            .find(|&slot| self.items.get(slot).is_none())
+            .or(slots.first().copied())
+    }
+
+    fn can_move_item(
+        &self,
+        prototype: &ItemPrototype,
+        from: Slot,
+        to: Slot,
+    ) -> Result<(), InventoryChangeErrorType> {
+        if !Slot::is_equipable(&to) && !Slot::is_equipable(&from) {
+            return Ok(());
+        }
+
+        if (matches!(to, Slot::Equipment(_)) || matches!(from, Slot::Equipment(_)))
+            && self.unit_fields.flags.get().in_combat()
+            && !prototype.equipable_in_combat()
+        {
+            return Err(InventoryChangeErrorType::NotInCombat);
+        }
+
+        let fits = match to {
+            Slot::Equipment(slot) => {
+                use EquipmentSlot::*;
+
+                match prototype.inventory_type {
+                    InventoryType::Head => slot == Head,
+                    InventoryType::Neck => slot == Neck,
+                    InventoryType::Shoulders => slot == Shoulders,
+                    InventoryType::Body => slot == Body,
+                    InventoryType::Chest | InventoryType::Robe => slot == Chest,
+                    InventoryType::Waist => slot == Waist,
+                    InventoryType::Legs => slot == Legs,
+                    InventoryType::Feet => slot == Feet,
+                    InventoryType::Wrists => slot == Wrists,
+                    InventoryType::Hands => slot == Hands,
+                    InventoryType::Finger => matches!(slot, Finger1 | Finger2),
+                    InventoryType::Trinket => matches!(slot, Trinket1 | Trinket2),
+                    InventoryType::Cloak => slot == Back,
+                    //TODO: OffHand requires the dual wield skill
+                    InventoryType::Weapon => matches!(slot, MainHand | OffHand),
+                    InventoryType::TwoHandWeapon | InventoryType::WeaponMainHand => {
+                        slot == MainHand
+                    }
+                    InventoryType::Shield
+                    | InventoryType::WeaponOffHand
+                    | InventoryType::Holdable => slot == OffHand,
+                    InventoryType::Ranged
+                    | InventoryType::Thrown
+                    | InventoryType::RangedRight
+                    | InventoryType::Relic => slot == Ranged,
+                    InventoryType::Tabard => slot == Tabard,
+                    _ => return Err(InventoryChangeErrorType::ItemCantBeEquipped),
+                }
+            }
+            Slot::BagItem(_) => matches!(
+                prototype.inventory_type,
+                InventoryType::Bag | InventoryType::Quiver
+            ),
+            Slot::MainBag(_) => true,
+        };
+        if !fits {
+            return Err(InventoryChangeErrorType::ItemDoesntGoToSlot);
+        }
+
+        if Slot::is_equipable(&to) {
+            self.can_equip_item(prototype)?;
+        }
+
+        Ok(())
+    }
+
+    //TODO: Skill, spell, honor rank and reputation requirements
+    fn can_equip_item(&self, prototype: &ItemPrototype) -> Result<(), InventoryChangeErrorType> {
+        let bytes_1 = self.unit_fields.bytes_1.get();
+        let class_mask = 1 << (bytes_1.class() - 1);
+        let race_mask = 1 << (bytes_1.race() - 1);
+        if prototype.allowable_class & class_mask == 0 || prototype.allowable_race & race_mask == 0
+        {
+            return Err(InventoryChangeErrorType::YouCanNeverUseThatItem);
+        }
+
+        if *self.unit_fields.level.get() < prototype.required_level {
+            return Err(InventoryChangeErrorType::CantEquipLevel {
+                required_level: prototype.required_level,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Copies the item in a slot to the player fields that mirror it
+    fn update_slot_fields(&mut self, slot: Slot) {
+        let item = self.items.get(slot).as_ref();
+        let guid = item.map(|v| *v.object_fields.guid.get());
+        let player_fields = &mut self.player_fields;
+        match slot {
+            Slot::Equipment(slot) => {
+                *player_fields.equipment_slots[slot as usize].get_mut_using_copy() = guid;
+                *player_fields.visible_items[slot as usize].get_mut_using_copy() =
+                    item.map_or_else(VisibleItemFields::default, |v| v.get_visible_item_fields());
+            }
+            Slot::BagItem(slot) => {
+                *player_fields.bag_slots[slot as usize].get_mut_using_copy() = guid;
+            }
+            Slot::MainBag(slot) => {
+                *player_fields.main_backpack_slots[slot as usize].get_mut_using_copy() = guid;
+            }
+        }
+    }
+
     pub fn build_item_full_update_blocks(&self) -> Vec<UpdateData> {
         let mut r = Vec::with_capacity(130); // 113 fields for items
         if let Some(item) = &self.items.equipment.head {
@@ -1052,6 +1409,24 @@ struct CharacterItems {
     // unknown: [Item; 15]
 }
 
+impl CharacterItems {
+    fn get(&self, slot: Slot) -> &Option<Item> {
+        match slot {
+            Slot::Equipment(slot) => self.equipment.get(slot),
+            Slot::BagItem(slot) => &self.bags[slot as usize],
+            Slot::MainBag(slot) => &self.main_backpack[slot as usize],
+        }
+    }
+
+    fn get_mut(&mut self, slot: Slot) -> &mut Option<Item> {
+        match slot {
+            Slot::Equipment(slot) => self.equipment.get_mut(slot),
+            Slot::BagItem(slot) => &mut self.bags[slot as usize],
+            Slot::MainBag(slot) => &mut self.main_backpack[slot as usize],
+        }
+    }
+}
+
 pub struct EquipmentItems {
     pub head: Option<Item>,
     pub neck: Option<Item>,
@@ -1072,6 +1447,68 @@ pub struct EquipmentItems {
     pub offhand: Option<Item>,
     pub ranged: Option<Item>,
     pub tabard: Option<Item>,
+}
+
+impl EquipmentItems {
+    fn get(&self, slot: EquipmentSlot) -> &Option<Item> {
+        match slot {
+            EquipmentSlot::Head => &self.head,
+            EquipmentSlot::Neck => &self.neck,
+            EquipmentSlot::Shoulders => &self.shoulders,
+            EquipmentSlot::Body => &self.body,
+            EquipmentSlot::Chest => &self.chest,
+            EquipmentSlot::Waist => &self.waist,
+            EquipmentSlot::Legs => &self.legs,
+            EquipmentSlot::Feet => &self.feet,
+            EquipmentSlot::Wrists => &self.wrists,
+            EquipmentSlot::Hands => &self.hands,
+            EquipmentSlot::Finger1 => &self.finger1,
+            EquipmentSlot::Finger2 => &self.finger2,
+            EquipmentSlot::Trinket1 => &self.trinket1,
+            EquipmentSlot::Trinket2 => &self.trinket2,
+            EquipmentSlot::Back => &self.back,
+            EquipmentSlot::MainHand => &self.mainhand,
+            EquipmentSlot::OffHand => &self.offhand,
+            EquipmentSlot::Ranged => &self.ranged,
+            EquipmentSlot::Tabard => &self.tabard,
+        }
+    }
+
+    fn get_mut(&mut self, slot: EquipmentSlot) -> &mut Option<Item> {
+        match slot {
+            EquipmentSlot::Head => &mut self.head,
+            EquipmentSlot::Neck => &mut self.neck,
+            EquipmentSlot::Shoulders => &mut self.shoulders,
+            EquipmentSlot::Body => &mut self.body,
+            EquipmentSlot::Chest => &mut self.chest,
+            EquipmentSlot::Waist => &mut self.waist,
+            EquipmentSlot::Legs => &mut self.legs,
+            EquipmentSlot::Feet => &mut self.feet,
+            EquipmentSlot::Wrists => &mut self.wrists,
+            EquipmentSlot::Hands => &mut self.hands,
+            EquipmentSlot::Finger1 => &mut self.finger1,
+            EquipmentSlot::Finger2 => &mut self.finger2,
+            EquipmentSlot::Trinket1 => &mut self.trinket1,
+            EquipmentSlot::Trinket2 => &mut self.trinket2,
+            EquipmentSlot::Back => &mut self.back,
+            EquipmentSlot::MainHand => &mut self.mainhand,
+            EquipmentSlot::OffHand => &mut self.offhand,
+            EquipmentSlot::Ranged => &mut self.ranged,
+            EquipmentSlot::Tabard => &mut self.tabard,
+        }
+    }
+}
+
+pub enum MoveItemError {
+    // Sent to the client
+    Inventory(InventoryChangeError),
+    Database(sqlx::Error),
+}
+
+impl From<sqlx::Error> for MoveItemError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Database(value)
+    }
 }
 
 pub enum CharacterCreateError {

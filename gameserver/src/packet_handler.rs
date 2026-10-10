@@ -341,11 +341,37 @@ pub async fn packet_handler(
                     return;
                 };
             }
+            ClientPacket::CMSG_AUTOEQUIP_ITEM(packet) => {
+                if packet.src_bag != 0xff {
+                    todo!()
+                }
+
+                let src_slot = parse_slot(packet.src_slot);
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::AutoEquipItem { src: src_slot },
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_AUTOSTORE_BAG_ITEM(packet) => {
+                if packet.src_bag != 0xff || packet.dst_bag != 0xff {
+                    todo!()
+                }
+
+                let src_slot = parse_slot(packet.src_slot);
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::StoreItemInBackpack { src: src_slot },
+                }) {
+                    return;
+                };
+            }
             ClientPacket::CMSG_SWAP_INV_ITEM(packet) => {
                 let src_slot = parse_slot(packet.src_slot);
                 let dst_slot = parse_slot(packet.dst_slot);
-
-                dbg!(&src_slot, &dst_slot);
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
@@ -431,7 +457,7 @@ pub async fn packet_handler(
 
                 let response = packets::server::SMSG_ITEM_QUERY_SINGLE_RESPONSE {
                     item_id,
-                    class: item_prototype.class,
+                    class: item_prototype.class as u32,
                     sub_class: item_prototype.sub_class,
                     name_1: CString::new(item_prototype.name).unwrap(),
                     name_2: CString::new("").unwrap(),
@@ -847,6 +873,13 @@ pub enum PlayerUpdateData {
         src: Slot,
         dst: Slot,
     },
+    AutoEquipItem {
+        src: Slot,
+    },
+    // Moves the item into the first free backpack slot
+    StoreItemInBackpack {
+        src: Slot,
+    },
     // In case CMSG_SETSHEATHED failed to validate StandStateType
     ResendSheathState,
     SetSheathState {
@@ -887,16 +920,67 @@ pub enum PlayerUpdateData {
 }
 
 fn parse_slot(slot: u8) -> Slot {
-    dbg!(slot);
     match slot {
+        0 => Slot::Equipment(EquipmentSlot::Head),
+        1 => Slot::Equipment(EquipmentSlot::Neck),
+        2 => Slot::Equipment(EquipmentSlot::Shoulders),
+        3 => Slot::Equipment(EquipmentSlot::Body),
+        4 => Slot::Equipment(EquipmentSlot::Chest),
+        5 => Slot::Equipment(EquipmentSlot::Waist),
+        6 => Slot::Equipment(EquipmentSlot::Legs),
+        7 => Slot::Equipment(EquipmentSlot::Feet),
+        8 => Slot::Equipment(EquipmentSlot::Wrists),
+        9 => Slot::Equipment(EquipmentSlot::Hands),
+        10 => Slot::Equipment(EquipmentSlot::Finger1),
+        11 => Slot::Equipment(EquipmentSlot::Finger2),
+        12 => Slot::Equipment(EquipmentSlot::Trinket1),
+        13 => Slot::Equipment(EquipmentSlot::Trinket2),
+        14 => Slot::Equipment(EquipmentSlot::Back),
+        15 => Slot::Equipment(EquipmentSlot::MainHand),
+        16 => Slot::Equipment(EquipmentSlot::OffHand),
+        17 => Slot::Equipment(EquipmentSlot::Ranged),
+        18 => Slot::Equipment(EquipmentSlot::Tabard),
+        19..=22 => Slot::BagItem(slot - 19),
         23..=38 => Slot::MainBag(slot - 23),
         _ => todo!(),
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EquipmentSlot {
+    Head = 0,
+    Neck = 1,
+    Shoulders = 2,
+    Body = 3,
+    Chest = 4,
+    Waist = 5,
+    Legs = 6,
+    Feet = 7,
+    Wrists = 8,
+    Hands = 9,
+    Finger1 = 10,
+    Finger2 = 11,
+    Trinket1 = 12,
+    Trinket2 = 13,
+    Back = 14,
+    MainHand = 15,
+    OffHand = 16,
+    Ranged = 17,
+    Tabard = 18,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
+    Equipment(EquipmentSlot),
+    BagItem(u8),
     MainBag(u8),
+}
+
+impl Slot {
+    pub fn is_equipable(&self) -> bool {
+        matches!(self, Slot::Equipment(_) | Slot::BagItem(_))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -10,7 +10,7 @@ use log::error;
 use packets::update_data::{MovementUpdate, PossibleUpdate, UpdateData, ValuesUpdate};
 use sqlx::{Pool, Sqlite};
 
-use crate::game_data::GameDataAccessor;
+use crate::{game_data::GameDataAccessor, objects::item_prototype::ItemPrototype};
 
 pub struct Item {
     pub object_fields: ObjectFields<guid::Item>,
@@ -178,6 +178,19 @@ impl Item {
                 values_blocks: values_blocks,
             },
         }
+    }
+
+    pub async fn load_prototype(
+        &self,
+        game_data_accessor: &GameDataAccessor,
+    ) -> Result<Option<ItemPrototype>, sqlx::Error> {
+        let id = *self.object_fields.entry.get();
+        let prototype = game_data_accessor.get_item_prototype(id).await?;
+        if prototype.is_none() {
+            error!("Prototype of a loaded item is missing (id: {})", id);
+        }
+
+        Ok(prototype)
     }
 
     pub fn get_visible_item_fields(&self) -> VisibleItemFields {

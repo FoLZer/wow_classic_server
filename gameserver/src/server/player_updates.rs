@@ -6,7 +6,6 @@ use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable};
 use log::{error, warn};
 use packets::{
     chat_message::{ChatTag, ServerChatMessage, ServerChatType},
-    inventory_change_result::{InventoryChangeError, InventoryChangeResult},
     movement_info::{MovementFlags, MovementInfo},
     server::ServerPacket,
     update_data::{
@@ -16,7 +15,10 @@ use packets::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    objects::{character::Character, creature::MeleeState},
+    objects::{
+        character::{Character, MoveItemError},
+        creature::MeleeState,
+    },
     packet_handler::{ChatMessage, MovementOpcode, PlayerUpdateData, packet_handler},
     server::Server,
 };
@@ -249,61 +251,119 @@ impl Server {
                         continue;
                     };
 
-                    let mut src_slot = match src {
-                        crate::packet_handler::Slot::MainBag(slot) => {
-                            character.player_fields.main_backpack_slots[slot as usize]
-                                .get_mut_using_copy()
+                    let result = character
+                        .swap_items(&self.game_data_accessor, src, dst)
+                        .await;
+
+                    let result = match result {
+                        Ok(()) => continue,
+                        Err(MoveItemError::Inventory(e)) => e,
+                        Err(MoveItemError::Database(e)) => {
+                            error!(
+                                "Failed to swap items due to a DB error (character_id: {}). Error: {}",
+                                character_id.get(),
+                                e
+                            );
+                            continue;
                         }
                     };
 
-                    let Some(item) = src_slot.take() else {
-                        let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE {
-                            result: InventoryChangeResult::OtherError {
-                                error: InventoryChangeError::SlotIsEmpty,
-                                item1: None,
-                                item2: None,
-                            },
-                        };
+                    let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
 
-                        let mut lock = character.stream_tx.lock().await;
+                    let mut lock = character.stream_tx.lock().await;
 
-                        if let Err(e) = lock
-                            .write_all(&response.to_bytes(
-                                Some(character.session_key),
-                                &mut *character.encrypt_data.lock().await,
-                            ))
-                            .await
-                        {
-                            warn!(
-                                "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
-                                character_id.get(),
-                                e
-                            )
-                        };
-
+                    if let Err(e) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        warn!(
+                            "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            e
+                        )
+                    };
+                }
+                PlayerUpdateData::AutoEquipItem { src } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
-                    drop(src_slot);
+                    let result = character
+                        .auto_equip_item(&self.game_data_accessor, src)
+                        .await;
 
-                    let mut dst_slot = match dst {
-                        crate::packet_handler::Slot::MainBag(slot) => {
-                            character.player_fields.main_backpack_slots[slot as usize]
-                                .get_mut_using_copy()
+                    let result = match result {
+                        Ok(()) => continue,
+                        Err(MoveItemError::Inventory(e)) => e,
+                        Err(MoveItemError::Database(e)) => {
+                            error!(
+                                "Failed to swap items due to a DB error (character_id: {}). Error: {}",
+                                character_id.get(),
+                                e
+                            );
+                            continue;
                         }
                     };
 
-                    if let Some(item) = dst_slot.replace(item) {
-                        drop(dst_slot);
+                    let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
 
-                        let mut src_slot = match src {
-                            crate::packet_handler::Slot::MainBag(slot) => {
-                                character.player_fields.main_backpack_slots[slot as usize]
-                                    .get_mut_using_copy()
-                            }
-                        };
+                    let mut lock = character.stream_tx.lock().await;
 
-                        src_slot.replace(item);
+                    if let Err(e) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        warn!(
+                            "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            e
+                        )
+                    };
+                }
+                PlayerUpdateData::StoreItemInBackpack { src } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    let result = character
+                        .store_item_in_backpack(&self.game_data_accessor, src)
+                        .await;
+
+                    let result = match result {
+                        Ok(()) => continue,
+                        Err(MoveItemError::Inventory(e)) => e,
+                        Err(MoveItemError::Database(e)) => {
+                            error!(
+                                "Failed to store an item due to a DB error (character_id: {}). Error: {}",
+                                character_id.get(),
+                                e
+                            );
+                            continue;
+                        }
+                    };
+
+                    let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
+
+                    let mut lock = character.stream_tx.lock().await;
+
+                    if let Err(e) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        warn!(
+                            "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            e
+                        )
                     };
                 }
                 PlayerUpdateData::ResendSheathState => {

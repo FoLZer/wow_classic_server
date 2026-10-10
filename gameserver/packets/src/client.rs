@@ -151,6 +151,15 @@ CMSG_TUTORIAL_RESET 0x100 {},
 CMSG_STANDSTATECHANGE 0x101 {
     anim_state: u32: LittleEndian
 },
+CMSG_AUTOEQUIP_ITEM 0x10A {
+    src_bag: u8: LittleEndian,
+    src_slot: u8: LittleEndian,
+},
+CMSG_AUTOSTORE_BAG_ITEM 0x10B {
+    src_bag: u8: LittleEndian,
+    src_slot: u8: LittleEndian,
+    dst_bag: u8: LittleEndian,
+},
 CMSG_SWAP_INV_ITEM 0x10D {
     src_slot: u8: LittleEndian,
     dst_slot: u8: LittleEndian,

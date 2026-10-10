@@ -91,6 +91,7 @@ impl UpdateWritable for QuestLogFields {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct VisibleItemFields {
     pub creator: Option<Guid<guid::Player>>,
     pub item_id: u32,

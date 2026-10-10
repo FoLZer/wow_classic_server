@@ -5,7 +5,7 @@ use sqlx::{Pool, Sqlite};
 #[derive(Debug)]
 pub struct ItemPrototype {
     pub item_id: u32,
-    pub class: u32,
+    pub class: ItemClass,
     pub sub_class: u32,
     pub name: String,
     pub description: String,
@@ -14,7 +14,7 @@ pub struct ItemPrototype {
     pub flags: ItemFlags,
     pub buy_price: u32,
     pub sell_price: u32,
-    pub inventory_type: u8, //TODO
+    pub inventory_type: InventoryType,
     pub allowable_class: u32,
     pub allowable_race: u32,
     pub item_level: u32,
@@ -72,7 +72,7 @@ impl ItemPrototype {
 
         Ok(Self {
             item_id: model.id as u32,
-            class: model.class as u32,
+            class: ItemClass::try_from(model.class as u32).unwrap(),
             sub_class: model.sub_class as u32,
             name: model.name,
             description: model.description,
@@ -81,7 +81,7 @@ impl ItemPrototype {
             flags: ItemFlags::new(), //TODO
             buy_price: model.buy_price as u32,
             sell_price: model.sell_price as u32,
-            inventory_type: model.inventory_type as u8,
+            inventory_type: InventoryType::try_from(model.inventory_type as u8).unwrap(),
             allowable_class: model.allowable_class as u32,
             allowable_race: model.allowable_race as u32,
             item_level: model.item_level as u32,
@@ -322,5 +322,169 @@ impl ItemPrototype {
         .await?.last_insert_rowid();
 
         Ok(id as u32)
+    }
+
+    // Only weapons, ammo, shields and relics can be changed during combat
+    pub fn equipable_in_combat(&self) -> bool {
+        matches!(self.class, ItemClass::Weapon | ItemClass::Projectile)
+            || (matches!(self.class, ItemClass::Armor)
+                && self.sub_class == ArmorSubClass::Shield as u32)
+            || matches!(self.inventory_type, InventoryType::Relic)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ItemClass {
+    Consumable = 0,
+    Container = 1,
+    Weapon = 2,
+    Gem = 3,
+    Armor = 4,
+    Reagent = 5,
+    Projectile = 6,
+    TradeGoods = 7,
+    Generic = 8,
+    Recipe = 9,
+    Money = 10,
+    Quiver = 11,
+    Quest = 12,
+    Key = 13,
+    Permanent = 14,
+    Junk = 15,
+}
+
+impl TryFrom<u32> for ItemClass {
+    type Error = u32;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Consumable),
+            1 => Ok(Self::Container),
+            2 => Ok(Self::Weapon),
+            3 => Ok(Self::Gem),
+            4 => Ok(Self::Armor),
+            5 => Ok(Self::Reagent),
+            6 => Ok(Self::Projectile),
+            7 => Ok(Self::TradeGoods),
+            8 => Ok(Self::Generic),
+            9 => Ok(Self::Recipe),
+            10 => Ok(Self::Money),
+            11 => Ok(Self::Quiver),
+            12 => Ok(Self::Quest),
+            13 => Ok(Self::Key),
+            14 => Ok(Self::Permanent),
+            15 => Ok(Self::Junk),
+            _ => Err(value),
+        }
+    }
+}
+
+// Item sub class when the class is ItemClass::Armor
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ArmorSubClass {
+    Misc = 0,
+    Cloth = 1,
+    Leather = 2,
+    Mail = 3,
+    Plate = 4,
+    Buckler = 5,
+    Shield = 6,
+    Libram = 7,
+    Idol = 8,
+    Totem = 9,
+}
+
+impl TryFrom<u32> for ArmorSubClass {
+    type Error = u32;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Misc),
+            1 => Ok(Self::Cloth),
+            2 => Ok(Self::Leather),
+            3 => Ok(Self::Mail),
+            4 => Ok(Self::Plate),
+            5 => Ok(Self::Buckler),
+            6 => Ok(Self::Shield),
+            7 => Ok(Self::Libram),
+            8 => Ok(Self::Idol),
+            9 => Ok(Self::Totem),
+            _ => Err(value),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum InventoryType {
+    NonEquip = 0,
+    Head = 1,
+    Neck = 2,
+    Shoulders = 3,
+    Body = 4,
+    Chest = 5,
+    Waist = 6,
+    Legs = 7,
+    Feet = 8,
+    Wrists = 9,
+    Hands = 10,
+    Finger = 11,
+    Trinket = 12,
+    Weapon = 13,
+    Shield = 14,
+    Ranged = 15,
+    Cloak = 16,
+    TwoHandWeapon = 17,
+    Bag = 18,
+    Tabard = 19,
+    Robe = 20,
+    WeaponMainHand = 21,
+    WeaponOffHand = 22,
+    Holdable = 23,
+    Ammo = 24,
+    Thrown = 25,
+    RangedRight = 26,
+    Quiver = 27,
+    Relic = 28,
+}
+
+impl TryFrom<u8> for InventoryType {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::NonEquip),
+            1 => Ok(Self::Head),
+            2 => Ok(Self::Neck),
+            3 => Ok(Self::Shoulders),
+            4 => Ok(Self::Body),
+            5 => Ok(Self::Chest),
+            6 => Ok(Self::Waist),
+            7 => Ok(Self::Legs),
+            8 => Ok(Self::Feet),
+            9 => Ok(Self::Wrists),
+            10 => Ok(Self::Hands),
+            11 => Ok(Self::Finger),
+            12 => Ok(Self::Trinket),
+            13 => Ok(Self::Weapon),
+            14 => Ok(Self::Shield),
+            15 => Ok(Self::Ranged),
+            16 => Ok(Self::Cloak),
+            17 => Ok(Self::TwoHandWeapon),
+            18 => Ok(Self::Bag),
+            19 => Ok(Self::Tabard),
+            20 => Ok(Self::Robe),
+            21 => Ok(Self::WeaponMainHand),
+            22 => Ok(Self::WeaponOffHand),
+            23 => Ok(Self::Holdable),
+            24 => Ok(Self::Ammo),
+            25 => Ok(Self::Thrown),
+            26 => Ok(Self::RangedRight),
+            27 => Ok(Self::Quiver),
+            28 => Ok(Self::Relic),
+            _ => Err(value),
+        }
     }
 }
