@@ -8,7 +8,7 @@ use std::{
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
-use common::guid::{self, Guid, GuidType, LivingGuid};
+use common::guid::{self, Guid, LivingGuid};
 use macros::create_server_packets;
 
 use crate::{
@@ -21,6 +21,11 @@ use crate::{
     packed::Packed,
     update_data::UpdateBlocks,
 };
+
+pub trait ServerPacket {
+    const PACKET_NAME: &str;
+    fn to_bytes(&self, session_key: Option<[u8; 40]>, encrypt_data: &mut (usize, u8)) -> Vec<u8>;
+}
 
 create_server_packets!(
 SMSG_CHAR_CREATE 0x03A {

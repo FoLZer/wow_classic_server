@@ -8,6 +8,7 @@ use log::{error, info, warn};
 use packets::{
     account_result::AccountResult,
     client::{ClientPacket, ParseError},
+    server::ServerPacket,
 };
 use rand::{Rng, rngs::StdRng};
 use sha1::{Digest, Sha1};

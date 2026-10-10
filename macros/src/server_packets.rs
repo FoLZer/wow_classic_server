@@ -37,14 +37,10 @@ pub fn create_server_packets_impl(input: TokenStream) -> TokenStream {
                 ),*
             }
 
-            impl #name {
-                fn to_bytes_inner_body(&self) -> Result<Vec<u8>, ::std::io::Error> {
-                    let mut buf = Vec::new();
-                    #(#attrs_write;)*
-                    Ok(buf)
-                }
+            impl ServerPacket for #name {
+                const PACKET_NAME: &str = stringify!(#name);
 
-                pub fn to_bytes(&self, session_key: Option<[u8; 40]>, encrypt_data: &mut (usize, u8)) -> Vec<u8> {
+                fn to_bytes(&self, session_key: Option<[u8; 40]>, encrypt_data: &mut (usize, u8)) -> Vec<u8> {
                     let inner_buf = self.to_bytes_inner_body().unwrap();
                     let mut outer_buf = Vec::new();
                     debug_assert!(inner_buf.len() <= u16::MAX as usize - 4);
@@ -60,6 +56,14 @@ pub fn create_server_packets_impl(input: TokenStream) -> TokenStream {
                     }
                     outer_buf.write_all(&inner_buf).unwrap();
                     outer_buf
+                }
+            }
+
+            impl #name {
+                fn to_bytes_inner_body(&self) -> Result<Vec<u8>, ::std::io::Error> {
+                    let mut buf = Vec::new();
+                    #(#attrs_write;)*
+                    Ok(buf)
                 }
             }
         }

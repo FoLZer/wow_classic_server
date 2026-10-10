@@ -18,6 +18,7 @@ use packets::{
     attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDamages, VictimState},
     inventory_change_result::{InventoryChangeError, InventoryChangeResult},
     movement_info::{MovementFlags, MovementInfo},
+    server::ServerPacket,
     update_data::{
         MovementUpdate, PositionUpdate, PossibleUpdate, UpdateBlocks, UpdateData, ValuesUpdate,
     },
@@ -570,27 +571,10 @@ impl Server {
                                     unkn: 0,
                                 };
 
-                                for character in self.characters.values() {
-                                    if !character.sees_player_including_self(character_id) {
-                                        continue;
-                                    }
-
-                                    let mut lock = character.stream_tx.lock().await;
-
-                                    if let Err(e) = lock
-                                        .write_all(&response.to_bytes(
-                                            Some(character.session_key),
-                                            &mut *character.encrypt_data.lock().await,
-                                        ))
-                                        .await
-                                    {
-                                        warn!(
-                                            "Failed to send SMSG_ATTACKSTOP to client (account_id: {}). Error: {:?}",
-                                            character.account_id, e
-                                        );
-                                        continue;
-                                    };
-                                }
+                                self.broadcast_packet(&response, |character| {
+                                    !character.sees_player_including_self(character_id)
+                                })
+                                .await;
                             }
                         }
                     }
@@ -641,27 +625,10 @@ impl Server {
                         victim,
                     };
 
-                    for character in self.characters.values() {
-                        if !character.sees_player_including_self(character_id) {
-                            continue;
-                        }
-
-                        let mut lock = character.stream_tx.lock().await;
-
-                        if let Err(e) = lock
-                            .write_all(&response.to_bytes(
-                                Some(character.session_key),
-                                &mut *character.encrypt_data.lock().await,
-                            ))
-                            .await
-                        {
-                            warn!(
-                                "Failed to send SMSG_ATTACKSTART to client (account_id: {}). Error: {:?}",
-                                character.account_id, e
-                            );
-                            continue;
-                        };
-                    }
+                    self.broadcast_packet(&response, |character| {
+                        !character.sees_player_including_self(character_id)
+                    })
+                    .await;
                 }
                 PlayerUpdateData::StopCombat => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
@@ -679,27 +646,10 @@ impl Server {
                         unkn: 0,
                     };
 
-                    for character in self.characters.values() {
-                        if !character.sees_player_including_self(character_id) {
-                            continue;
-                        }
-
-                        let mut lock = character.stream_tx.lock().await;
-
-                        if let Err(e) = lock
-                            .write_all(&response.to_bytes(
-                                Some(character.session_key),
-                                &mut *character.encrypt_data.lock().await,
-                            ))
-                            .await
-                        {
-                            warn!(
-                                "Failed to send SMSG_ATTACKSTOP to client (account_id: {}). Error: {:?}",
-                                character.account_id, e
-                            );
-                            continue;
-                        };
-                    }
+                    self.broadcast_packet(&response, |character| {
+                        !character.sees_player_including_self(character_id)
+                    })
+                    .await;
                 }
             }
         }
@@ -1061,10 +1011,6 @@ impl Server {
             .with_off_hand(matches!(hand, HitHand::Off));
         let victim_state = VictimState::Normal;
 
-        let health = *victim_fields.health.get();
-        *victim_fields.health.get_mut_using_copy() = health.saturating_sub(damage);
-        // TODO: death handling once health reaches 0
-
         let response = packets::server::SMSG_ATTACKERSTATEUPDATE {
             hit_info,
             attacker: attacker.into(),
@@ -1083,27 +1029,21 @@ impl Server {
             blocked: 0,
         };
 
-        for character in self.characters.values() {
-            if !character.sees_including_self(attacker) && !character.sees_including_self(victim) {
-                continue;
-            }
+        let _ = victim_fields;
 
-            let mut lock = character.stream_tx.lock().await;
+        self.broadcast_packet(&response, |character| {
+            !character.sees_including_self(attacker) && !character.sees_including_self(victim)
+        })
+        .await;
 
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
-            {
-                warn!(
-                    "Failed to send SMSG_ATTACKERSTATEUPDATE to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                continue;
-            };
-        }
+        let Some(victim_fields) = self.living_unit_fields_mut(victim) else {
+            // Not really supposed to happen, I guess returning is fine for now
+            return;
+        };
+
+        let health = *victim_fields.health.get();
+        *victim_fields.health.get_mut_using_copy() = health.saturating_sub(damage);
+        // TODO: death handling once health reaches 0
     }
 
     fn living_unit_fields(&self, guid: LivingGuid) -> Option<&UnitFields> {
@@ -1117,6 +1057,36 @@ impl Server {
         match guid {
             LivingGuid::Player(guid) => self.characters.get_mut(&guid).map(|v| &mut v.unit_fields),
             LivingGuid::Unit(guid) => self.creatures.get_mut(&guid).map(|v| &mut v.unit_fields),
+        }
+    }
+
+    async fn broadcast_packet<T: ServerPacket, F: Fn(&Character) -> bool>(
+        &self,
+        packet: &T,
+        except: F,
+    ) {
+        for character in self.characters.values() {
+            if except(character) {
+                continue;
+            }
+
+            let mut lock = character.stream_tx.lock().await;
+
+            if let Err(e) = lock
+                .write_all(&packet.to_bytes(
+                    Some(character.session_key),
+                    &mut *character.encrypt_data.lock().await,
+                ))
+                .await
+            {
+                warn!(
+                    "Failed to send {} to client (account_id: {}). Error: {:?}",
+                    T::PACKET_NAME,
+                    character.account_id,
+                    e
+                );
+                continue;
+            };
         }
     }
 

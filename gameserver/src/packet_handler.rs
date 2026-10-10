@@ -11,6 +11,7 @@ use log::{error, warn};
 use packets::{
     client::{ClientPacket, ParseError},
     movement_info::MovementInfo,
+    server::ServerPacket,
 };
 use tokio::{
     io::AsyncWriteExt,
@@ -728,7 +729,7 @@ pub enum PlayerUpdateData {
     StartCombat {
         victim: LivingGuid,
     },
-    StopCombat
+    StopCombat,
 }
 
 fn parse_slot(slot: u8) -> Slot {
