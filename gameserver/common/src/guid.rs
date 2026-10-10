@@ -112,6 +112,7 @@ impl AnyGuid {
 pub enum SelectableGuid {
     Unit(Guid<Unit>),
     Player(Guid<Player>),
+    // TODO: is corpse actually selectable?
     Corpse(Guid<Corpse>),
 }
 
