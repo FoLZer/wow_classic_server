@@ -166,17 +166,17 @@ impl Server {
                 };
                 if let Some(spawner_index) = victim.spawner_index {
                     self.notify_creature_spawner(spawner_index);
-                    self.creature_corpses.insert(
-                        victim_guid,
-                        CreatureCorpse {
-                            position: victim.position,
-                            orientation: victim.orientation,
-                            object_fields: victim.object_fields,
-                            unit_fields: victim.unit_fields,
-                            died_at: Instant::now(),
-                        },
-                    );
                 }
+                self.creature_corpses.insert(
+                    victim_guid,
+                    CreatureCorpse {
+                        position: victim.position,
+                        orientation: victim.orientation,
+                        object_fields: victim.object_fields,
+                        unit_fields: victim.unit_fields,
+                        died_at: Instant::now(),
+                    },
+                );
             }
         }
         // TODO: death handling once health reaches 0

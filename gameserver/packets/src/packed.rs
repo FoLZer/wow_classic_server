@@ -1,5 +1,5 @@
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use common::guid::{Guid, GuidType, LivingGuid};
+use common::guid::{AnyGuid, Guid, GuidType, LivingGuid};
 
 use crate::server::OrderedWrite;
 
@@ -56,6 +56,12 @@ impl<B: ByteOrder> OrderedWrite<B> for Packed<LivingGuid> {
 }
 
 impl<T: ByteOrder> OrderedWrite<T> for LivingGuid {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        writer.write_u64::<LittleEndian>(self.get().get())
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for AnyGuid {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_u64::<LittleEndian>(self.get().get())
     }

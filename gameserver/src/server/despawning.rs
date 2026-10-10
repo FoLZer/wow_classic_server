@@ -2,11 +2,6 @@ use std::time::Instant;
 
 use common::guid::{self, AnyGuid, Guid};
 use log::error;
-use packets::{
-    server::ServerPacket,
-    update_data::{UpdateBlocks, UpdateData},
-};
-use tokio::io::AsyncWriteExt;
 
 use crate::server::Server;
 
@@ -22,43 +17,36 @@ impl Server {
             return;
         }
 
-        self.remove_creatures(&despawned).await;
+        self.remove_creatures(&despawned, now).await;
     }
 
-    async fn remove_creatures(&mut self, creatures: &[Guid<guid::Unit>]) {
+    pub(super) fn release_quarantined_guids(&mut self, now: Instant) {
+        for (guid, e) in self
+            .unit_guid_allocator
+            .release_quarantined(self.guid_quarantine_time, now)
+        {
+            error!(
+                "Failed to free a quarantined unit guid ({}). Error: {:?}",
+                guid.get(),
+                e
+            );
+        }
+    }
+
+    async fn remove_creatures(&mut self, creatures: &[Guid<guid::Unit>], now: Instant) {
         for character in self.characters.values_mut() {
-            let guids: Vec<_> = creatures
-                .iter()
-                .filter(|guid| character.visible_creatures.remove(guid))
-                .map(|guid| AnyGuid::Unit(*guid))
-                .collect();
-
-            if guids.is_empty() {
-                continue;
+            for guid in creatures {
+                character.visible_creatures.remove(guid);
             }
+        }
 
-            let response = packets::server::SMSG_UPDATE_OBJECT {
-                update_data: UpdateBlocks {
-                    has_transport: false,
-                    blocks: vec![UpdateData::OutOfRangeDestroyObject { guids }],
-                },
+        for &guid in creatures {
+            let response = packets::server::SMSG_DESTROY_OBJECT {
+                guid: AnyGuid::Unit(guid),
             };
+            self.broadcast_packet(&response, |_| false).await;
 
-            let mut lock = character.stream_tx.lock().await;
-
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
-            {
-                error!(
-                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                return;
-            };
+            self.unit_guid_allocator.quarantine(guid, now);
         }
     }
 }

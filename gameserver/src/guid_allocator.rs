@@ -3,10 +3,12 @@ use std::{
     marker::PhantomData,
     num::NonZeroU32,
     ops::Bound::{Excluded, Unbounded},
+    time::{Duration, Instant},
 };
 
 use common::guid::{Guid, GuidType};
 
+#[derive(Debug)]
 pub enum GuidAllocatorError {
     AlreadyFree,
     NotAllocated,
@@ -15,6 +17,7 @@ pub enum GuidAllocatorError {
 pub struct GuidAllocator<T: GuidType> {
     next_id: u64,
     free_ranges: BTreeMap<u32, u32>,
+    quarantine: Vec<(Instant, Guid<T>)>,
     marker: PhantomData<T>,
 }
 
@@ -23,6 +26,7 @@ impl<T: GuidType> GuidAllocator<T> {
         Self {
             next_id: 1,
             free_ranges: BTreeMap::new(),
+            quarantine: Vec::new(),
             marker: PhantomData,
         }
     }
@@ -44,6 +48,32 @@ impl<T: GuidType> GuidAllocator<T> {
         let id = self.next_id as u32;
         self.next_id += 1;
         Some(Guid::from_u32(NonZeroU32::new(id).unwrap()))
+    }
+
+    pub fn quarantine(&mut self, guid: Guid<T>, quarantined_at: Instant) {
+        self.quarantine.push((quarantined_at, guid));
+    }
+
+    pub fn release_quarantined(
+        &mut self,
+        quarantine_time: Duration,
+        now: Instant,
+    ) -> Vec<(Guid<T>, GuidAllocatorError)> {
+        let released: Vec<_> = self
+            .quarantine
+            .extract_if(.., |(quarantined_at, _)| {
+                (now - *quarantined_at) > quarantine_time
+            })
+            .map(|(_, guid)| guid)
+            .collect();
+
+        released
+            .into_iter()
+            .filter_map(|guid| {
+                let id = guid.get_u32();
+                self.free(guid).err().map(|e| (Guid::from_u32(id), e))
+            })
+            .collect()
     }
 
     pub fn free(&mut self, guid: Guid<T>) -> Result<(), GuidAllocatorError> {

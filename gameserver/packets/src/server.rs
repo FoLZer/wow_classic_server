@@ -8,7 +8,7 @@ use std::{
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
-use common::guid::{self, Guid, LivingGuid};
+use common::guid::{self, AnyGuid, Guid, LivingGuid};
 use macros::create_server_packets;
 
 use crate::{
@@ -141,6 +141,9 @@ SMSG_MESSAGECHAT 0x096 {
 },
 SMSG_UPDATE_OBJECT 0x0A9 {
     update_data: UpdateBlocks: LittleEndian,
+},
+SMSG_DESTROY_OBJECT 0x0AA {
+    guid: AnyGuid: LittleEndian,
 },
 MSG_MOVE_START_FORWARD 0x0B5 {
     mover: Packed<Guid<guid::Player>>: LittleEndian,

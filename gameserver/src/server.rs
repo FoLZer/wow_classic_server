@@ -32,6 +32,7 @@ pub struct Server {
 
     // TODO: This needs to be either a configuration or dynamically computed
     corpse_despawn_time: Duration,
+    guid_quarantine_time: Duration,
     say_message_range: f32,
     yell_message_range: f32,
 
@@ -83,6 +84,7 @@ impl Server {
             game_time: Local::now(),
 
             corpse_despawn_time: Duration::from_secs(10),
+            guid_quarantine_time: Duration::from_secs(5),
             say_message_range: 500.0,
             yell_message_range: 90000.0,
 
@@ -108,6 +110,7 @@ impl Server {
         self.process_player_updates().await;
 
         self.despawn_corpses(now).await;
+        self.release_quarantined_guids(now);
         self.process_queued_creature_spawners().await;
 
         // Update order: Remove -> Update -> Create
