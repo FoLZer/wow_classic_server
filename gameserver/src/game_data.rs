@@ -6,7 +6,9 @@ use sqlx::{Pool, Sqlite};
 
 use crate::{
     creature_spawner::{CreatureSpawner, StaticCreatureSpawner},
-    objects::{creature_prototype::CreaturePrototype, item_prototype::ItemPrototype},
+    objects::{
+        creature_prototype::CreaturePrototype, gossip::NpcText, item_prototype::ItemPrototype,
+    },
 };
 
 // This exists to provide an ability to switch data backend later if needed
@@ -431,6 +433,22 @@ impl GameDataAccessor {
     ) -> Result<Option<CreaturePrototype>, sqlx::Error> {
         match CreaturePrototype::load_from_db(self, &self.db, id).await {
             Ok(v) => Ok(Some(v)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn get_npc_text(&self, id: u32) -> Result<Option<NpcText>, sqlx::Error> {
+        match sqlx::query!("SELECT * FROM npc_text WHERE id = ?", id)
+            .fetch_one(&self.db)
+            .await
+        {
+            Ok(model) => Ok(Some(NpcText {
+                id: model.id as u32,
+                text_male: model.text_male,
+                text_female: model.text_female,
+                language: model.language as u32,
+            })),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(e),
         }

@@ -16,3 +16,6 @@ DROP TABLE IF EXISTS item;
 DROP TABLE IF EXISTS creature_spawner_static;
 DROP TABLE IF EXISTS creature_vendor_item;
 DROP TABLE IF EXISTS creature;
+DROP TABLE IF EXISTS gossip_menu_item;
+DROP TABLE IF EXISTS gossip_menu;
+DROP TABLE IF EXISTS npc_text;

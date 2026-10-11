@@ -209,6 +209,26 @@ CREATE TABLE IF NOT EXISTS language(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     name TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS npc_text(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    text_male TEXT NOT NULL,
+    text_female TEXT NOT NULL,
+    language INT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS gossip_menu(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    title_text_id INT NOT NULL REFERENCES npc_text
+);
+CREATE TABLE IF NOT EXISTS gossip_menu_item(
+    menu_id INT NOT NULL REFERENCES gossip_menu,
+    position INT NOT NULL,
+    icon TINYINT NOT NULL,
+    coded BOOLEAN NOT NULL,
+    text TEXT NOT NULL,
+    next_menu_id INT REFERENCES gossip_menu,
+
+    PRIMARY KEY(menu_id, position)
+);
 /* ---------------- Game data END ---------------- */
 
 CREATE TABLE IF NOT EXISTS item(
@@ -341,7 +361,8 @@ CREATE TABLE IF NOT EXISTS creature(
     rank INT NOT NULL,
     civilian INT NOT NULL,
 
-    npc_flags INT NOT NULL
+    npc_flags INT NOT NULL,
+    gossip_menu_root_id INT REFERENCES gossip_menu
 );
 
 CREATE TABLE IF NOT EXISTS creature_vendor_item(

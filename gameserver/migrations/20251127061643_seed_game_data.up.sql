@@ -442,6 +442,19 @@ VALUES(14, "Troll");
 INSERT INTO language(id, name)
 VALUES(33, "Gutterspeak");
 /* Languages END */
+/* NPC Texts START */
+INSERT INTO npc_text(id, text_male, text_female, language)
+VALUES(1, "Greetings, $N.", "Greetings, $N.", 0),
+    (2, "What else would you like to know?", "What else would you like to know?", 0);
+/* NPC Texts END */
+/* Gossip Menus START */
+INSERT INTO gossip_menu(id, title_text_id)
+VALUES(1, 1),
+    (2, 2);
+INSERT INTO gossip_menu_item(menu_id, position, icon, coded, text, next_menu_id)
+VALUES(1, 0, 0, FALSE, "Tell me more.", 2),
+    (2, 0, 0, FALSE, "Back.", 1);
+/* Gossip Menus END */
 /* Creatures START */
 INSERT INTO creature(
         id,
@@ -471,7 +484,8 @@ INSERT INTO creature(
         family,
         rank,
         civilian,
-        npc_flags
+        npc_flags,
+        gossip_menu_root_id
     )
 VALUES(
         6,
@@ -502,7 +516,8 @@ VALUES(
         NULL,
         2,
         0,
-        0
+        0,
+        NULL
     );
 INSERT INTO creature(
         id,
@@ -532,7 +547,8 @@ INSERT INTO creature(
         family,
         rank,
         civilian,
-        npc_flags
+        npc_flags,
+        gossip_menu_root_id
     )
 VALUES(
         1,
@@ -562,6 +578,7 @@ VALUES(
         NULL,
         2,
         0,
+        1,
         1
     ),
     (
@@ -592,7 +609,8 @@ VALUES(
         NULL,
         2,
         0,
-        2
+        2,
+        NULL
     ),
     (
         3,
@@ -622,7 +640,8 @@ VALUES(
         NULL,
         2,
         0,
-        4
+        4,
+        NULL
     );
 /* Creatures END */
 /* Creature Vendor Items START */

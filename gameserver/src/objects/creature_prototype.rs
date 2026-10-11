@@ -4,7 +4,7 @@ use sqlx::{Pool, Sqlite};
 
 use crate::{
     game_data::GameDataAccessor,
-    objects::{creature::VendorItem, item_prototype::ItemPrototype},
+    objects::{creature::VendorItem, gossip::GossipMenuTree, item_prototype::ItemPrototype},
 };
 
 pub struct CreaturePrototype {
@@ -40,6 +40,7 @@ pub struct CreaturePrototype {
 
     pub npc_flags: u16,
     pub vendor_menu: Option<Vec<VendorItem>>,
+    pub gossip_menu: Option<GossipMenuTree>,
 }
 
 impl CreaturePrototype {
@@ -78,6 +79,12 @@ impl CreaturePrototype {
             purchase_amount: item.purchase_amount as u32,
         })
         .collect::<Vec<_>>();
+
+        let gossip_menu = if let Some(id) = model.gossip_menu_root_id {
+            Some(GossipMenuTree::load_from_db(db, id as u32).await?)
+        } else {
+            None
+        };
 
         Ok(Self {
             health: model.health.map(|v| v as u32),
@@ -133,6 +140,7 @@ impl CreaturePrototype {
 
             npc_flags: model.npc_flags as u16,
             vendor_menu: (!vendor_menu.is_empty()).then_some(vendor_menu),
+            gossip_menu,
         })
     }
 }

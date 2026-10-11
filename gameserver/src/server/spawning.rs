@@ -260,7 +260,10 @@ impl Server {
                     channel_spell: 0.into(),
                     mod_cast_speed: 1.into(),
                     created_by_spell: 0.into(),
-                    npc_flags: NpcFlags::from_bits(prototype.npc_flags as u32).into(),
+                    npc_flags: NpcFlags::from_bits(prototype.npc_flags as u32)
+                        .with_vendor(prototype.vendor_menu.is_some())
+                        .with_gossip(prototype.gossip_menu.is_some())
+                        .into(),
                     npc_emote_state: 0.into(),
                     training_points: 0.into(),
                     strength: 1.into(),
@@ -296,6 +299,7 @@ impl Server {
                 spawner_index,
                 melee_state: None,
                 vendor_menu: prototype.vendor_menu,
+                gossip_menu: prototype.gossip_menu,
             },
         );
     }

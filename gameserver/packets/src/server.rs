@@ -12,7 +12,17 @@ use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid};
 use macros::create_server_packets;
 
 use crate::{
-    account_result::AccountResult, attacker_state::{HitInfo, SubDamages, VictimState}, character_info::CharacterInfo, chat_message::ServerChatMessage, gossip::{GossipMenuItem, GossipQuestMenuItem, NpcTextOption, U32Counted}, inventory_change_result::InventoryChangeError, item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat}, movement_info::MovementInfo, packed::Packed, update_data::UpdateBlocks, vendor_query::VendorQueryResult,
+    account_result::AccountResult,
+    attacker_state::{HitInfo, SubDamages, VictimState},
+    character_info::CharacterInfo,
+    chat_message::ServerChatMessage,
+    gossip::{GossipMenuItem, GossipQuestMenuItem, NpcTextOption, U32Counted},
+    inventory_change_result::InventoryChangeError,
+    item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
+    movement_info::MovementInfo,
+    packed::Packed,
+    update_data::UpdateBlocks,
+    vendor_query::VendorQueryResult,
 };
 
 pub trait ServerPacket {

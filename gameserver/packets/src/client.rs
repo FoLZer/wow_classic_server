@@ -174,6 +174,11 @@ CMSG_ATTACKSTOP 0x142 {},
 CMSG_GOSSIP_HELLO 0x17B {
     guid: u64: LittleEndian
 },
+CMSG_GOSSIP_SELECT_OPTION 0x17C {
+    guid: u64: LittleEndian,
+    gossip_menu_item: u32: LittleEndian,
+    code: Option<EndDataCString>: LittleEndian
+},
 CMSG_NPC_TEXT_QUERY 0x17F {
     text_id: u32: LittleEndian,
     source_guid: u64: LittleEndian
@@ -183,6 +188,19 @@ CMSG_QUESTGIVER_STATUS_QUERY 0x182 {
 },
 CMSG_LIST_INVENTORY 0x19E {
     guid: u64: LittleEndian
+},
+CMSG_BUY_ITEM 0x1A2 {
+    vendor_guid: u64: LittleEndian,
+    item_id: u32: LittleEndian,
+    purchase_amount: u8: LittleEndian,
+    unkn: u8: LittleEndian,
+},
+CMSG_BUY_ITEM_IN_SLOT 0x1A3 {
+    vendor_guid: u64: LittleEndian,
+    item_id: u32: LittleEndian,
+    bag_guid: u64: LittleEndian,
+    bag_slot: u8: LittleEndian,
+    purchase_amount: u8: LittleEndian,
 },
 CMSG_QUERY_TIME 0x1CE {},
 CMSG_PING 0x1DC {
@@ -269,6 +287,40 @@ impl<T: ByteOrder> OrderedRead<T> for CString {
             b.push(d);
         }
         Ok(unsafe { CString::from_vec_unchecked(b) })
+    }
+}
+
+#[derive(Debug)]
+pub struct EndDataCString(pub CString);
+
+impl<T: ByteOrder> OrderedRead<T> for Option<EndDataCString> {
+    fn from_reader(reader: &mut Cursor<&[u8]>) -> std::io::Result<Self> {
+        let mut b = Vec::new();
+
+        // Read first byte manually to check if string exists
+        match reader.read_u8() {
+            Ok(d) => {
+                if d == 0 {
+                    return Ok(Some(EndDataCString(unsafe {
+                        CString::from_vec_unchecked(b)
+                    })));
+                }
+                b.push(d);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(e) => return Err(e),
+        }
+
+        loop {
+            let d = reader.read_u8()?;
+            if d == 0 {
+                break;
+            }
+            b.push(d);
+        }
+        Ok(Some(EndDataCString(unsafe {
+            CString::from_vec_unchecked(b)
+        })))
     }
 }
 

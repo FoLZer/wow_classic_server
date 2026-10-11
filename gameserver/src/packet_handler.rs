@@ -1,7 +1,7 @@
-use std::{ffi::CString, io::ErrorKind, num::NonZeroU32, sync::Arc};
+use std::{ffi::CString, io::ErrorKind, sync::Arc};
 
 use chrono::Local;
-use common::guid::{self, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
+use common::guid::{self, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::{
     player::TutorialFlags,
@@ -11,7 +11,7 @@ use log::{error, warn};
 use packets::{
     chat_message::{ChatType, ServerChatMessage, ServerChatType},
     client::{ClientPacket, ParseError},
-    gossip::{GossipMenuItem, NpcTextOption, U32Counted},
+    gossip::NpcTextOption,
     movement_info::MovementInfo,
     server::ServerPacket,
 };
@@ -896,14 +896,28 @@ pub async fn packet_handler(
                 }
             }
             ClientPacket::CMSG_NPC_TEXT_QUERY(packet) => {
+                let npc_text = match game_data_accessor.get_npc_text(packet.text_id).await {
+                    Ok(Some(npc_text)) => npc_text,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        error!(
+                            "Failed to query NPC text (text_id: {}, character_id: {}). Error: {}",
+                            packet.text_id,
+                            character_id.get(),
+                            error
+                        );
+                        continue;
+                    }
+                };
+
                 let response = packets::server::SMSG_NPC_TEXT_UPDATE {
-                    text_id: packet.text_id,
+                    text_id: npc_text.id,
                     options: [
                         NpcTextOption {
                             probability: 1.0,
-                            text_male: CString::new("Greetings, $N.").unwrap(),
-                            text_female: CString::new("Greetings, $N.").unwrap(),
-                            language: 0,
+                            text_male: CString::new(npc_text.text_male).unwrap(),
+                            text_female: CString::new(npc_text.text_female).unwrap(),
+                            language: npc_text.language,
                             emotes: [(0, 0); 3],
                         },
                         NpcTextOption::empty(),
@@ -932,33 +946,40 @@ pub async fn packet_handler(
                 };
             }
             ClientPacket::CMSG_GOSSIP_HELLO(packet) => {
-                let response = packets::server::SMSG_GOSSIP_MESSAGE {
-                    source: GossipSourceGuid::Unit(
-                        Guid::<guid::Unit>::try_from_u64(packet.guid).unwrap(),
-                    ),
-                    title_id: 1,
-                    menu_items: U32Counted(vec![GossipMenuItem {
-                        index: 0,
-                        icon: 0,
-                        coded: 0,
-                        text: CString::new("Test").unwrap(),
-                    }]),
-                    quest_menu_items: U32Counted(vec![]),
+                let Some(source_guid) = Guid::<guid::Unit>::try_from_u64(packet.guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_GOSSIP_HELLO with an invalid guid: {}",
+                        character_id.get(),
+                        packet.guid
+                    );
+                    continue;
                 };
 
-                if let Err(e) = tx
-                    .lock()
-                    .await
-                    .write_all(
-                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
-                    )
-                    .await
-                {
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::OpenGossip { source_guid },
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_GOSSIP_SELECT_OPTION(packet) => {
+                let Some(source_guid) = Guid::<guid::Unit>::try_from_u64(packet.guid) else {
                     warn!(
-                        "Failed to send SMSG_GOSSIP_MESSAGE to client (character_id: {}). Error: {:?}",
+                        "Client (character_id: {}) sent CMSG_GOSSIP_SELECT_OPTION with an invalid guid: {}",
                         character_id.get(),
-                        e
-                    )
+                        packet.guid
+                    );
+                    continue;
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::SelectGossipOption {
+                        source_guid,
+                        item_index: packet.gossip_menu_item,
+                    },
+                }) {
+                    return;
                 };
             }
             ClientPacket::CMSG_LIST_INVENTORY(packet) => {
@@ -1048,6 +1069,13 @@ pub enum PlayerUpdateData {
         message: CString,
     },
     RunCommand(Command),
+    OpenGossip {
+        source_guid: Guid<guid::Unit>,
+    },
+    SelectGossipOption {
+        source_guid: Guid<guid::Unit>,
+        item_index: u32,
+    },
     ListVendorInventory {
         vendor_guid: Guid<guid::Unit>,
     },

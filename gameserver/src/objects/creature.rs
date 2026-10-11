@@ -3,6 +3,8 @@ use std::time::Instant;
 use common::guid::{self, LivingGuid};
 use gameobjects::{object::ObjectFields, unit::UnitFields};
 
+use crate::objects::gossip::GossipMenuTree;
+
 pub struct Creature {
     pub position: (f32, f32, f32),
     pub orientation: f32,
@@ -13,6 +15,7 @@ pub struct Creature {
     pub spawner_index: Option<usize>,
     pub melee_state: Option<MeleeState>,
     pub vendor_menu: Option<Vec<VendorItem>>,
+    pub gossip_menu: Option<GossipMenuTree>,
 }
 
 impl Creature {

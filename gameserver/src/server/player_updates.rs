@@ -1,11 +1,12 @@
 use std::{collections::HashMap, ffi::CString, num::NonZeroU32};
 
 use bit_vec::BitVec;
-use common::guid::{self, AnyGuid, Guid, LivingGuid, SelectableGuid};
+use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
 use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable};
 use log::{error, warn};
 use packets::{
     chat_message::{ChatTag, ServerChatMessage, ServerChatType},
+    gossip::{GossipMenuItem, U32Counted},
     movement_info::{MovementFlags, MovementInfo},
     server::ServerPacket,
     update_data::{
@@ -19,6 +20,7 @@ use crate::{
     objects::{
         character::{Character, MoveItemError},
         creature::MeleeState,
+        gossip::GossipCursor,
     },
     packet_handler::{ChatMessage, Command, MovementOpcode, PlayerUpdateData, packet_handler},
     server::Server,
@@ -791,7 +793,136 @@ impl Server {
                     })
                     .await;
                 }
+                PlayerUpdateData::OpenGossip { source_guid } => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        return;
+                    };
+                    character.gossip_cursor = None;
+                    if !character.is_alive() {
+                        return;
+                    }
+
+                    let Some(creature) = self.creatures.get(&source_guid) else {
+                        return;
+                    };
+                    if !creature.is_alive() {
+                        return;
+                    }
+
+                    let Some(gossip_menu_root) = &creature.gossip_menu else {
+                        return;
+                    };
+
+                    character.gossip_cursor = Some(GossipCursor {
+                        source_guid,
+                        menu_id: gossip_menu_root.root_menu_id,
+                    });
+                    self.send_gossip_menu(character_id).await;
+                }
+                PlayerUpdateData::SelectGossipOption {
+                    source_guid,
+                    item_index,
+                } => {
+                    let Some(character) = self.characters.get(&character_id) else {
+                        return;
+                    };
+                    let Some(cursor) = character.gossip_cursor else {
+                        return;
+                    };
+                    if cursor.source_guid != source_guid {
+                        warn!(
+                            "Client (character_id: {}) selected a gossip item from unexpected creature {}",
+                            character_id.get(),
+                            source_guid.get()
+                        );
+                        return;
+                    }
+
+                    let Some(creature) = self.creatures.get(&source_guid) else {
+                        return;
+                    };
+                    if !creature.is_alive() {
+                        return;
+                    }
+                    let Some(gossip_menu_root) = &creature.gossip_menu else {
+                        return;
+                    };
+                    let Some(menu) = gossip_menu_root.menus.get(&cursor.menu_id) else {
+                        return;
+                    };
+                    let Some(item) = menu.items.iter().find(|item| item.index == item_index) else {
+                        warn!(
+                            "Client (character_id: {}) selected missing gossip item {} from creature {}",
+                            character_id.get(),
+                            item_index,
+                            source_guid.get()
+                        );
+                        return;
+                    };
+                    let next_menu_id = item.next_menu_id.unwrap_or(cursor.menu_id);
+                    if !gossip_menu_root.menus.contains_key(&next_menu_id) {
+                        return;
+                    }
+
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        return;
+                    };
+                    character.gossip_cursor = Some(GossipCursor {
+                        source_guid,
+                        menu_id: next_menu_id,
+                    });
+                    self.send_gossip_menu(character_id).await;
+                }
             }
+        }
+    }
+
+    async fn send_gossip_menu(&self, character_id: Guid<guid::Player>) {
+        let Some(character) = self.characters.get(&character_id) else {
+            return;
+        };
+        let Some(cursor) = character.gossip_cursor else {
+            return;
+        };
+        let Some(creature) = self.creatures.get(&cursor.source_guid) else {
+            return;
+        };
+        let Some(gossip_menu_root) = &creature.gossip_menu else {
+            return;
+        };
+        let Some(menu) = gossip_menu_root.menus.get(&cursor.menu_id) else {
+            return;
+        };
+
+        let menu_items = menu
+            .items
+            .iter()
+            .map(|item| GossipMenuItem {
+                index: item.index,
+                icon: item.icon,
+                coded: u8::from(item.coded),
+                text: CString::new(item.text.as_str()).unwrap(),
+            })
+            .collect();
+        let response = packets::server::SMSG_GOSSIP_MESSAGE {
+            source: GossipSourceGuid::Unit(cursor.source_guid),
+            title_id: menu.title_text_id,
+            menu_items: U32Counted(menu_items),
+            quest_menu_items: U32Counted(vec![]),
+        };
+
+        let mut lock = character.stream_tx.lock().await;
+        if let Err(error) = lock
+            .write_all(&response.to_bytes(
+                Some(character.session_key),
+                &mut *character.encrypt_data.lock().await,
+            ))
+            .await
+        {
+            warn!(
+                "Failed to send SMSG_GOSSIP_MESSAGE to client (account_id: {}). Error: {:?}",
+                character.account_id, error
+            );
         }
     }
 

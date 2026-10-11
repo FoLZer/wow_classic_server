@@ -24,6 +24,7 @@ use crate::{
     game_data::GameDataAccessor,
     objects::{
         creature::MeleeState,
+        gossip::GossipCursor,
         item::Item,
         item_prototype::{InventoryType, ItemPrototype},
     },
@@ -52,6 +53,7 @@ pub struct Character {
     pub tutorial_flags: TutorialFlags,
 
     pub melee_state: Option<MeleeState>,
+    pub gossip_cursor: Option<GossipCursor>,
 }
 
 impl Character {
@@ -654,6 +656,7 @@ impl Character {
             items,
 
             melee_state: None,
+            gossip_cursor: None,
         })
     }
 
