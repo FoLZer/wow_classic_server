@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::CString};
+use std::{collections::HashMap, ffi::CString, num::NonZeroU32};
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, Guid, LivingGuid, SelectableGuid};
@@ -11,6 +11,7 @@ use packets::{
     update_data::{
         MovementUpdate, PositionUpdate, PossibleUpdate, UpdateBlocks, UpdateData, ValuesUpdate,
     },
+    vendor_query::{SerializedVendorItem, VendorQueryError, VendorQueryResult},
 };
 use tokio::io::AsyncWriteExt;
 
@@ -721,6 +722,74 @@ impl Server {
                             };
                         }
                     }
+                }
+                PlayerUpdateData::ListVendorInventory { vendor_guid } => {
+                    let Some(character) = self.characters.get(&character_id) else {
+                        continue;
+                    };
+
+                    let respond = async |query_result: VendorQueryResult| {
+                        let response = packets::server::SMSG_LIST_INVENTORY {
+                            source: vendor_guid,
+                            query_result,
+                        };
+
+                        let mut lock = character.stream_tx.lock().await;
+
+                        if let Err(e) = lock
+                            .write_all(&response.to_bytes(
+                                Some(character.session_key),
+                                &mut *character.encrypt_data.lock().await,
+                            ))
+                            .await
+                        {
+                            warn!(
+                                "Failed to send SMSG_LIST_INVENTORY to client (account_id: {}). Error: {:?}",
+                                character.account_id, e
+                            );
+                        };
+                    };
+
+                    if !character.is_alive() {
+                        respond(VendorQueryResult::Err(VendorQueryError::PlayerDead)).await;
+                        continue;
+                    }
+
+                    let Some(vendor) = self.creatures.get(&vendor_guid) else {
+                        respond(VendorQueryResult::Err(VendorQueryError::VendorDead)).await;
+                        continue;
+                    };
+
+                    if !vendor.is_alive() {
+                        respond(VendorQueryResult::Err(VendorQueryError::VendorDead)).await;
+                        continue;
+                    }
+
+                    // TODO: check distance & hostility
+
+                    let Some(inventory) = &vendor.vendor_menu else {
+                        respond(VendorQueryResult::Err(VendorQueryError::NoInventory)).await;
+                        continue;
+                    };
+
+                    debug_assert_ne!(inventory.len(), 0);
+
+                    respond(VendorQueryResult::Ok {
+                        items: inventory
+                            .iter()
+                            .enumerate()
+                            .map(|(index, item)| SerializedVendorItem {
+                                index: NonZeroU32::new(index as u32 + 1).unwrap(),
+                                item_id: item.item_id,
+                                display_id: item.display_id,
+                                num_available: item.num_available,
+                                price: item.price,
+                                durability: item.durability,
+                                purchase_amount: item.purchase_amount,
+                            })
+                            .collect(),
+                    })
+                    .await;
                 }
             }
         }

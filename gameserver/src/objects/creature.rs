@@ -12,6 +12,13 @@ pub struct Creature {
 
     pub spawner_index: Option<usize>,
     pub melee_state: Option<MeleeState>,
+    pub vendor_menu: Option<Vec<VendorItem>>,
+}
+
+impl Creature {
+    pub fn is_alive(&self) -> bool {
+        *self.unit_fields.health.get() != 0
+    }
 }
 
 pub struct MeleeState {
@@ -20,4 +27,13 @@ pub struct MeleeState {
     pub victim: Option<LivingGuid>,
     pub last_main_hand: Option<Instant>,
     pub last_off_hand: Option<Instant>,
+}
+
+pub struct VendorItem {
+    pub item_id: u32,
+    pub display_id: u32,
+    pub num_available: Option<u32>,
+    pub price: u32,
+    pub durability: u32,
+    pub purchase_amount: u32,
 }

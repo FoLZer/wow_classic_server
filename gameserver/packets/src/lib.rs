@@ -11,3 +11,5 @@ pub mod movement_info;
 pub mod packed;
 pub mod server;
 pub mod update_data;
+pub mod gossip;
+pub mod vendor_query;

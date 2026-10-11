@@ -8,19 +8,11 @@ use std::{
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
-use common::guid::{self, AnyGuid, Guid, LivingGuid};
+use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid};
 use macros::create_server_packets;
 
 use crate::{
-    account_result::AccountResult,
-    attacker_state::{HitInfo, SubDamages, VictimState},
-    character_info::CharacterInfo,
-    chat_message::ServerChatMessage,
-    inventory_change_result::InventoryChangeError,
-    item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
-    movement_info::MovementInfo,
-    packed::Packed,
-    update_data::UpdateBlocks,
+    account_result::AccountResult, attacker_state::{HitInfo, SubDamages, VictimState}, character_info::CharacterInfo, chat_message::ServerChatMessage, gossip::{GossipMenuItem, GossipQuestMenuItem, NpcTextOption, U32Counted}, inventory_change_result::InventoryChangeError, item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat}, movement_info::MovementInfo, packed::Packed, update_data::UpdateBlocks, vendor_query::VendorQueryResult,
 };
 
 pub trait ServerPacket {
@@ -272,6 +264,20 @@ SMSG_BINDPOINTUPDATE 0x155 {
     homebind_z: f32: LittleEndian,
     homebind_map_id: u32: LittleEndian,
     homebind_area_id: u32: LittleEndian,
+},
+SMSG_GOSSIP_MESSAGE 0x17D {
+    source: GossipSourceGuid: LittleEndian,
+    title_id: u32: LittleEndian,
+    menu_items: U32Counted<GossipMenuItem>: LittleEndian,
+    quest_menu_items: U32Counted<GossipQuestMenuItem>: LittleEndian
+},
+SMSG_NPC_TEXT_UPDATE 0x180 {
+    text_id: u32: LittleEndian,
+    options: [NpcTextOption; 8]: LittleEndian
+},
+SMSG_LIST_INVENTORY 0x19F {
+    source: Guid<guid::Unit>: LittleEndian,
+    query_result: VendorQueryResult: LittleEndian,
 },
 SMSG_QUERY_TIME_RESPONSE 0x1CF {
     time: DateTime<Local>: LittleEndian

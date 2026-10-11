@@ -1,7 +1,7 @@
-use std::{ffi::CString, io::ErrorKind, sync::Arc};
+use std::{ffi::CString, io::ErrorKind, num::NonZeroU32, sync::Arc};
 
 use chrono::Local;
-use common::guid::{self, Guid, LivingGuid, SelectableGuid};
+use common::guid::{self, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::{
     player::TutorialFlags,
@@ -11,6 +11,7 @@ use log::{error, warn};
 use packets::{
     chat_message::{ChatType, ServerChatMessage, ServerChatType},
     client::{ClientPacket, ParseError},
+    gossip::{GossipMenuItem, NpcTextOption, U32Counted},
     movement_info::MovementInfo,
     server::ServerPacket,
 };
@@ -894,6 +895,89 @@ pub async fn packet_handler(
                     todo!()
                 }
             }
+            ClientPacket::CMSG_NPC_TEXT_QUERY(packet) => {
+                let response = packets::server::SMSG_NPC_TEXT_UPDATE {
+                    text_id: packet.text_id,
+                    options: [
+                        NpcTextOption {
+                            probability: 1.0,
+                            text_male: CString::new("Greetings, $N.").unwrap(),
+                            text_female: CString::new("Greetings, $N.").unwrap(),
+                            language: 0,
+                            emotes: [(0, 0); 3],
+                        },
+                        NpcTextOption::empty(),
+                        NpcTextOption::empty(),
+                        NpcTextOption::empty(),
+                        NpcTextOption::empty(),
+                        NpcTextOption::empty(),
+                        NpcTextOption::empty(),
+                        NpcTextOption::empty(),
+                    ],
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_NPC_TEXT_UPDATE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
+            ClientPacket::CMSG_GOSSIP_HELLO(packet) => {
+                let response = packets::server::SMSG_GOSSIP_MESSAGE {
+                    source: GossipSourceGuid::Unit(
+                        Guid::<guid::Unit>::try_from_u64(packet.guid).unwrap(),
+                    ),
+                    title_id: 1,
+                    menu_items: U32Counted(vec![GossipMenuItem {
+                        index: 0,
+                        icon: 0,
+                        coded: 0,
+                        text: CString::new("Test").unwrap(),
+                    }]),
+                    quest_menu_items: U32Counted(vec![]),
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_GOSSIP_MESSAGE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
+            ClientPacket::CMSG_LIST_INVENTORY(packet) => {
+                let Some(vendor_guid) = Guid::<guid::Unit>::try_from_u64(packet.guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_LIST_INVENTORY with an invalid guid: {}",
+                        character_id.get(),
+                        packet.guid
+                    );
+                    continue;
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::ListVendorInventory { vendor_guid },
+                }) {
+                    return;
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -964,6 +1048,9 @@ pub enum PlayerUpdateData {
         message: CString,
     },
     RunCommand(Command),
+    ListVendorInventory {
+        vendor_guid: Guid<guid::Unit>,
+    },
 }
 
 fn parse_slot(slot: u8) -> Slot {

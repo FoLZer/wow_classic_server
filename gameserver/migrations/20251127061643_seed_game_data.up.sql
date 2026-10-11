@@ -625,6 +625,16 @@ VALUES(
         4
     );
 /* Creatures END */
+/* Creature Vendor Items START */
+INSERT INTO creature_vendor_item(
+        creature_id,
+        item_id,
+        position,
+        num_available,
+        purchase_amount
+    )
+VALUES(3, 789, 0, 5, 1);
+/* Creature Vendor Items END */
 /* Static Creature Spawners START */
 INSERT INTO creature_spawner_static(
         position_x,
@@ -643,7 +653,7 @@ VALUES(
         /* 30000 */
         10000
     ),
-(
+    (
         -8910.4795,
         -106.27133,
         81.85089,
@@ -652,7 +662,7 @@ VALUES(
         /* 30000 */
         10000
     ),
-(
+    (
         -8907.7,
         -108.81111,
         81.84876,
@@ -661,7 +671,7 @@ VALUES(
         /* 30000 */
         10000
     ),
-(
+    (
         -8904.616,
         -111.07647,
         81.84876,

@@ -2,7 +2,10 @@ use std::num::NonZeroU32;
 
 use sqlx::{Pool, Sqlite};
 
-use crate::{game_data::GameDataAccessor, objects::item_prototype::ItemPrototype};
+use crate::{
+    game_data::GameDataAccessor,
+    objects::{creature::VendorItem, item_prototype::ItemPrototype},
+};
 
 pub struct CreaturePrototype {
     pub health: Option<u32>,
@@ -36,6 +39,7 @@ pub struct CreaturePrototype {
     pub civilian: u16,
 
     pub npc_flags: u16,
+    pub vendor_menu: Option<Vec<VendorItem>>,
 }
 
 impl CreaturePrototype {
@@ -47,6 +51,33 @@ impl CreaturePrototype {
         let model = sqlx::query!("SELECT * FROM creature WHERE id = ?", id)
             .fetch_one(db)
             .await?;
+
+        let vendor_menu = sqlx::query!(
+            "SELECT
+                item_prototype.id AS item_id,
+                item_prototype.display_id,
+                creature_vendor_item.num_available,
+                item_prototype.buy_price,
+                item_prototype.max_durability,
+                creature_vendor_item.purchase_amount
+             FROM creature_vendor_item
+             JOIN item_prototype ON item_prototype.id = creature_vendor_item.item_id
+             WHERE creature_vendor_item.creature_id = ?
+             ORDER BY creature_vendor_item.position",
+            id
+        )
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .map(|item| VendorItem {
+            item_id: item.item_id as u32,
+            display_id: item.display_id as u32,
+            num_available: item.num_available.map(|value| value as u32),
+            price: item.buy_price as u32,
+            durability: item.max_durability as u32,
+            purchase_amount: item.purchase_amount as u32,
+        })
+        .collect::<Vec<_>>();
 
         Ok(Self {
             health: model.health.map(|v| v as u32),
@@ -101,6 +132,7 @@ impl CreaturePrototype {
             civilian: model.civilian as u16,
 
             npc_flags: model.npc_flags as u16,
+            vendor_menu: (!vendor_menu.is_empty()).then_some(vendor_menu),
         })
     }
 }

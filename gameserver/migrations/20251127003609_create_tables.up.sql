@@ -344,6 +344,16 @@ CREATE TABLE IF NOT EXISTS creature(
     npc_flags INT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS creature_vendor_item(
+    creature_id INT NOT NULL REFERENCES creature(id),
+    item_id INT NOT NULL REFERENCES item_prototype(id),
+    position INT NOT NULL,
+    num_available INT,
+    purchase_amount INT NOT NULL DEFAULT 1,
+    PRIMARY KEY (creature_id, item_id),
+    UNIQUE (creature_id, position)
+);
+
 CREATE TABLE IF NOT EXISTS creature_spawner_static(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     position_x FLOAT NOT NULL,

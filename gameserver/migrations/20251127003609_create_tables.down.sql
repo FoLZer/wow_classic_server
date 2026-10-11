@@ -14,4 +14,5 @@ DROP TABLE IF EXISTS language;
 DROP TABLE IF EXISTS character;
 DROP TABLE IF EXISTS item;
 DROP TABLE IF EXISTS creature_spawner_static;
+DROP TABLE IF EXISTS creature_vendor_item;
 DROP TABLE IF EXISTS creature;

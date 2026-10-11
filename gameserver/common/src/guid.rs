@@ -97,13 +97,13 @@ pub enum AnyGuid {
 impl AnyGuid {
     pub fn get(&self) -> NonZeroU64 {
         match self {
-            AnyGuid::Item(guid) => guid.get(),
-            AnyGuid::Container(guid) => guid.get(),
-            AnyGuid::Unit(guid) => guid.get(),
-            AnyGuid::Player(guid) => guid.get(),
-            AnyGuid::GameObject(guid) => guid.get(),
-            AnyGuid::DynamicObject(guid) => guid.get(),
-            AnyGuid::Corpse(guid) => guid.get(),
+            Self::Item(guid) => guid.get(),
+            Self::Container(guid) => guid.get(),
+            Self::Unit(guid) => guid.get(),
+            Self::Player(guid) => guid.get(),
+            Self::GameObject(guid) => guid.get(),
+            Self::DynamicObject(guid) => guid.get(),
+            Self::Corpse(guid) => guid.get(),
         }
     }
 }
@@ -138,8 +138,8 @@ pub enum LivingGuid {
 impl LivingGuid {
     pub fn get(&self) -> NonZeroU64 {
         match self {
-            LivingGuid::Unit(guid) => guid.get(),
-            LivingGuid::Player(guid) => guid.get(),
+            Self::Unit(guid) => guid.get(),
+            Self::Player(guid) => guid.get(),
         }
     }
 
@@ -150,6 +150,21 @@ impl LivingGuid {
             Unit::PREFIX => Guid::<Unit>::try_from_u64(v).map(Self::Unit),
             Player::PREFIX => Guid::<Player>::try_from_u64(v).map(Self::Player),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GossipSourceGuid {
+    GameObject(Guid<GameObject>),
+    Unit(Guid<Unit>),
+}
+
+impl GossipSourceGuid {
+    pub fn get(&self) -> NonZeroU64 {
+        match self {
+            Self::GameObject(guid) => guid.get(),
+            Self::Unit(guid) => guid.get(),
         }
     }
 }

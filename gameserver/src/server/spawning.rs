@@ -295,6 +295,7 @@ impl Server {
                 },
                 spawner_index,
                 melee_state: None,
+                vendor_menu: prototype.vendor_menu,
             },
         );
     }

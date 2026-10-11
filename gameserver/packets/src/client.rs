@@ -174,6 +174,10 @@ CMSG_ATTACKSTOP 0x142 {},
 CMSG_GOSSIP_HELLO 0x17B {
     guid: u64: LittleEndian
 },
+CMSG_NPC_TEXT_QUERY 0x17F {
+    text_id: u32: LittleEndian,
+    source_guid: u64: LittleEndian
+},
 CMSG_QUESTGIVER_STATUS_QUERY 0x182 {
     guid: u64: LittleEndian
 },
