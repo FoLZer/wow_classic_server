@@ -999,6 +999,59 @@ pub async fn packet_handler(
                     return;
                 };
             }
+            ClientPacket::CMSG_BUY_ITEM(packet) => {
+                let Some(vendor_guid) = Guid::<guid::Unit>::try_from_u64(packet.vendor_guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_BUY_ITEM with an invalid vendor guid: {}",
+                        character_id.get(),
+                        packet.vendor_guid
+                    );
+                    continue;
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::BuyVendorItem {
+                        vendor_guid,
+                        item_id: packet.item_id,
+                        purchase_amount: packet.purchase_amount,
+                        requested_slot: None,
+                    },
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_BUY_ITEM_IN_SLOT(packet) => {
+                let Some(vendor_guid) = Guid::<guid::Unit>::try_from_u64(packet.vendor_guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_BUY_ITEM_IN_SLOT with an invalid vendor guid: {}",
+                        character_id.get(),
+                        packet.vendor_guid
+                    );
+                    continue;
+                };
+                if packet.bag_guid != character_id.get().get()
+                    || !(23..=38).contains(&packet.bag_slot)
+                {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_BUY_ITEM_IN_SLOT with an unsupported bag or slot",
+                        character_id.get()
+                    );
+                    continue;
+                }
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::BuyVendorItem {
+                        vendor_guid,
+                        item_id: packet.item_id,
+                        purchase_amount: packet.purchase_amount,
+                        requested_slot: Some(Slot::MainBag(packet.bag_slot - 23)),
+                    },
+                }) {
+                    return;
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -1078,6 +1131,12 @@ pub enum PlayerUpdateData {
     },
     ListVendorInventory {
         vendor_guid: Guid<guid::Unit>,
+    },
+    BuyVendorItem {
+        vendor_guid: Guid<guid::Unit>,
+        item_id: u32,
+        purchase_amount: u8,
+        requested_slot: Option<Slot>,
     },
 }
 

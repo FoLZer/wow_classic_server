@@ -289,6 +289,17 @@ SMSG_LIST_INVENTORY 0x19F {
     source: Guid<guid::Unit>: LittleEndian,
     query_result: VendorQueryResult: LittleEndian,
 },
+SMSG_BUY_ITEM 0x1A4 {
+    vendor_guid: Guid<guid::Unit>: LittleEndian,
+    vendor_slot: u32: LittleEndian,
+    new_count: u32: LittleEndian,
+    purchase_count: u32: LittleEndian,
+},
+SMSG_BUY_FAILED 0x1A5 {
+    vendor_guid: Guid<guid::Unit>: LittleEndian,
+    item_id: u32: LittleEndian,
+    reason: u8: LittleEndian,
+},
 SMSG_QUERY_TIME_RESPONSE 0x1CF {
     time: DateTime<Local>: LittleEndian
 },

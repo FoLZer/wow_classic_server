@@ -620,7 +620,7 @@ impl Character {
                 ranged_crit_percentage: 0.into(),
                 explored_zones: [0.into(); 64],
                 rest_state_experience: 0.into(),
-                coinage: 2.into(),
+                coinage: 20000.into(),
                 pos_stats: [0.into(); 5],
                 neg_stats: [0.into(); 5],
                 resistance_buff_mods_positive: [0.into(); 7],
@@ -1153,6 +1153,75 @@ impl Character {
         };
 
         self.swap_items(game_data_accessor, src, dst).await
+    }
+
+    pub async fn store_new_item_in_backpack(
+        &mut self,
+        game_data_accessor: &GameDataAccessor,
+        db: &Pool<Sqlite>,
+        prototype: &ItemPrototype,
+        count: u32,
+        requested_slot: Option<Slot>,
+    ) -> Result<Vec<UpdateData>, MoveItemError> {
+        let inventory_error = |error| {
+            MoveItemError::Inventory(InventoryChangeError {
+                error,
+                item1: None,
+                item2: None,
+            })
+        };
+
+        let max_stack = prototype.stackable.max(1);
+        let stack_counts = (0..count.div_ceil(max_stack))
+            .map(|index| (count - index * max_stack).min(max_stack))
+            .collect::<Vec<_>>();
+
+        let slots = if let Some(slot) = requested_slot {
+            if !matches!(slot, Slot::MainBag(_)) {
+                return Err(inventory_error(
+                    InventoryChangeErrorType::ItemDoesntGoToSlot,
+                ));
+            }
+            if stack_counts.len() != 1 {
+                return Err(inventory_error(InventoryChangeErrorType::ItemCantStack));
+            }
+            if self.items.get(slot).is_some() {
+                return Err(inventory_error(
+                    InventoryChangeErrorType::ItemsCantBeSwapped,
+                ));
+            }
+            vec![slot]
+        } else {
+            let slots = (0..self.items.main_backpack.len() as u8)
+                .map(Slot::MainBag)
+                .filter(|&slot| self.items.get(slot).is_none())
+                .take(stack_counts.len())
+                .collect::<Vec<_>>();
+            if slots.len() != stack_counts.len() {
+                return Err(inventory_error(InventoryChangeErrorType::InventoryFull));
+            }
+            slots
+        };
+
+        let mut items = Vec::with_capacity(slots.len());
+        for stack_count in stack_counts {
+            let item_id = prototype
+                .create_item(db, Some(self.guid()), None, None, stack_count)
+                .await?;
+            let Some(item) = Item::load_from_db(game_data_accessor, db, item_id).await? else {
+                return Err(inventory_error(InventoryChangeErrorType::ItemNotFound));
+            };
+            items.push(item);
+        }
+
+        let mut update_blocks = Vec::with_capacity(items.len());
+        for (slot, item) in slots.into_iter().zip(items) {
+            update_blocks.push(item.build_create_update_block());
+            *self.items.get_mut(slot) = Some(item);
+            self.update_slot_fields(slot);
+        }
+
+        Ok(update_blocks)
     }
 
     /// Picks an empty slot out of the ones the item fits into, or the first one if all of them are taken

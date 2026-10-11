@@ -793,6 +793,231 @@ impl Server {
                     })
                     .await;
                 }
+                PlayerUpdateData::BuyVendorItem {
+                    vendor_guid,
+                    item_id,
+                    purchase_amount,
+                    requested_slot,
+                } => {
+                    let validation = (|| {
+                        let character = self.characters.get(&character_id)?;
+                        if !character.is_alive() || !character.sees_creature(vendor_guid) {
+                            return Some(Err(4));
+                        }
+
+                        let Some(vendor) = self.creatures.get(&vendor_guid) else {
+                            return Some(Err(4));
+                        };
+                        if !vendor.is_alive() {
+                            return Some(Err(4));
+                        }
+                        let Some(inventory) = vendor.vendor_menu.as_ref() else {
+                            return Some(Err(0));
+                        };
+                        let Some((vendor_index, vendor_item)) = inventory
+                            .iter()
+                            .enumerate()
+                            .find(|(_, vendor_item)| vendor_item.item_id == item_id)
+                        else {
+                            return Some(Err(0));
+                        };
+
+                        if purchase_amount == 0 || vendor_item.purchase_amount == 0 {
+                            return Some(Err(7));
+                        }
+
+                        let Some(price) = vendor_item.price.checked_mul(purchase_amount as u32)
+                        else {
+                            return Some(Err(2));
+                        };
+                        let Some(item_count) = vendor_item
+                            .purchase_amount
+                            .checked_mul(purchase_amount as u32)
+                        else {
+                            return Some(Err(8));
+                        };
+                        if vendor_item
+                            .num_available
+                            .is_some_and(|available| available < item_count)
+                        {
+                            return Some(Err(7));
+                        }
+                        if *character.player_fields.coinage.get() < price {
+                            return Some(Err(2));
+                        }
+
+                        Some(Ok((vendor_index, price, item_count)))
+                    })();
+
+                    let Some(validation) = validation else {
+                        continue;
+                    };
+                    let (vendor_index, price, item_count) = match validation {
+                        Ok(value) => value,
+                        Err(reason) => {
+                            let Some(character) = self.characters.get(&character_id) else {
+                                continue;
+                            };
+                            let response = packets::server::SMSG_BUY_FAILED {
+                                vendor_guid,
+                                item_id,
+                                reason,
+                            };
+                            let mut lock = character.stream_tx.lock().await;
+                            if let Err(error) = lock
+                                .write_all(&response.to_bytes(
+                                    Some(character.session_key),
+                                    &mut *character.encrypt_data.lock().await,
+                                ))
+                                .await
+                            {
+                                warn!(
+                                    "Failed to send SMSG_BUY_FAILED to client (character_id: {}). Error: {:?}",
+                                    character_id.get(),
+                                    error
+                                );
+                            }
+                            continue;
+                        }
+                    };
+
+                    let prototype = match self.game_data_accessor.get_item_prototype(item_id).await
+                    {
+                        Ok(Some(prototype)) => prototype,
+                        Ok(None) => {
+                            let Some(character) = self.characters.get(&character_id) else {
+                                continue;
+                            };
+                            let response = packets::server::SMSG_BUY_FAILED {
+                                vendor_guid,
+                                item_id,
+                                reason: 0,
+                            };
+                            let mut lock = character.stream_tx.lock().await;
+                            if let Err(error) = lock
+                                .write_all(&response.to_bytes(
+                                    Some(character.session_key),
+                                    &mut *character.encrypt_data.lock().await,
+                                ))
+                                .await
+                            {
+                                warn!(
+                                    "Failed to send SMSG_BUY_FAILED to client (character_id: {}). Error: {:?}",
+                                    character_id.get(),
+                                    error
+                                );
+                            }
+                            continue;
+                        }
+                        Err(error) => {
+                            error!(
+                                "Failed to load a purchased item prototype (item_id: {}, character_id: {}). Error: {}",
+                                item_id,
+                                character_id.get(),
+                                error
+                            );
+                            continue;
+                        }
+                    };
+
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+                    let item_update_blocks = match character
+                        .store_new_item_in_backpack(
+                            &self.game_data_accessor,
+                            &self.db,
+                            &prototype,
+                            item_count,
+                            requested_slot,
+                        )
+                        .await
+                    {
+                        Ok(update_blocks) => update_blocks,
+                        Err(MoveItemError::Inventory(result)) => {
+                            let response =
+                                packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
+                            let mut lock = character.stream_tx.lock().await;
+                            if let Err(error) = lock
+                                .write_all(&response.to_bytes(
+                                    Some(character.session_key),
+                                    &mut *character.encrypt_data.lock().await,
+                                ))
+                                .await
+                            {
+                                warn!(
+                                    "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
+                                    character_id.get(),
+                                    error
+                                );
+                            }
+                            continue;
+                        }
+                        Err(MoveItemError::Database(error)) => {
+                            error!(
+                                "Failed to create a purchased item (item_id: {}, character_id: {}). Error: {}",
+                                item_id,
+                                character_id.get(),
+                                error
+                            );
+                            continue;
+                        }
+                    };
+
+                    *character.player_fields.coinage.get_mut_using_copy() -= price;
+                    let response = packets::server::SMSG_UPDATE_OBJECT {
+                        update_data: UpdateBlocks {
+                            has_transport: false,
+                            blocks: item_update_blocks,
+                        },
+                    };
+                    let mut lock = character.stream_tx.lock().await;
+                    if let Err(error) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        warn!(
+                            "Failed to send purchased item updates to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            error
+                        );
+                    }
+
+                    let new_count = self
+                        .creatures
+                        .get_mut(&vendor_guid)
+                        .and_then(|vendor| vendor.vendor_menu.as_mut())
+                        .and_then(|inventory| inventory.get_mut(vendor_index))
+                        .and_then(|vendor_item| {
+                            vendor_item.num_available.as_mut().map(|available| {
+                                *available -= item_count;
+                                *available
+                            })
+                        })
+                        .unwrap_or(u32::MAX);
+                    let response = packets::server::SMSG_BUY_ITEM {
+                        vendor_guid,
+                        vendor_slot: vendor_index as u32 + 1,
+                        new_count,
+                        purchase_count: purchase_amount as u32,
+                    };
+                    if let Err(error) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        warn!(
+                            "Failed to send SMSG_BUY_ITEM to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            error
+                        );
+                    }
+                }
                 PlayerUpdateData::OpenGossip { source_guid } => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
                         return;

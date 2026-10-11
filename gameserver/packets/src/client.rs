@@ -202,6 +202,24 @@ CMSG_BUY_ITEM_IN_SLOT 0x1A3 {
     bag_slot: u8: LittleEndian,
     purchase_amount: u8: LittleEndian,
 },
+CMSG_TAXINODE_STATUS_QUERY 0x1AA {
+    npc_guid: u64: LittleEndian
+},
+CMSG_TAXIQUERYAVAILABLENODES 0x1AC {
+    npc_guid: u64: LittleEndian
+},
+CMSG_TRAINER_LIST 0x1B0 {
+    npc_guid: u64: LittleEndian
+},
+CMSG_BINDER_ACTIVATE 0x1B5 {
+    npc_guid: u64: LittleEndian
+},
+CMSG_BANKER_ACTIVATE 0x1B7 {
+    npc_guid: u64: LittleEndian
+},
+CMSG_PETITION_SHOWLIST 0x1BB {
+    npc_guid: u64: LittleEndian
+},
 CMSG_QUERY_TIME 0x1CE {},
 CMSG_PING 0x1DC {
     sequence_id: u32: LittleEndian,
@@ -230,11 +248,21 @@ CMSG_UPDATE_ACCOUNT_DATA 0x20B {
 },
 CMSG_GMTICKET_GETTICKET 0x211 {},
 CMSG_GMTICKET_SYSTEMSTATUS 0x21A {},
+MSG_AUCTION_HELLO 0x255 {
+    npc_guid: u64: LittleEndian
+},
 CMSG_SET_ACTIVE_MOVER 0x26A {
     guid: u64: LittleEndian
 },
+MSG_LIST_STABLED_PETS 0x26F {
+    npc_guid: u64: LittleEndian
+},
 MSG_QUERY_NEXT_MAIL_TIME 0x284 {},
 CMSG_MEETINGSTONE_INFO 0x296 {},
+CMSG_REPAIR_ITEM 0x2A8 {
+    npc_guid: u64: LittleEndian,
+    item_guid: u64: LittleEndian
+},
 CMSG_MOVE_FALL_RESET 0x2CA {
     movement_info: MovementInfo: LittleEndian,
 },
@@ -244,6 +272,9 @@ CMSG_MOVE_TIME_SKIPPED 0x2CE {
     time_skipped: u32: LittleEndian
 },
 CMSG_BATTLEFIELD_STATUS 0x2D3 {},
+CMSG_BATTLEMASTER_HELLO 0x2D7 {
+    npc_guid: u64: LittleEndian
+}
 );
 
 pub trait OrderedRead<T: ByteOrder> {
