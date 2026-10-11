@@ -18,7 +18,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     objects::{
-        character::{Character, MoveItemError},
+        character::{Character, InventoryOperation, MoveItemError},
         creature::MeleeState,
         gossip::GossipCursor,
     },
@@ -249,101 +249,35 @@ impl Server {
                         }
                     }
                 }
-                PlayerUpdateData::SwapInventoryItem { src, dst } => {
+                PlayerUpdateData::Inventory(operation) => {
                     let Some(character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
-                    let result = character
-                        .swap_items(&self.game_data_accessor, src, dst)
-                        .await;
-
-                    let result = match result {
-                        Ok(()) => continue,
-                        Err(MoveItemError::Inventory(e)) => e,
-                        Err(MoveItemError::Database(e)) => {
-                            error!(
-                                "Failed to swap items due to a DB error (character_id: {}). Error: {}",
-                                character_id.get(),
-                                e
-                            );
-                            continue;
+                    let result = match operation {
+                        InventoryOperation::Swap { src, dst } => {
+                            character
+                                .swap_items(&self.game_data_accessor, src, dst)
+                                .await
+                        }
+                        InventoryOperation::AutoEquip { src } => {
+                            character
+                                .auto_equip_item(&self.game_data_accessor, src)
+                                .await
+                        }
+                        InventoryOperation::StoreInBackpack { src } => {
+                            character
+                                .store_item_in_backpack(&self.game_data_accessor, src)
+                                .await
                         }
                     };
 
-                    let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
-
-                    let mut lock = character.stream_tx.lock().await;
-
-                    if let Err(e) = lock
-                        .write_all(&response.to_bytes(
-                            Some(character.session_key),
-                            &mut *character.encrypt_data.lock().await,
-                        ))
-                        .await
-                    {
-                        warn!(
-                            "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
-                            character_id.get(),
-                            e
-                        )
-                    };
-                }
-                PlayerUpdateData::AutoEquipItem { src } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        continue;
-                    };
-
-                    let result = character
-                        .auto_equip_item(&self.game_data_accessor, src)
-                        .await;
-
                     let result = match result {
                         Ok(()) => continue,
                         Err(MoveItemError::Inventory(e)) => e,
                         Err(MoveItemError::Database(e)) => {
                             error!(
-                                "Failed to swap items due to a DB error (character_id: {}). Error: {}",
-                                character_id.get(),
-                                e
-                            );
-                            continue;
-                        }
-                    };
-
-                    let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
-
-                    let mut lock = character.stream_tx.lock().await;
-
-                    if let Err(e) = lock
-                        .write_all(&response.to_bytes(
-                            Some(character.session_key),
-                            &mut *character.encrypt_data.lock().await,
-                        ))
-                        .await
-                    {
-                        warn!(
-                            "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
-                            character_id.get(),
-                            e
-                        )
-                    };
-                }
-                PlayerUpdateData::StoreItemInBackpack { src } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        continue;
-                    };
-
-                    let result = character
-                        .store_item_in_backpack(&self.game_data_accessor, src)
-                        .await;
-
-                    let result = match result {
-                        Ok(()) => continue,
-                        Err(MoveItemError::Inventory(e)) => e,
-                        Err(MoveItemError::Database(e)) => {
-                            error!(
-                                "Failed to store an item due to a DB error (character_id: {}). Error: {}",
+                                "Failed to update inventory due to a DB error (character_id: {}). Error: {}",
                                 character_id.get(),
                                 e
                             );

@@ -56,6 +56,12 @@ pub struct Character {
     pub gossip_cursor: Option<GossipCursor>,
 }
 
+pub enum InventoryOperation {
+    Swap { src: Slot, dst: Slot },
+    AutoEquip { src: Slot },
+    StoreInBackpack { src: Slot },
+}
+
 impl Character {
     pub fn guid(&self) -> Guid<guid::Player> {
         *self.object_fields.guid.get()
@@ -963,28 +969,78 @@ impl Character {
         Ok(())
     }
 
+    fn inventory_error(
+        &self,
+        error: InventoryChangeErrorType,
+        item1_slot: Option<Slot>,
+        item2_slot: Option<Slot>,
+    ) -> MoveItemError {
+        MoveItemError::Inventory(InventoryChangeError {
+            error,
+            item1: item1_slot.and_then(|slot| self.item_guid(slot)),
+            item2: item2_slot.and_then(|slot| self.item_guid(slot)),
+        })
+    }
+
+    fn item_guid(&self, slot: Slot) -> Option<Guid<guid::Item>> {
+        self.items
+            .get(slot)
+            .as_ref()
+            .map(|item| *item.object_fields.guid.get())
+    }
+
+    fn free_backpack_slots(
+        &self,
+        count: usize,
+        slot_after_move: impl Fn(Slot) -> Slot,
+    ) -> Option<Vec<Slot>> {
+        let slots = (0..self.items.main_backpack.len() as u8)
+            .map(Slot::MainBag)
+            .filter(|&slot| self.items.get(slot_after_move(slot)).is_none())
+            .take(count)
+            .collect::<Vec<_>>();
+
+        (slots.len() == count).then_some(slots)
+    }
+
+    fn first_free_backpack_slot(&self, slot_after_move: impl Fn(Slot) -> Slot) -> Option<Slot> {
+        self.free_backpack_slots(1, slot_after_move)
+            .and_then(|slots| slots.into_iter().next())
+    }
+
+    fn insert_item(&mut self, slot: Slot, item: Item) {
+        debug_assert!(self.items.get(slot).is_none());
+        *self.items.get_mut(slot) = Some(item);
+        self.update_slot_fields(slot);
+    }
+
+    fn move_item(&mut self, src: Slot, dst: Slot) {
+        debug_assert!(self.items.get(src).is_some());
+        debug_assert!(self.items.get(dst).is_none());
+        let item = self.items.get_mut(src).take().unwrap();
+        self.insert_item(dst, item);
+        self.update_slot_fields(src);
+    }
+
+    fn swap_slots(&mut self, src: Slot, dst: Slot) {
+        if src == dst {
+            return;
+        }
+
+        let src_item = self.items.get_mut(src).take();
+        let dst_item = self.items.get_mut(dst).take();
+        *self.items.get_mut(src) = dst_item;
+        *self.items.get_mut(dst) = src_item;
+        self.update_slot_fields(src);
+        self.update_slot_fields(dst);
+    }
+
     pub async fn swap_items(
         &mut self,
         game_data_accessor: &GameDataAccessor,
         src: Slot,
         dst: Slot,
     ) -> Result<(), MoveItemError> {
-        let error = |error| {
-            MoveItemError::Inventory(InventoryChangeError {
-                error,
-                item1: self
-                    .items
-                    .get(src)
-                    .as_ref()
-                    .map(|v| *v.object_fields.guid.get()),
-                item2: self
-                    .items
-                    .get(dst)
-                    .as_ref()
-                    .map(|v| *v.object_fields.guid.get()),
-            })
-        };
-
         // Which slot's item ends up in the given slot after the swap
         let after_swap = |slot: Slot| {
             if slot == dst {
@@ -1003,12 +1059,20 @@ impl Character {
 
             match item.load_prototype(game_data_accessor).await? {
                 Some(v) => Ok(Some(v)),
-                None => Err(error(InventoryChangeErrorType::ItemNotFound)),
+                None => Err(self.inventory_error(
+                    InventoryChangeErrorType::ItemNotFound,
+                    Some(src),
+                    Some(dst),
+                )),
             }
         };
 
         let Some(src_prototype) = load_prototype(src).await? else {
-            return Err(error(InventoryChangeErrorType::SlotIsEmpty));
+            return Err(self.inventory_error(
+                InventoryChangeErrorType::SlotIsEmpty,
+                Some(src),
+                Some(dst),
+            ));
         };
         let dst_prototype = load_prototype(dst).await?;
         let main_hand_prototype =
@@ -1021,16 +1085,20 @@ impl Character {
         }
 
         if !self.is_alive() {
-            return Err(error(InventoryChangeErrorType::YouAreDead));
+            return Err(self.inventory_error(
+                InventoryChangeErrorType::YouAreDead,
+                Some(src),
+                Some(dst),
+            ));
         }
 
         if let Err(e) = self.can_move_item(&src_prototype, src, dst) {
-            return Err(error(e));
+            return Err(self.inventory_error(e, Some(src), Some(dst)));
         }
         if let Some(dst_prototype) = &dst_prototype
             && let Err(e) = self.can_move_item(dst_prototype, dst, src)
         {
-            return Err(error(e));
+            return Err(self.inventory_error(e, Some(src), Some(dst)));
         }
 
         // An off hand item that has to be moved to the backpack to make room for a two-handed weapon
@@ -1042,7 +1110,11 @@ impl Character {
             if matches!(src, Slot::Equipment(EquipmentSlot::OffHand))
                 || matches!(dst, Slot::Equipment(EquipmentSlot::OffHand))
             {
-                return Err(error(InventoryChangeErrorType::CantEquipWithTwohanded));
+                return Err(self.inventory_error(
+                    InventoryChangeErrorType::CantEquipWithTwohanded,
+                    Some(src),
+                    Some(dst),
+                ));
             }
 
             if let Err(e) = self.can_move_item(
@@ -1050,36 +1122,28 @@ impl Character {
                 Slot::Equipment(EquipmentSlot::OffHand),
                 Slot::MainBag(0),
             ) {
-                return Err(error(e));
+                return Err(self.inventory_error(e, Some(src), Some(dst)));
             }
 
-            let free_slot = (0..self.items.main_backpack.len() as u8)
-                .map(Slot::MainBag)
-                .find(|&slot| self.items.get(after_swap(slot)).is_none());
+            let free_slot = self.first_free_backpack_slot(after_swap);
             let Some(free_slot) = free_slot else {
-                return Err(error(if dst_prototype.is_some() {
-                    InventoryChangeErrorType::ItemsCantBeSwapped
-                } else {
-                    InventoryChangeErrorType::InventoryFull
-                }));
+                return Err(self.inventory_error(
+                    if dst_prototype.is_some() {
+                        InventoryChangeErrorType::ItemsCantBeSwapped
+                    } else {
+                        InventoryChangeErrorType::InventoryFull
+                    },
+                    Some(src),
+                    Some(dst),
+                ));
             };
             displaced_off_hand = Some(free_slot);
         }
 
-        let src_item = self.items.get_mut(src).take();
-        let dst_item = self.items.get_mut(dst).take();
-        *self.items.get_mut(dst) = src_item;
-        *self.items.get_mut(src) = dst_item;
-        self.update_slot_fields(src);
-        self.update_slot_fields(dst);
+        self.swap_slots(src, dst);
 
         if let Some(free_slot) = displaced_off_hand {
-            *self.items.get_mut(free_slot) = self
-                .items
-                .get_mut(Slot::Equipment(EquipmentSlot::OffHand))
-                .take();
-            self.update_slot_fields(Slot::Equipment(EquipmentSlot::OffHand));
-            self.update_slot_fields(free_slot);
+            self.move_item(Slot::Equipment(EquipmentSlot::OffHand), free_slot);
         }
 
         Ok(())
@@ -1091,30 +1155,26 @@ impl Character {
         src: Slot,
     ) -> Result<(), MoveItemError> {
         let Some(item) = self.items.get(src) else {
-            return Err(MoveItemError::Inventory(InventoryChangeError {
-                error: InventoryChangeErrorType::SlotIsEmpty,
-                item1: None,
-                item2: None,
-            }));
+            return Err(self.inventory_error(
+                InventoryChangeErrorType::SlotIsEmpty,
+                Some(src),
+                None,
+            ));
         };
         let Some(prototype) = item.load_prototype(game_data_accessor).await? else {
-            return Err(MoveItemError::Inventory(InventoryChangeError {
-                error: InventoryChangeErrorType::ItemNotFound,
-                item1: Some(*item.object_fields.guid.get()),
-                item2: None,
-            }));
+            return Err(self.inventory_error(
+                InventoryChangeErrorType::ItemNotFound,
+                Some(src),
+                None,
+            ));
         };
 
         let Some(dst) = self.find_equip_slot(&prototype) else {
-            return Err(MoveItemError::Inventory(InventoryChangeError {
-                error: InventoryChangeErrorType::ItemCantBeEquipped,
-                item1: self
-                    .items
-                    .get(src)
-                    .as_ref()
-                    .map(|v| *v.object_fields.guid.get()),
-                item2: None,
-            }));
+            return Err(self.inventory_error(
+                InventoryChangeErrorType::ItemCantBeEquipped,
+                Some(src),
+                None,
+            ));
         };
 
         self.swap_items(game_data_accessor, src, dst).await
@@ -1125,31 +1185,20 @@ impl Character {
         game_data_accessor: &GameDataAccessor,
         src: Slot,
     ) -> Result<(), MoveItemError> {
-        let error = |error| {
-            MoveItemError::Inventory(InventoryChangeError {
-                error,
-                item1: self
-                    .items
-                    .get(src)
-                    .as_ref()
-                    .map(|v| *v.object_fields.guid.get()),
-                item2: None,
-            })
-        };
-
         if self.items.get(src).is_none() {
-            return Err(error(InventoryChangeErrorType::SlotIsEmpty));
+            return Err(self.inventory_error(
+                InventoryChangeErrorType::SlotIsEmpty,
+                Some(src),
+                None,
+            ));
         }
 
         if matches!(src, Slot::MainBag(_)) {
-            return Err(error(InventoryChangeErrorType::None));
+            return Err(self.inventory_error(InventoryChangeErrorType::None, Some(src), None));
         }
 
-        let Some(dst) = (0..self.items.main_backpack.len() as u8)
-            .map(Slot::MainBag)
-            .find(|&slot| self.items.get(slot).is_none())
-        else {
-            return Err(error(InventoryChangeErrorType::BagFull));
+        let Some(dst) = self.first_free_backpack_slot(|slot| slot) else {
+            return Err(self.inventory_error(InventoryChangeErrorType::BagFull, Some(src), None));
         };
 
         self.swap_items(game_data_accessor, src, dst).await
@@ -1163,14 +1212,6 @@ impl Character {
         count: u32,
         requested_slot: Option<Slot>,
     ) -> Result<Vec<UpdateData>, MoveItemError> {
-        let inventory_error = |error| {
-            MoveItemError::Inventory(InventoryChangeError {
-                error,
-                item1: None,
-                item2: None,
-            })
-        };
-
         let max_stack = prototype.stackable.max(1);
         let stack_counts = (0..count.div_ceil(max_stack))
             .map(|index| (count - index * max_stack).min(max_stack))
@@ -1178,28 +1219,35 @@ impl Character {
 
         let slots = if let Some(slot) = requested_slot {
             if !matches!(slot, Slot::MainBag(_)) {
-                return Err(inventory_error(
+                return Err(self.inventory_error(
                     InventoryChangeErrorType::ItemDoesntGoToSlot,
+                    None,
+                    None,
                 ));
             }
             if stack_counts.len() != 1 {
-                return Err(inventory_error(InventoryChangeErrorType::ItemCantStack));
+                return Err(self.inventory_error(
+                    InventoryChangeErrorType::ItemCantStack,
+                    None,
+                    None,
+                ));
             }
             if self.items.get(slot).is_some() {
-                return Err(inventory_error(
+                return Err(self.inventory_error(
                     InventoryChangeErrorType::ItemsCantBeSwapped,
+                    None,
+                    None,
                 ));
             }
             vec![slot]
         } else {
-            let slots = (0..self.items.main_backpack.len() as u8)
-                .map(Slot::MainBag)
-                .filter(|&slot| self.items.get(slot).is_none())
-                .take(stack_counts.len())
-                .collect::<Vec<_>>();
-            if slots.len() != stack_counts.len() {
-                return Err(inventory_error(InventoryChangeErrorType::InventoryFull));
-            }
+            let Some(slots) = self.free_backpack_slots(stack_counts.len(), |slot| slot) else {
+                return Err(self.inventory_error(
+                    InventoryChangeErrorType::InventoryFull,
+                    None,
+                    None,
+                ));
+            };
             slots
         };
 
@@ -1209,7 +1257,11 @@ impl Character {
                 .create_item(db, Some(self.guid()), None, None, stack_count)
                 .await?;
             let Some(item) = Item::load_from_db(game_data_accessor, db, item_id).await? else {
-                return Err(inventory_error(InventoryChangeErrorType::ItemNotFound));
+                return Err(self.inventory_error(
+                    InventoryChangeErrorType::ItemNotFound,
+                    None,
+                    None,
+                ));
             };
             items.push(item);
         }
@@ -1217,8 +1269,7 @@ impl Character {
         let mut update_blocks = Vec::with_capacity(items.len());
         for (slot, item) in slots.into_iter().zip(items) {
             update_blocks.push(item.build_create_update_block());
-            *self.items.get_mut(slot) = Some(item);
-            self.update_slot_fields(slot);
+            self.insert_item(slot, item);
         }
 
         Ok(update_blocks)

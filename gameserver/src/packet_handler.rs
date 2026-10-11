@@ -22,7 +22,10 @@ use tokio::{
     sync::Mutex,
 };
 
-use crate::game_data::{GameDataAccessor, ValidLanguage};
+use crate::{
+    game_data::{GameDataAccessor, ValidLanguage},
+    objects::character::InventoryOperation,
+};
 
 pub async fn packet_handler(
     mut rx: OwnedReadHalf,
@@ -351,7 +354,9 @@ pub async fn packet_handler(
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::AutoEquipItem { src: src_slot },
+                    data: PlayerUpdateData::Inventory(InventoryOperation::AutoEquip {
+                        src: src_slot,
+                    }),
                 }) {
                     return;
                 };
@@ -365,7 +370,9 @@ pub async fn packet_handler(
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::StoreItemInBackpack { src: src_slot },
+                    data: PlayerUpdateData::Inventory(InventoryOperation::StoreInBackpack {
+                        src: src_slot,
+                    }),
                 }) {
                     return;
                 };
@@ -376,10 +383,10 @@ pub async fn packet_handler(
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
-                    data: PlayerUpdateData::SwapInventoryItem {
+                    data: PlayerUpdateData::Inventory(InventoryOperation::Swap {
                         src: src_slot,
                         dst: dst_slot,
-                    },
+                    }),
                 }) {
                     return;
                 };
@@ -1073,17 +1080,7 @@ pub enum PlayerUpdateData {
         opcode: MovementOpcode,
         movement_info: MovementInfo,
     },
-    SwapInventoryItem {
-        src: Slot,
-        dst: Slot,
-    },
-    AutoEquipItem {
-        src: Slot,
-    },
-    // Moves the item into the first free backpack slot
-    StoreItemInBackpack {
-        src: Slot,
-    },
+    Inventory(InventoryOperation),
     // In case CMSG_SETSHEATHED failed to validate StandStateType
     ResendSheathState,
     SetSheathState {
