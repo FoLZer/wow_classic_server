@@ -339,7 +339,9 @@ CREATE TABLE IF NOT EXISTS creature(
     type INT NOT NULL REFERENCES creature_type,
     family INT REFERENCES creature_family,
     rank INT NOT NULL,
-    civilian INT NOT NULL
+    civilian INT NOT NULL,
+
+    npc_flags INT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS creature_spawner_static(

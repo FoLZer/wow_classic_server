@@ -9,7 +9,7 @@ use gameobjects::{
 };
 use log::{error, warn};
 use packets::{
-    chat_message::ChatType,
+    chat_message::{ChatType, ServerChatMessage, ServerChatType},
     client::{ClientPacket, ParseError},
     movement_info::MovementInfo,
     server::ServerPacket,
@@ -810,6 +810,50 @@ pub async fn packet_handler(
                     };
 
                     let text = packet.chat.message;
+
+                    if let Ok(text) = text.to_str()
+                        && let Some(text) = text.strip_prefix('.')
+                    {
+                        match parse_command(text) {
+                            Ok(command) => {
+                                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                                    character_id,
+                                    data: PlayerUpdateData::RunCommand(command),
+                                }) {
+                                    return;
+                                };
+                                continue;
+                            }
+                            Err(CommandParseError::NothingToParse) => (), // Send the message as normal (anti-spam in the future?)
+                            Err(CommandParseError::UnkownCommand(command)) => {
+                                let response = packets::server::SMSG_MESSAGECHAT {
+                                    chat: ServerChatMessage {
+                                        ty: ServerChatType::System,
+                                        text: CString::new(format!("Unknown command: .{command}"))
+                                            .unwrap(),
+                                    },
+                                };
+
+                                if let Err(e) = tx
+                                    .lock()
+                                    .await
+                                    .write_all(&response.to_bytes(
+                                        Some(session_key),
+                                        &mut *encrypt_data.lock().await,
+                                    ))
+                                    .await
+                                {
+                                    warn!(
+                                        "Failed to send SMSG_MESSAGECHAT to client (character_id: {}). Error: {:?}",
+                                        character_id.get(),
+                                        e
+                                    )
+                                };
+                                continue;
+                            }
+                        }
+                    }
+
                     let message = match packet.chat.ty {
                         ChatType::Say => ChatMessage::Say { language, text },
                         ChatType::Party => ChatMessage::Party { language, text },
@@ -846,6 +890,8 @@ pub async fn packet_handler(
                     }) {
                         return;
                     };
+                } else {
+                    todo!()
                 }
             }
             _ => {
@@ -917,6 +963,7 @@ pub enum PlayerUpdateData {
     SetDND {
         message: CString,
     },
+    RunCommand(Command),
 }
 
 fn parse_slot(slot: u8) -> Slot {
@@ -1093,5 +1140,23 @@ impl CharacterNameQueryData {
             gender: model.gender as u8,
             class: model.class as u8,
         }))
+    }
+}
+
+pub enum Command {
+    GetPosition,
+}
+
+pub enum CommandParseError<'a> {
+    NothingToParse,
+    UnkownCommand(&'a str),
+}
+
+fn parse_command<'a>(text: &'a str) -> Result<Command, CommandParseError<'a>> {
+    let mut arguments = text.split_whitespace();
+    let command = arguments.next().ok_or(CommandParseError::NothingToParse)?;
+    match command {
+        "pos" => Ok(Command::GetPosition),
+        _ => Err(CommandParseError::UnkownCommand(command)),
     }
 }

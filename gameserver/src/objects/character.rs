@@ -8,8 +8,9 @@ use gameobjects::{
         QuestLogFields, TutorialFlags, VisibleItemFields,
     },
     unit::{
-        SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2, UnitFieldBytes2Flags,
-        UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags, VirtualItemInfo,
+        NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
+        UnitFieldBytes2Flags, UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
+        VirtualItemInfo,
     },
 };
 use packets::{
@@ -358,7 +359,7 @@ impl Character {
                 channel_spell: 0.into(),
                 mod_cast_speed: 1.into(),
                 created_by_spell: 0.into(),
-                npc_flags: 0.into(),
+                npc_flags: NpcFlags::new().into(),
                 npc_emote_state: 0.into(),
                 training_points: 0.into(),
                 strength: 1.into(),

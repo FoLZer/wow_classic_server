@@ -174,7 +174,7 @@ VALUES(
         4294967295,
         4294967295,
         22,
-        17,
+        1,
         0,
         0,
         0,
@@ -344,7 +344,69 @@ VALUES(
 /* Player Start Data END */
 /* Factions START */
 INSERT INTO faction(id, name)
+VALUES(1, "PLAYER, Human");
+INSERT INTO faction(id, name)
+VALUES(2, "PLAYER, Orc");
+INSERT INTO faction(id, name)
+VALUES(3, "PLAYER, Dwarf");
+INSERT INTO faction(id, name)
+VALUES(4, "PLAYER, Night Elf");
+INSERT INTO faction(id, name)
+VALUES(5, "PLAYER, Undead");
+INSERT INTO faction(id, name)
+VALUES(6, "PLAYER, Tauren");
+INSERT INTO faction(id, name)
+VALUES(7, "Creature");
+INSERT INTO faction(id, name)
+VALUES(10, "Escortee");
+INSERT INTO faction(id, name)
+VALUES(11, "Stormwind");
+INSERT INTO faction(id, name)
+VALUES(12, "Stormwind");
+INSERT INTO faction(id, name)
+VALUES(14, "Monster");
+INSERT INTO faction(id, name)
+VALUES(15, "Creature");
+INSERT INTO faction(id, name)
+VALUES(16, "Monster");
+INSERT INTO faction(id, name)
+VALUES(17, "Defias Brotherhood");
+INSERT INTO faction(id, name)
+VALUES(18, "Murloc");
+INSERT INTO faction(id, name)
+VALUES(19, "Gnoll - Redridge");
+INSERT INTO faction(id, name)
+VALUES(20, "Gnoll - Riverpaw");
+INSERT INTO faction(id, name)
+VALUES(21, "Undead, Scourge");
+INSERT INTO faction(id, name)
+VALUES(22, "Beast - Spider");
+INSERT INTO faction(id, name)
+VALUES(23, "Gnomeregan Exiles");
+INSERT INTO faction(id, name)
+VALUES(24, "Worgen");
+INSERT INTO faction(id, name)
 VALUES(25, "Kobold");
+INSERT INTO faction(id, name)
+VALUES(26, "Kobold");
+INSERT INTO faction(id, name)
+VALUES(27, "Defias Brotherhood");
+INSERT INTO faction(id, name)
+VALUES(28, "Troll, Bloodscalp");
+INSERT INTO faction(id, name)
+VALUES(29, "Orgrimmar");
+INSERT INTO faction(id, name)
+VALUES(30, "Troll, Skullsplitter");
+INSERT INTO faction(id, name)
+VALUES(31, "Prey");
+INSERT INTO faction(id, name)
+VALUES(32, "Beast - Wolf");
+INSERT INTO faction(id, name)
+VALUES(33, "Escortee");
+INSERT INTO faction(id, name)
+VALUES(34, "Defias Brotherhood");
+INSERT INTO faction(id, name)
+VALUES(35, "Friendly");
 /* Factions END */
 /* Creature Type START */
 INSERT INTO creature_type(id, name)
@@ -380,7 +442,6 @@ VALUES(14, "Troll");
 INSERT INTO language(id, name)
 VALUES(33, "Gutterspeak");
 /* Languages END */
-
 /* Creatures START */
 INSERT INTO creature(
         id,
@@ -409,7 +470,8 @@ INSERT INTO creature(
         type,
         family,
         rank,
-        civilian
+        civilian,
+        npc_flags
     )
 VALUES(
         6,
@@ -439,7 +501,128 @@ VALUES(
         7,
         NULL,
         2,
+        0,
         0
+    );
+INSERT INTO creature(
+        id,
+        name,
+        sub_name,
+        health,
+        max_health,
+        level_min,
+        level_max,
+        faction,
+        race,
+        class,
+        gender,
+        power,
+        equipment_mainhand_id,
+        equipment_offhand_id,
+        equipment_ranged_id,
+        base_attack_time,
+        offhand_attack_time,
+        ranged_attack_time,
+        combat_reach,
+        display_id,
+        native_display_id,
+        initial_mount_display_id,
+        flags,
+        type,
+        family,
+        rank,
+        civilian,
+        npc_flags
+    )
+VALUES(
+        1,
+        "Gossip Test",
+        NULL,
+        100,
+        100,
+        1,
+        1,
+        12,
+        0,
+        1,
+        1,
+        0,
+        NULL,
+        NULL,
+        NULL,
+        1,
+        2,
+        3,
+        5.0,
+        10913,
+        10913,
+        NULL,
+        0,
+        7,
+        NULL,
+        2,
+        0,
+        1
+    ),
+    (
+        2,
+        "Quest Giver Test",
+        NULL,
+        100,
+        100,
+        1,
+        1,
+        12,
+        0,
+        1,
+        1,
+        0,
+        NULL,
+        NULL,
+        NULL,
+        1,
+        2,
+        3,
+        5.0,
+        10913,
+        10913,
+        NULL,
+        0,
+        7,
+        NULL,
+        2,
+        0,
+        2
+    ),
+    (
+        3,
+        "Vendor Test",
+        NULL,
+        100,
+        100,
+        1,
+        1,
+        12,
+        0,
+        1,
+        1,
+        0,
+        NULL,
+        NULL,
+        NULL,
+        1,
+        2,
+        3,
+        5.0,
+        10913,
+        10913,
+        NULL,
+        0,
+        7,
+        NULL,
+        2,
+        0,
+        4
     );
 /* Creatures END */
 /* Static Creature Spawners START */
@@ -457,6 +640,33 @@ VALUES(
         83.5312,
         0.0,
         6,
+        /* 30000 */
+        10000
+    ),
+(
+        -8910.4795,
+        -106.27133,
+        81.85089,
+        4.146894,
+        1,
+        /* 30000 */
+        10000
+    ),
+(
+        -8907.7,
+        -108.81111,
+        81.84876,
+        4.146894,
+        2,
+        /* 30000 */
+        10000
+    ),
+(
+        -8904.616,
+        -111.07647,
+        81.84876,
+        4.146894,
+        3,
         /* 30000 */
         10000
     );

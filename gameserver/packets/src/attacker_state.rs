@@ -113,5 +113,5 @@ impl<T: ByteOrder> OrderedWrite<T> for SubDamages {
 
 pub enum HitHand {
     Main,
-    Off
+    Off,
 }

@@ -50,7 +50,7 @@ pub struct UnitFields {
     pub channel_spell: u32,
     pub mod_cast_speed: u32,
     pub created_by_spell: u32,
-    pub npc_flags: u32,
+    pub npc_flags: NpcFlags,
     pub npc_emote_state: u32,
     pub training_points: u32,
     pub strength: u32,
@@ -97,41 +97,68 @@ impl UpdateWritable for UnitFieldBytes1 {
 
 #[bitfield(u32)]
 pub struct UnitFlags {
-    _unkn: bool, // never read by the client
+    _unkn: bool,                           // never read by the client
     pub not_attackable: bool, // can't be attacked, also overrides the loss of control flags
     pub client_lost_control: bool, // like confused and fleeing, the client can't control the unit
     pub player_controlled: bool, // controlled by a player, also lets the client start swimming
     pub pet_can_rename: bool, // the pet can be renamed
     pub pet_can_abandon: bool, // the pet can be abandoned
-    pub plus_mob: bool, // elite
+    pub plus_mob: bool,       // elite
     pub not_attackable_2: bool, // can't be attacked
     pub immune_to_player_controlled: bool, // can't attack or be attacked by player controlled units, also stops inheriting the owner's pvp state
     pub immune_to_npc: bool, // can't attack or be attacked by non player controlled units
-    pub is_looting: bool, // shows the looting animation
+    pub is_looting: bool,    // shows the looting animation
     pub in_combat_stance: bool, // treated as in combat for animations, also lets the client start swimming
-    pub pvp: bool, // flagged for pvp
-    pub silenced: bool, // can't cast spells that are prevented by silence
+    pub pvp: bool,              // flagged for pvp
+    pub silenced: bool,         // can't cast spells that are prevented by silence
     pub persuaded: bool,
-    pub can_swim: bool, // lets the client start swimming
-    pub untargetable: bool, // can't be targeted by spells or attacked
-    pub is_pacified: bool, // can't cast spells that are prevented by pacify
-    pub stunned: bool, // can't move or cast spells
-    pub in_combat: bool, // affecting combat, can't cast spells that aren't usable in combat
-    pub on_taxi: bool, // riding a taxi
-    pub disarmed: bool, // main and off hand weapons are ignored
-    pub confused: bool, // can't cast spells while confused
-    pub fleeing: bool, // can't cast spells while fleeing
-    pub possessed: bool, // controlled by the unit in charmed_by
+    pub can_swim: bool,       // lets the client start swimming
+    pub untargetable: bool,   // can't be targeted by spells or attacked
+    pub is_pacified: bool,    // can't cast spells that are prevented by pacify
+    pub stunned: bool,        // can't move or cast spells
+    pub in_combat: bool,      // affecting combat, can't cast spells that aren't usable in combat
+    pub on_taxi: bool,        // riding a taxi
+    pub disarmed: bool,       // main and off hand weapons are ignored
+    pub confused: bool,       // can't cast spells while confused
+    pub fleeing: bool,        // can't cast spells while fleeing
+    pub possessed: bool,      // controlled by the unit in charmed_by
     pub not_selectable: bool, // only the unit in created_by can interact with it
     pub skinnable: bool,
     pub has_auras_visible: bool, // auras that would otherwise be hidden are shown
     pub loot_without_animation: bool, // suppresses the looting animation, eg. while fishing
-    pub no_chat_emotes: bool, // no talk/yell/laugh animations when chatting
-    _unkn: bool, // never read by the client
+    pub no_chat_emotes: bool,    // no talk/yell/laugh animations when chatting
+    _unkn: bool,                 // never read by the client
     pub restricted_gameobject_use: bool, // can't use chests and other gameobjects that don't allow it
 }
 
 impl UpdateWritable for UnitFlags {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.0;
+    }
+}
+
+#[bitfield(u32)]
+pub struct NpcFlags {
+    pub gossip: bool,
+    pub quest_giver: bool,
+    pub vendor: bool,
+    pub flight_master: bool,
+    pub trainer: bool,
+    pub spirit_healer: bool,
+    pub spirit_guide: bool,
+    pub innkeeper: bool,
+    pub banker: bool,
+    pub petitioner: bool,
+    pub tabard_designer: bool,
+    pub battlemaster: bool,
+    pub auctioneer: bool,
+    pub stable_master: bool,
+    pub repairer: bool,
+    #[bits(17)]
+    _unkn: u32, // never read by the client
+}
+
+impl UpdateWritable for NpcFlags {
     fn write(&self, blocks: &mut [u32]) {
         blocks[0] = self.0;
     }

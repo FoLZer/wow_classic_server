@@ -34,6 +34,8 @@ pub struct CreaturePrototype {
     pub family: Option<NonZeroU32>,
     pub rank: u32,
     pub civilian: u16,
+
+    pub npc_flags: u16,
 }
 
 impl CreaturePrototype {
@@ -97,6 +99,8 @@ impl CreaturePrototype {
             family: NonZeroU32::new(model.family.unwrap_or(0) as u32),
             rank: model.rank as u32,
             civilian: model.civilian as u16,
+
+            npc_flags: model.npc_flags as u16,
         })
     }
 }

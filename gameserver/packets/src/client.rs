@@ -171,6 +171,15 @@ CMSG_ATTACKSWING 0x141 {
     guid: u64: LittleEndian,
 },
 CMSG_ATTACKSTOP 0x142 {},
+CMSG_GOSSIP_HELLO 0x17B {
+    guid: u64: LittleEndian
+},
+CMSG_QUESTGIVER_STATUS_QUERY 0x182 {
+    guid: u64: LittleEndian
+},
+CMSG_LIST_INVENTORY 0x19E {
+    guid: u64: LittleEndian
+},
 CMSG_QUERY_TIME 0x1CE {},
 CMSG_PING 0x1DC {
     sequence_id: u32: LittleEndian,

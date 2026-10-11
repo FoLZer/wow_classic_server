@@ -1,7 +1,14 @@
 use std::collections::HashMap;
 
 use common::guid::{self, Guid};
-use gameobjects::unit::VirtualItemInfo;
+use gameobjects::{
+    object::{ObjectFields, TypeBitField},
+    unit::{
+        NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
+        UnitFieldBytes2Flags, UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
+        VirtualItemInfo,
+    },
+};
 use log::error;
 use rand::{RngExt, rng};
 
@@ -135,17 +142,14 @@ impl Server {
             Creature {
                 position: spawn_info.position,
                 orientation: spawn_info.orientation,
-                object_fields: gameobjects::object::ObjectFields {
+                object_fields: ObjectFields {
                     guid: guid.into(),
-                    object_type: gameobjects::object::TypeBitField::new()
-                        .with_unit(true)
-                        .with_object(true)
-                        .into(),
+                    object_type: TypeBitField::new().with_unit(true).with_object(true).into(),
                     entry: spawn_info.spawn_creature_id.into(),
                     scale_x: 1.0.into(),
                     _padding: 0.into(),
                 },
-                unit_fields: gameobjects::unit::UnitFields {
+                unit_fields: UnitFields {
                     charm: None.into(),
                     summon: None.into(),
                     charmed_by: None.into(),
@@ -160,7 +164,7 @@ impl Server {
                     max_powers: [0.into(); 5],
                     level: (rng().random_range(prototype.level)).into(),
                     faction_template: prototype.faction.into(),
-                    bytes_1: gameobjects::unit::UnitFieldBytes1::new()
+                    bytes_1: UnitFieldBytes1::new()
                         .with_race(prototype.race)
                         .with_class(prototype.class)
                         .with_gender(prototype.gender)
@@ -224,7 +228,7 @@ impl Server {
                             .unwrap_or_default()
                             .into(),
                     ],
-                    flags: gameobjects::unit::UnitFlags::new().into(),
+                    flags: UnitFlags::new().into(),
                     aura: [0.into(); 48],
                     aura_flags: [0.into(); 6],
                     aura_levels: [0.into(); 12],
@@ -242,11 +246,11 @@ impl Server {
                     max_damage: 0.into(),
                     min_offhand_damage: 0.into(),
                     max_offhand_damage: 0.into(),
-                    bytes_2: gameobjects::unit::UnitFieldBytes2::new()
-                        .with_stand_state(gameobjects::unit::StandStateType::Stand)
+                    bytes_2: UnitFieldBytes2::new()
+                        .with_stand_state(StandStateType::Stand)
                         .with_loyalty_level(0)
                         .with_free_talent_points(0)
-                        .with_flags(gameobjects::unit::UnitFieldBytes2Flags::new())
+                        .with_flags(UnitFieldBytes2Flags::new())
                         .into(),
                     pet_number: 0.into(),
                     pet_name_timestamp: 0.into(),
@@ -256,7 +260,7 @@ impl Server {
                     channel_spell: 0.into(),
                     mod_cast_speed: 1.into(),
                     created_by_spell: 0.into(),
-                    npc_flags: 0.into(),
+                    npc_flags: NpcFlags::from_bits(prototype.npc_flags as u32).into(),
                     npc_emote_state: 0.into(),
                     training_points: 0.into(),
                     strength: 1.into(),
@@ -273,9 +277,9 @@ impl Server {
                     arcane_resistance: 0.into(),
                     base_mana: 100.into(),
                     base_health: 100.into(),
-                    bytes_3: gameobjects::unit::UnitFieldBytes3::new()
-                        .with_sheath_state(gameobjects::unit::SheathState::Unarmed)
-                        .with_flags(gameobjects::unit::UnitFieldBytes3Flags::new())
+                    bytes_3: UnitFieldBytes3::new()
+                        .with_sheath_state(SheathState::Unarmed)
+                        .with_flags(UnitFieldBytes3Flags::new())
                         .into(),
                     attack_power: 1.into(),
                     attack_power_mods: 0.into(),

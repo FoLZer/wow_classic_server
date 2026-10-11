@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ffi::CString};
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, Guid, LivingGuid, SelectableGuid};
@@ -19,7 +19,7 @@ use crate::{
         character::{Character, MoveItemError},
         creature::MeleeState,
     },
-    packet_handler::{ChatMessage, MovementOpcode, PlayerUpdateData, packet_handler},
+    packet_handler::{ChatMessage, Command, MovementOpcode, PlayerUpdateData, packet_handler},
     server::Server,
 };
 
@@ -681,6 +681,45 @@ impl Server {
                             .flags
                             .get_mut_using_copy()
                             .set_dnd(true);
+                    }
+                }
+                PlayerUpdateData::RunCommand(command) => {
+                    let Some(character) = self.characters.get_mut(&character_id) else {
+                        continue;
+                    };
+
+                    match command {
+                        Command::GetPosition => {
+                            let response = packets::server::SMSG_MESSAGECHAT {
+                                chat: ServerChatMessage {
+                                    ty: ServerChatType::System,
+                                    text: CString::new(format!(
+                                        "Your position: (x: {}, y: {}, z: {}, orientation: {})",
+                                        character.position.0,
+                                        character.position.1,
+                                        character.position.2,
+                                        character.orientation
+                                    ))
+                                    .unwrap(),
+                                },
+                            };
+
+                            let mut lock = character.stream_tx.lock().await;
+
+                            if let Err(e) = lock
+                                .write_all(&response.to_bytes(
+                                    Some(character.session_key),
+                                    &mut *character.encrypt_data.lock().await,
+                                ))
+                                .await
+                            {
+                                warn!(
+                                    "Failed to send SMSG_MESSAGECHAT to client (account_id: {}). Error: {:?}",
+                                    character.account_id, e
+                                );
+                                continue;
+                            };
+                        }
                     }
                 }
             }
