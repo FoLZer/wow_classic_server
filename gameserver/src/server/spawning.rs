@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use common::guid::{self, Guid};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
@@ -14,6 +12,7 @@ use rand::{RngExt, rng};
 
 use crate::{
     creature_spawner::{CreatureSpawnInfo, CreatureSpawner},
+    dirty_tracking_map::DirtyTrackingMap,
     game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
     objects::{creature::Creature, creature_prototype::CreaturePrototype},
@@ -26,7 +25,7 @@ impl Server {
         creature_spawners: &mut SparseSet<CreatureSpawner>,
         game_data_accessor: &GameDataAccessor,
         unit_guid_allocator: &mut GuidAllocator<guid::Unit>,
-        creatures: &mut HashMap<Guid<guid::Unit>, Creature>,
+        creatures: &mut DirtyTrackingMap<Guid<guid::Unit>, Creature>,
     ) {
         let mut to_deactivate = Vec::new();
 
@@ -130,7 +129,7 @@ impl Server {
         unit_guid_allocator: &mut GuidAllocator<guid::Unit>,
         prototype: CreaturePrototype,
         spawn_info: CreatureSpawnInfo,
-        creatures_out: &mut HashMap<Guid<guid::Unit>, Creature>,
+        creatures_out: &mut DirtyTrackingMap<Guid<guid::Unit>, Creature>,
         spawner_index: Option<usize>,
     ) {
         let guid = unit_guid_allocator

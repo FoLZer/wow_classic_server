@@ -18,6 +18,36 @@ use crate::{
     server::Server,
 };
 
+fn build_creature_update_block(
+    object_fields: &mut gameobjects::object::ObjectFields<common::guid::Unit>,
+    unit_fields: &mut gameobjects::unit::UnitFields,
+) -> Option<UpdateData> {
+    if !object_fields.has_updates() && !unit_fields.has_updates() {
+        return None;
+    }
+
+    let mut mask_blocks = BitVec::new();
+    let mut values_blocks = Vec::new();
+
+    object_fields.write_update_block(&mut mask_blocks, &mut values_blocks);
+    unit_fields.write_update_block(&mut mask_blocks, &mut values_blocks);
+
+    if values_blocks.is_empty() {
+        return None;
+    }
+
+    object_fields.clear_update_flags();
+    unit_fields.clear_update_flags();
+
+    Some(UpdateData::UpdateObject {
+        guid: AnyGuid::Unit(*object_fields.guid.get()),
+        values: ValuesUpdate {
+            mask_blocks,
+            values_blocks,
+        },
+    })
+}
+
 impl Server {
     // Players
     pub(super) async fn send_player_updates_to_players(&mut self) {
@@ -287,43 +317,25 @@ impl Server {
         }
 
         let mut update_blocks = HashMap::new();
+        let mut dirty_creatures = self.creatures.take_dirty();
+        dirty_creatures.extend(self.creature_corpses.take_dirty());
 
-        let creature_fields = self
-            .creatures
-            .values_mut()
-            .map(|v| (&mut v.object_fields, &mut v.unit_fields));
-        let corpse_fields = self
-            .creature_corpses
-            .values_mut()
-            .map(|v| (&mut v.object_fields, &mut v.unit_fields));
-
-        for (object_fields, unit_fields) in creature_fields.chain(corpse_fields) {
-            if !object_fields.has_updates() && !unit_fields.has_updates() {
+        for guid in dirty_creatures {
+            let block = if let Some(mut creature) = self.creatures.get_mut(&guid) {
+                let creature = &mut *creature;
+                build_creature_update_block(&mut creature.object_fields, &mut creature.unit_fields)
+            } else if let Some(mut corpse) = self.creature_corpses.get_mut(&guid) {
+                let corpse = &mut *corpse;
+                build_creature_update_block(&mut corpse.object_fields, &mut corpse.unit_fields)
+            } else {
                 continue;
-            }
-
-            let mut mask_blocks = BitVec::new();
-            let mut values_blocks = Vec::new();
-
-            object_fields.write_update_block(&mut mask_blocks, &mut values_blocks);
-            unit_fields.write_update_block(&mut mask_blocks, &mut values_blocks);
-
-            if values_blocks.is_empty() {
-                continue;
-            }
-
-            object_fields.clear_update_flags();
-            unit_fields.clear_update_flags();
-
-            let block = UpdateData::UpdateObject {
-                guid: AnyGuid::Unit(object_fields.guid.get().clone()),
-                values: ValuesUpdate {
-                    mask_blocks,
-                    values_blocks,
-                },
             };
 
-            update_blocks.insert(object_fields.guid.get().clone(), block);
+            let Some(block) = block else {
+                continue;
+            };
+
+            update_blocks.insert(guid, block);
         }
 
         for character in self.characters.values_mut() {
@@ -441,7 +453,7 @@ impl Server {
         for (guid, character) in &self.characters {
             let mut new_visible_characters = Vec::new();
 
-            for (guid, potentially_new_creature) in &self.creatures {
+            for (guid, potentially_new_creature) in self.creatures.iter() {
                 if !character.sees_creature(*guid)
                     && self.is_creature_visible_to_player(character, potentially_new_creature)
                 {
@@ -449,7 +461,7 @@ impl Server {
                 }
             }
 
-            for (guid, potentially_new_corpse) in &self.creature_corpses {
+            for (guid, potentially_new_corpse) in self.creature_corpses.iter() {
                 if !character.sees_creature(*guid)
                     && self.is_corpse_visible_to_player(character, potentially_new_corpse)
                 {
@@ -467,34 +479,43 @@ impl Server {
             let mut blocks = Vec::new();
 
             for guid in &new_visible_creatures {
-                let (position, orientation, object_fields, unit_fields) =
-                    if let Some(creature) = self.creatures.get_mut(&guid) {
+                let mut mask_blocks = BitVec::new();
+                let mut values_blocks = Vec::new();
+
+                let (position, orientation, object_guid) =
+                    if let Some(mut creature) = self.creatures.get_mut(&guid) {
+                        let creature = &mut *creature;
+                        creature
+                            .object_fields
+                            .write_full_update_block(&mut mask_blocks, &mut values_blocks);
+                        creature
+                            .unit_fields
+                            .write_full_update_block(&mut mask_blocks, &mut values_blocks);
                         (
                             creature.position,
                             creature.orientation,
-                            &mut creature.object_fields,
-                            &mut creature.unit_fields,
+                            *creature.object_fields.guid.get(),
                         )
-                    } else if let Some(corpse) = self.creature_corpses.get_mut(&guid) {
+                    } else if let Some(mut corpse) = self.creature_corpses.get_mut(&guid) {
+                        let corpse = &mut *corpse;
+                        corpse
+                            .object_fields
+                            .write_full_update_block(&mut mask_blocks, &mut values_blocks);
+                        corpse
+                            .unit_fields
+                            .write_full_update_block(&mut mask_blocks, &mut values_blocks);
                         (
                             corpse.position,
                             corpse.orientation,
-                            &mut corpse.object_fields,
-                            &mut corpse.unit_fields,
+                            *corpse.object_fields.guid.get(),
                         )
                     } else {
                         // Not possible due to how this vec got constructed above
                         unreachable!();
                     };
 
-                let mut mask_blocks = BitVec::new();
-                let mut values_blocks = Vec::new();
-
-                object_fields.write_full_update_block(&mut mask_blocks, &mut values_blocks);
-                unit_fields.write_full_update_block(&mut mask_blocks, &mut values_blocks);
-
                 blocks.push(UpdateData::CreateNewObject {
-                    guid: AnyGuid::Unit(object_fields.guid.get().clone()),
+                    guid: AnyGuid::Unit(object_guid),
                     movement: MovementUpdate {
                         is_self_update: false,
                         position: Some(PositionUpdate::Living {

@@ -1,5 +1,6 @@
 mod character_selection_screen;
 mod creature_spawner;
+mod dirty_tracking_map;
 mod game_data;
 mod guid_allocator;
 mod ipc_connection;

@@ -195,8 +195,7 @@ impl<T: ByteOrder> OrderedWrite<T> for UpdateData {
                     + <MovementUpdate as OrderedWrite<LittleEndian>>::serialized_size(movement)
                     + <ValuesUpdate as OrderedWrite<LittleEndian>>::serialized_size(values)
             }
-            Self::OutOfRangeDestroyObject { guids }
-            | Self::ForceDestroyObject { guids } => {
+            Self::OutOfRangeDestroyObject { guids } | Self::ForceDestroyObject { guids } => {
                 update_type_size
                     + size_of::<u32>()
                     + guids.iter().map(packed_guid_size).sum::<usize>()

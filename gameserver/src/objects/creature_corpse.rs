@@ -1,7 +1,9 @@
 use std::time::Instant;
 
 use common::guid;
-use gameobjects::{object::ObjectFields, unit::UnitFields};
+use gameobjects::{object::ObjectFields, tracked_field::ClientUpdatable, unit::UnitFields};
+
+use crate::dirty_tracking_map::DirtyTrackable;
 
 pub struct CreatureCorpse {
     pub position: (f32, f32, f32),
@@ -11,4 +13,10 @@ pub struct CreatureCorpse {
     pub unit_fields: UnitFields,
 
     pub died_at: Instant,
+}
+
+impl DirtyTrackable for CreatureCorpse {
+    fn is_dirty(&self) -> bool {
+        self.object_fields.has_updates() || self.unit_fields.has_updates()
+    }
 }

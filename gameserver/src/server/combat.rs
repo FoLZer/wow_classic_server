@@ -1,10 +1,17 @@
-use std::time::{Duration, Instant};
+use std::{
+    ops::{Deref, DerefMut},
+    time::{Duration, Instant},
+};
 
-use common::guid::LivingGuid;
+use common::guid::{self, Guid, LivingGuid};
 use gameobjects::unit::UnitFields;
 use packets::attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDamages, VictimState};
 
-use crate::{objects::creature_corpse::CreatureCorpse, server::Server};
+use crate::{
+    dirty_tracking_map::DirtyTrackingMut,
+    objects::{creature::Creature, creature_corpse::CreatureCorpse},
+    server::Server,
+};
 
 impl Server {
     pub(super) async fn update_player_melee_attacks(&mut self, now: Instant) {
@@ -53,11 +60,27 @@ impl Server {
     pub(super) async fn update_creature_melee_attacks(&mut self, now: Instant) {
         let mut swings = Vec::new();
 
-        for (guid, creature) in &mut self.creatures {
-            let Some(melee_state) = &mut creature.melee_state else {
+        let due_swings = self
+            .creatures
+            .iter()
+            .filter_map(|(guid, creature)| {
+                let melee_state = creature.melee_state.as_ref()?;
+                let victim = melee_state.victim?;
+                let main_attack_time =
+                    Duration::from_millis(*creature.unit_fields.base_attack_time.get() as u64);
+
+                melee_state
+                    .last_main_hand
+                    .is_none_or(|last| now.duration_since(last) >= main_attack_time)
+                    .then_some((*guid, victim))
+            })
+            .collect::<Vec<_>>();
+
+        for (guid, victim) in due_swings {
+            let Some(mut creature) = self.creatures.get_mut(&guid) else {
                 continue;
             };
-            let Some(victim) = melee_state.victim else {
+            let Some(melee_state) = &mut creature.melee_state else {
                 continue;
             };
 
@@ -65,15 +88,8 @@ impl Server {
             // TODO: range check, the creature should chase instead of swinging
             // TODO: facing check, the creature should turn to the victim instead of swinging
 
-            let main_attack_time =
-                Duration::from_millis(*creature.unit_fields.base_attack_time.get() as u64);
-            if melee_state
-                .last_main_hand
-                .is_none_or(|last| now.duration_since(last) >= main_attack_time)
-            {
-                melee_state.last_main_hand = Some(now);
-                swings.push((LivingGuid::Unit(*guid), victim, HitHand::Main));
-            }
+            melee_state.last_main_hand = Some(now);
+            swings.push((LivingGuid::Unit(guid), victim, HitHand::Main));
 
             /* Requires a check that offhand item is present
             let main_attack_time =
@@ -144,21 +160,24 @@ impl Server {
             blocked: 0,
         };
 
-        let _ = victim_fields;
+        drop(victim_fields);
 
         self.broadcast_packet(&response, |character| {
             !character.sees_including_self(attacker) && !character.sees_including_self(victim)
         })
         .await;
 
-        let Some(victim_fields) = self.living_unit_fields_mut(victim) else {
+        let Some(mut victim_fields) = self.living_unit_fields_mut(victim) else {
             // Not really supposed to happen, I guess returning is fine for now
             return;
         };
 
         let health = *victim_fields.health.get();
         *victim_fields.health.get_mut_using_copy() = health.saturating_sub(damage);
-        if *victim_fields.health.get() == 0 {
+        let victim_died = *victim_fields.health.get() == 0;
+        drop(victim_fields);
+
+        if victim_died {
             if let LivingGuid::Unit(victim_guid) = victim {
                 let Some(victim) = self.creatures.remove(&victim_guid) else {
                     // Not really supposed to happen, I guess returning is fine for now
@@ -189,10 +208,41 @@ impl Server {
         }
     }
 
-    fn living_unit_fields_mut(&mut self, guid: LivingGuid) -> Option<&mut UnitFields> {
+    fn living_unit_fields_mut(&mut self, guid: LivingGuid) -> Option<LivingUnitFieldsMut<'_>> {
         match guid {
-            LivingGuid::Player(guid) => self.characters.get_mut(&guid).map(|v| &mut v.unit_fields),
-            LivingGuid::Unit(guid) => self.creatures.get_mut(&guid).map(|v| &mut v.unit_fields),
+            LivingGuid::Player(guid) => self
+                .characters
+                .get_mut(&guid)
+                .map(|character| LivingUnitFieldsMut::Player(&mut character.unit_fields)),
+            LivingGuid::Unit(guid) => self
+                .creatures
+                .get_mut(&guid)
+                .map(LivingUnitFieldsMut::Creature),
+        }
+    }
+}
+
+enum LivingUnitFieldsMut<'a> {
+    Player(&'a mut UnitFields),
+    Creature(DirtyTrackingMut<'a, Guid<guid::Unit>, Creature>),
+}
+
+impl Deref for LivingUnitFieldsMut<'_> {
+    type Target = UnitFields;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Player(fields) => fields,
+            Self::Creature(creature) => &creature.unit_fields,
+        }
+    }
+}
+
+impl DerefMut for LivingUnitFieldsMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Player(fields) => fields,
+            Self::Creature(creature) => &mut creature.unit_fields,
         }
     }
 }

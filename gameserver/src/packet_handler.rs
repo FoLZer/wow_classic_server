@@ -801,8 +801,8 @@ pub async fn packet_handler(
                         match parse_command(text) {
                             Ok(command) => {
                                 if let Err(_) = player_update_queue.push(PlayerUpdate {
-                                        character_id,
-                                        data: PlayerUpdateData::RunCommand(command),
+                                    character_id,
+                                    data: PlayerUpdateData::RunCommand(command),
                                 }) {
                                     return;
                                 };

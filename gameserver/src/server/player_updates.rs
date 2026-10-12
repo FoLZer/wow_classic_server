@@ -920,18 +920,21 @@ impl Server {
                         );
                     }
 
-                    let new_count = self
-                        .creatures
-                        .get_mut(&vendor_guid)
-                        .and_then(|vendor| vendor.vendor_menu.as_mut())
-                        .and_then(|inventory| inventory.get_mut(vendor_index))
-                        .and_then(|vendor_item| {
-                            vendor_item.num_available.as_mut().map(|available| {
-                                *available -= item_count;
-                                *available
+                    let new_count = if let Some(mut vendor) = self.creatures.get_mut(&vendor_guid) {
+                        vendor
+                            .vendor_menu
+                            .as_mut()
+                            .and_then(|inventory| inventory.get_mut(vendor_index))
+                            .and_then(|vendor_item| {
+                                vendor_item.num_available.as_mut().map(|available| {
+                                    *available -= item_count;
+                                    *available
+                                })
                             })
-                        })
-                        .unwrap_or(u32::MAX);
+                            .unwrap_or(u32::MAX)
+                    } else {
+                        u32::MAX
+                    };
                     let response = packets::server::SMSG_BUY_ITEM {
                         vendor_guid,
                         vendor_slot: vendor_index as u32 + 1,

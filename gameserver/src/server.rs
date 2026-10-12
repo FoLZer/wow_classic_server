@@ -20,6 +20,7 @@ use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
     creature_spawner::CreatureSpawner,
+    dirty_tracking_map::DirtyTrackingMap,
     game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
     objects::{character::Character, creature::Creature, creature_corpse::CreatureCorpse},
@@ -37,9 +38,9 @@ pub struct Server {
     yell_message_range: f32,
 
     creature_spawners: SparseSet<CreatureSpawner>,
-    creatures: HashMap<Guid<guid::Unit>, Creature>,
+    creatures: DirtyTrackingMap<Guid<guid::Unit>, Creature>,
     characters: HashMap<Guid<guid::Player>, Character>,
-    creature_corpses: HashMap<Guid<guid::Unit>, CreatureCorpse>,
+    creature_corpses: DirtyTrackingMap<Guid<guid::Unit>, CreatureCorpse>,
 
     unit_guid_allocator: GuidAllocator<guid::Unit>,
 
@@ -67,7 +68,7 @@ impl Server {
         db: Pool<Sqlite>,
     ) -> Result<Self, sqlx::Error> {
         let mut unit_guid_allocator = GuidAllocator::new();
-        let mut creatures = HashMap::new();
+        let mut creatures = DirtyTrackingMap::default();
 
         let now = Instant::now();
 
@@ -109,7 +110,7 @@ impl Server {
 
             creatures,
             characters: HashMap::new(),
-            creature_corpses: HashMap::new(),
+            creature_corpses: DirtyTrackingMap::default(),
 
             unit_guid_allocator,
 

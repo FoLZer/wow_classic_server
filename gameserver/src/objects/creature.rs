@@ -1,9 +1,9 @@
 use std::time::Instant;
 
 use common::guid::{self, LivingGuid};
-use gameobjects::{object::ObjectFields, unit::UnitFields};
+use gameobjects::{object::ObjectFields, tracked_field::ClientUpdatable, unit::UnitFields};
 
-use crate::objects::gossip::GossipMenuTree;
+use crate::{dirty_tracking_map::DirtyTrackable, objects::gossip::GossipMenuTree};
 
 pub struct Creature {
     pub position: (f32, f32, f32),
@@ -21,6 +21,12 @@ pub struct Creature {
 impl Creature {
     pub fn is_alive(&self) -> bool {
         *self.unit_fields.health.get() != 0
+    }
+}
+
+impl DirtyTrackable for Creature {
+    fn is_dirty(&self) -> bool {
+        self.object_fields.has_updates() || self.unit_fields.has_updates()
     }
 }
 

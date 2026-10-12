@@ -430,7 +430,8 @@ impl<T: ByteOrder> OrderedWrite<T> for Option<CString> {
     }
 
     fn serialized_size(&self) -> usize {
-        self.as_ref().map_or(1, |value| value.as_bytes_with_nul().len())
+        self.as_ref()
+            .map_or(1, |value| value.as_bytes_with_nul().len())
     }
 }
 
