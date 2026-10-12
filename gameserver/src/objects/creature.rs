@@ -36,6 +36,7 @@ pub struct MeleeState {
     pub victim: Option<LivingGuid>,
     pub last_main_hand: Option<Instant>,
     pub last_off_hand: Option<Instant>,
+    pub last_swing_error: Option<Instant>,
 }
 
 pub struct VendorItem {

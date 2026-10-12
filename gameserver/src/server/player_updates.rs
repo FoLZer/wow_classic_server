@@ -414,11 +414,13 @@ impl Server {
                             Some(SelectableGuid::Player(guid)) => {
                                 let new_victim = LivingGuid::Player(guid);
                                 melee_state.victim = Some(new_victim);
+                                melee_state.last_swing_error = None;
                                 AttackTargetChange::Start(new_victim)
                             }
                             Some(SelectableGuid::Unit(guid)) => {
                                 let new_victim = LivingGuid::Unit(guid);
                                 melee_state.victim = Some(new_victim);
+                                melee_state.last_swing_error = None;
                                 AttackTargetChange::Start(new_victim)
                             }
                             _ => AttackTargetChange::Stop(
@@ -482,12 +484,16 @@ impl Server {
                         //TODO: need to check victim being targetable for combat, e.g. not dead, range checks
 
                         match &mut character.melee_state {
-                            Some(state) => state.victim = Some(victim),
+                            Some(state) => {
+                                state.victim = Some(victim);
+                                state.last_swing_error = None;
+                            }
                             None => {
                                 character.melee_state = Some(MeleeState {
                                     victim: Some(victim),
                                     last_main_hand: None,
                                     last_off_hand: None,
+                                    last_swing_error: None,
                                 });
                             }
                         }

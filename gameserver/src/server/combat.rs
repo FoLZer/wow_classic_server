@@ -13,6 +13,8 @@ use crate::{
     server::Server,
 };
 
+const SWING_ERROR_DELAY: Duration = Duration::from_secs(1);
+
 impl Server {
     pub(super) async fn update_player_melee_attacks(&mut self, now: Instant) {
         let mut swings = Vec::new();
@@ -32,15 +34,21 @@ impl Server {
             };
 
             // TODO: check that the player can attack (not dead, stunned, pacified, casting, etc.)
-            // TODO: range check, send SMSG_ATTACKSWING_NOTINRANGE without consuming the swing
             // TODO: facing check, send SMSG_ATTACKSWING_BADFACING without consuming the swing
 
             if melee_state
                 .last_main_hand
                 .is_none_or(|last| now.duration_since(last) >= main_attack_time)
             {
-                melee_state.last_main_hand = Some(now);
-                swings.push((LivingGuid::Player(guid), victim, HitHand::Main));
+                let report_swing_error = melee_state
+                    .last_swing_error
+                    .is_none_or(|last| now.duration_since(last) >= SWING_ERROR_DELAY);
+                swings.push((
+                    LivingGuid::Player(guid),
+                    victim,
+                    HitHand::Main,
+                    report_swing_error,
+                ));
             }
 
             /* Requires a check that offhand item is present
@@ -56,8 +64,38 @@ impl Server {
             */
         }
 
-        for (attacker, victim, hand) in swings {
-            self.resolve_melee_swing(attacker, victim, hand).await;
+        for (attacker, victim, hand, report_swing_error) in swings {
+            if !self.has_current_melee_victim(attacker, victim) {
+                continue;
+            }
+
+            let result = self
+                .resolve_melee_swing(attacker, victim, hand, report_swing_error)
+                .await;
+            if let LivingGuid::Player(guid) = attacker {
+                let mut character = self
+                    .characters
+                    .get_mut(&guid)
+                    .expect("player attacker checked above");
+                let melee_state = character
+                    .melee_state
+                    .as_mut()
+                    .expect("player melee state checked above");
+
+                match result {
+                    MeleeSwingResult::Resolved => {
+                        match hand {
+                            HitHand::Main => melee_state.last_main_hand = Some(now),
+                            HitHand::Off => melee_state.last_off_hand = Some(now),
+                        }
+                        melee_state.last_swing_error = None;
+                    }
+                    MeleeSwingResult::OutOfRange if report_swing_error => {
+                        melee_state.last_swing_error = Some(now);
+                    }
+                    MeleeSwingResult::OutOfRange | MeleeSwingResult::Failed => {}
+                }
+            }
         }
     }
 
@@ -81,18 +119,10 @@ impl Server {
             .collect::<Vec<_>>();
 
         for (guid, victim) in due_swings {
-            let Some(mut creature) = self.creatures.get_mut(&guid) else {
-                continue;
-            };
-            let Some(melee_state) = &mut creature.melee_state else {
-                continue;
-            };
-
             // TODO: check that the creature can attack (not dead, stunned, evading, casting, etc.)
             // TODO: range check, the creature should chase instead of swinging
             // TODO: facing check, the creature should turn to the victim instead of swinging
 
-            melee_state.last_main_hand = Some(now);
             swings.push((LivingGuid::Unit(guid), victim, HitHand::Main));
 
             /* Requires a check that offhand item is present
@@ -109,7 +139,30 @@ impl Server {
         }
 
         for (attacker, victim, hand) in swings {
-            self.resolve_melee_swing(attacker, victim, hand).await;
+            if !self.has_current_melee_victim(attacker, victim) {
+                continue;
+            }
+
+            if self
+                .resolve_melee_swing(attacker, victim, hand, false)
+                .await
+                == MeleeSwingResult::Resolved
+                && let LivingGuid::Unit(guid) = attacker
+            {
+                let mut creature = self
+                    .creatures
+                    .get_mut(&guid)
+                    .expect("creature attacker checked above");
+                let melee_state = creature
+                    .melee_state
+                    .as_mut()
+                    .expect("creature melee state checked above");
+
+                match hand {
+                    HitHand::Main => melee_state.last_main_hand = Some(now),
+                    HitHand::Off => melee_state.last_off_hand = Some(now),
+                }
+            }
         }
     }
 
@@ -118,23 +171,48 @@ impl Server {
         attacker: LivingGuid,
         victim: LivingGuid,
         hand: HitHand,
-    ) {
+        report_swing_error: bool,
+    ) -> MeleeSwingResult {
         // An earlier swing this tick could have killed the attacker
         if self
             .living_unit_fields(attacker)
             .is_none_or(|fields| *fields.health.get() == 0)
         {
-            return;
+            return MeleeSwingResult::Failed;
+        }
+
+        let Some((attacker_position, attacker_reach)) =
+            self.living_unit_position_and_reach(attacker)
+        else {
+            return MeleeSwingResult::Failed;
+        };
+        let Some((victim_position, victim_reach)) = self.living_unit_position_and_reach(victim)
+        else {
+            return MeleeSwingResult::Failed;
+        };
+        let melee_range = (attacker_reach + victim_reach + 4.0 / 3.0).max(5.0);
+        let dx = attacker_position.0 - victim_position.0;
+        let dy = attacker_position.1 - victim_position.1;
+        let dz = attacker_position.2 - victim_position.2;
+        let distance_squared = dx * dx + dy * dy + dz * dz;
+
+        if distance_squared > melee_range * melee_range {
+            if report_swing_error && let LivingGuid::Player(attacker_guid) = attacker {
+                let response = packets::server::SMSG_ATTACKSWING_NOTINRANGE {};
+                self.broadcast_packet(&response, |character| character.guid() != attacker_guid)
+                    .await;
+            }
+            return MeleeSwingResult::OutOfRange;
         }
 
         let Some(victim_fields) = self.living_unit_fields_mut(victim) else {
             // TODO: victim is gone (logged out, despawned), stop the attack with SMSG_ATTACKSTOP
-            return;
+            return MeleeSwingResult::Failed;
         };
 
         if *victim_fields.health.get() == 0 {
             // TODO: SMSG_ATTACKSWING_DEADTARGET for players, drop the victim for creatures
-            return;
+            return MeleeSwingResult::Failed;
         }
 
         // TODO: check that the victim can be attacked (not immune, not evading, faction, etc.)
@@ -173,7 +251,7 @@ impl Server {
 
         let Some(mut victim_fields) = self.living_unit_fields_mut(victim) else {
             // Not really supposed to happen, I guess returning is fine for now
-            return;
+            return MeleeSwingResult::Failed;
         };
 
         let health = *victim_fields.health.get();
@@ -185,7 +263,7 @@ impl Server {
             if let LivingGuid::Unit(victim_guid) = victim {
                 let Some(victim) = self.creatures.remove(&victim_guid) else {
                     // Not really supposed to happen, I guess returning is fine for now
-                    return;
+                    return MeleeSwingResult::Failed;
                 };
                 if let Some(spawner_index) = victim.spawner_index {
                     self.notify_creature_spawner(spawner_index);
@@ -203,6 +281,39 @@ impl Server {
             }
         }
         // TODO: death handling once health reaches 0
+        MeleeSwingResult::Resolved
+    }
+
+    fn has_current_melee_victim(&self, attacker: LivingGuid, victim: LivingGuid) -> bool {
+        match attacker {
+            LivingGuid::Player(guid) => self.characters.get(&guid).is_some_and(|character| {
+                character
+                    .melee_state
+                    .as_ref()
+                    .is_some_and(|state| state.victim == Some(victim))
+            }),
+            LivingGuid::Unit(guid) => self.creatures.get(&guid).is_some_and(|creature| {
+                creature
+                    .melee_state
+                    .as_ref()
+                    .is_some_and(|state| state.victim == Some(victim))
+            }),
+        }
+    }
+
+    fn living_unit_position_and_reach(&self, guid: LivingGuid) -> Option<((f32, f32, f32), f32)> {
+        match guid {
+            LivingGuid::Player(guid) => self.characters.get(&guid).map(|character| {
+                (
+                    character.position,
+                    *character.unit_fields.combat_reach.get(),
+                )
+            }),
+            LivingGuid::Unit(guid) => self
+                .creatures
+                .get(&guid)
+                .map(|creature| (creature.position, *creature.unit_fields.combat_reach.get())),
+        }
     }
 
     fn living_unit_fields(&self, guid: LivingGuid) -> Option<&UnitFields> {
@@ -224,6 +335,13 @@ impl Server {
                 .map(LivingUnitFieldsMut::Creature),
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MeleeSwingResult {
+    Resolved,
+    OutOfRange,
+    Failed,
 }
 
 enum LivingUnitFieldsMut<'a> {

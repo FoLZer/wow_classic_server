@@ -111,6 +111,7 @@ impl<T: ByteOrder> OrderedWrite<T> for SubDamages {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum HitHand {
     Main,
     Off,
