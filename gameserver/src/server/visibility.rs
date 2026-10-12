@@ -52,8 +52,12 @@ impl Server {
     // Players
     pub(super) async fn send_player_updates_to_players(&mut self) {
         let mut update_blocks = HashMap::new();
+        let dirty_characters = self.characters.take_dirty();
 
-        for character in self.characters.values_mut() {
+        for guid in dirty_characters {
+            let Some(mut character) = self.characters.get_mut(&guid) else {
+                continue;
+            };
             let mut mask_blocks = BitVec::new();
             let mut values_blocks = Vec::new();
 
@@ -86,7 +90,7 @@ impl Server {
             update_blocks.insert(character.object_fields.guid.get().clone(), block);
         }
 
-        for character in self.characters.values_mut() {
+        for character in self.characters.values() {
             let mut blocks = Vec::new();
 
             for (guid, block) in &update_blocks {
@@ -153,7 +157,7 @@ impl Server {
         }
 
         for (guid, guids_to_remove) in guids_to_remove_for_character {
-            let Some(character) = self.characters.get_mut(&guid) else {
+            let Some(mut character) = self.characters.get_mut(&guid) else {
                 // Not possible due to how this map got constructed above
                 unreachable!();
             };
@@ -172,21 +176,23 @@ impl Server {
                 },
             };
 
-            let mut lock = character.stream_tx.lock().await;
-
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
             {
-                error!(
-                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                return;
-            };
+                let mut lock = character.stream_tx.lock().await;
+
+                if let Err(e) = lock
+                    .write_all(&response.to_bytes(
+                        Some(character.session_key),
+                        &mut *character.encrypt_data.lock().await,
+                    ))
+                    .await
+                {
+                    error!(
+                        "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                        character.account_id, e
+                    );
+                    return;
+                };
+            }
 
             character
                 .other_visible_players
@@ -217,7 +223,7 @@ impl Server {
             let mut blocks = Vec::new();
 
             for guid in &new_visible_characters {
-                let Some(character) = self.characters.get_mut(&guid) else {
+                let Some(character) = self.characters.get(&guid) else {
                     // Not possible due to how this vec got constructed above
                     unreachable!();
                 };
@@ -283,26 +289,28 @@ impl Server {
                 },
             };
 
-            let Some(character) = self.characters.get_mut(&guid) else {
+            let Some(mut character) = self.characters.get_mut(&guid) else {
                 // Not possible due to how this map got constructed above
                 unreachable!();
             };
 
-            let mut lock = character.stream_tx.lock().await;
-
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
             {
-                error!(
-                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                return;
-            };
+                let mut lock = character.stream_tx.lock().await;
+
+                if let Err(e) = lock
+                    .write_all(&response.to_bytes(
+                        Some(character.session_key),
+                        &mut *character.encrypt_data.lock().await,
+                    ))
+                    .await
+                {
+                    error!(
+                        "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                        character.account_id, e
+                    );
+                    return;
+                };
+            }
 
             for guid in new_visible_characters {
                 character.other_visible_players.insert(guid);
@@ -338,7 +346,7 @@ impl Server {
             update_blocks.insert(guid, block);
         }
 
-        for character in self.characters.values_mut() {
+        for character in self.characters.values() {
             let blocks = character
                 .visible_creatures
                 .iter()
@@ -410,7 +418,7 @@ impl Server {
         }
 
         for (guid, guids_to_remove) in guids_to_remove_for_character {
-            let Some(character) = self.characters.get_mut(&guid) else {
+            let Some(mut character) = self.characters.get_mut(&guid) else {
                 // Not possible due to how this map got constructed above
                 unreachable!();
             };
@@ -426,21 +434,23 @@ impl Server {
                 },
             };
 
-            let mut lock = character.stream_tx.lock().await;
-
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
             {
-                error!(
-                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                return;
-            };
+                let mut lock = character.stream_tx.lock().await;
+
+                if let Err(e) = lock
+                    .write_all(&response.to_bytes(
+                        Some(character.session_key),
+                        &mut *character.encrypt_data.lock().await,
+                    ))
+                    .await
+                {
+                    error!(
+                        "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                        character.account_id, e
+                    );
+                    return;
+                };
+            }
 
             character
                 .visible_creatures
@@ -557,29 +567,31 @@ impl Server {
             }
             .into_sized_batches(MAX_SERVER_PACKET_BODY_SIZE);
 
-            let Some(character) = self.characters.get_mut(&guid) else {
+            let Some(mut character) = self.characters.get_mut(&guid) else {
                 // Not possible due to how this map got constructed above
                 unreachable!();
             };
 
-            let mut lock = character.stream_tx.lock().await;
+            {
+                let mut lock = character.stream_tx.lock().await;
 
-            for update_data in batches {
-                let response = packets::server::SMSG_UPDATE_OBJECT { update_data };
+                for update_data in batches {
+                    let response = packets::server::SMSG_UPDATE_OBJECT { update_data };
 
-                if let Err(e) = lock
-                    .write_all(&response.to_bytes(
-                        Some(character.session_key),
-                        &mut *character.encrypt_data.lock().await,
-                    ))
-                    .await
-                {
-                    error!(
-                        "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                        character.account_id, e
-                    );
-                    return;
-                };
+                    if let Err(e) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        error!(
+                            "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                            character.account_id, e
+                        );
+                        return;
+                    };
+                }
             }
 
             for guid in new_visible_creatures {

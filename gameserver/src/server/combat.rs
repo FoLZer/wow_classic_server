@@ -9,7 +9,7 @@ use packets::attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDama
 
 use crate::{
     dirty_tracking_map::DirtyTrackingMut,
-    objects::{creature::Creature, creature_corpse::CreatureCorpse},
+    objects::{character::Character, creature::Creature, creature_corpse::CreatureCorpse},
     server::Server,
 };
 
@@ -17,7 +17,13 @@ impl Server {
     pub(super) async fn update_player_melee_attacks(&mut self, now: Instant) {
         let mut swings = Vec::new();
 
-        for (guid, character) in &mut self.characters {
+        let character_guids = self.characters.keys().copied().collect::<Vec<_>>();
+        for guid in character_guids {
+            let Some(mut character) = self.characters.get_mut(&guid) else {
+                continue;
+            };
+            let main_attack_time =
+                Duration::from_millis(*character.unit_fields.base_attack_time.get() as u64);
             let Some(melee_state) = &mut character.melee_state else {
                 continue;
             };
@@ -29,14 +35,12 @@ impl Server {
             // TODO: range check, send SMSG_ATTACKSWING_NOTINRANGE without consuming the swing
             // TODO: facing check, send SMSG_ATTACKSWING_BADFACING without consuming the swing
 
-            let main_attack_time =
-                Duration::from_millis(*character.unit_fields.base_attack_time.get() as u64);
             if melee_state
                 .last_main_hand
                 .is_none_or(|last| now.duration_since(last) >= main_attack_time)
             {
                 melee_state.last_main_hand = Some(now);
-                swings.push((LivingGuid::Player(*guid), victim, HitHand::Main));
+                swings.push((LivingGuid::Player(guid), victim, HitHand::Main));
             }
 
             /* Requires a check that offhand item is present
@@ -213,7 +217,7 @@ impl Server {
             LivingGuid::Player(guid) => self
                 .characters
                 .get_mut(&guid)
-                .map(|character| LivingUnitFieldsMut::Player(&mut character.unit_fields)),
+                .map(LivingUnitFieldsMut::Player),
             LivingGuid::Unit(guid) => self
                 .creatures
                 .get_mut(&guid)
@@ -223,7 +227,7 @@ impl Server {
 }
 
 enum LivingUnitFieldsMut<'a> {
-    Player(&'a mut UnitFields),
+    Player(DirtyTrackingMut<'a, Guid<guid::Player>, Character>),
     Creature(DirtyTrackingMut<'a, Guid<guid::Unit>, Creature>),
 }
 
@@ -232,7 +236,7 @@ impl Deref for LivingUnitFieldsMut<'_> {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Player(fields) => fields,
+            Self::Player(character) => &character.unit_fields,
             Self::Creature(creature) => &creature.unit_fields,
         }
     }
@@ -241,7 +245,7 @@ impl Deref for LivingUnitFieldsMut<'_> {
 impl DerefMut for LivingUnitFieldsMut<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
-            Self::Player(fields) => fields,
+            Self::Player(character) => &mut character.unit_fields,
             Self::Creature(creature) => &mut creature.unit_fields,
         }
     }

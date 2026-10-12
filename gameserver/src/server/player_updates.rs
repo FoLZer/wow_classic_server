@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::CString, num::NonZeroU32};
+use std::{ffi::CString, num::NonZeroU32};
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
@@ -17,6 +17,7 @@ use packets::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
+    dirty_tracking_map::DirtyTrackingMap,
     objects::{
         character::{Character, InventoryOperation, MoveItemError},
         creature::MeleeState,
@@ -35,13 +36,15 @@ impl Server {
                     opcode,
                     movement_info,
                 } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        continue;
-                    };
-                    character.position.0 = movement_info.pos_x;
-                    character.position.1 = movement_info.pos_y;
-                    character.position.2 = movement_info.pos_z;
-                    character.orientation = movement_info.orientation;
+                    {
+                        let Some(mut character) = self.characters.get_mut(&character_id) else {
+                            continue;
+                        };
+                        character.position.0 = movement_info.pos_x;
+                        character.position.1 = movement_info.pos_y;
+                        character.position.2 = movement_info.pos_z;
+                        character.orientation = movement_info.orientation;
+                    }
 
                     // Relay movement to other players
                     for recipient in self.characters.values() {
@@ -250,7 +253,7 @@ impl Server {
                     }
                 }
                 PlayerUpdateData::Inventory(operation) => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -304,14 +307,14 @@ impl Server {
                     };
                 }
                 PlayerUpdateData::ResendSheathState => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
                     character.unit_fields.bytes_3.force_update();
                 }
                 PlayerUpdateData::SetSheathState { state } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -322,14 +325,14 @@ impl Server {
                         .set_sheath_state(state);
                 }
                 PlayerUpdateData::ResendAnimationState => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
                     character.unit_fields.bytes_2.force_update();
                 }
                 PlayerUpdateData::SetAnimationState { state } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -358,7 +361,7 @@ impl Server {
                     ));
                 }
                 PlayerUpdateData::SetSelection { guid } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -369,10 +372,15 @@ impl Server {
                     {
                         // TODO: targeting checks
 
+                        enum AttackTargetChange {
+                            Start(LivingGuid),
+                            Stop(LivingGuid),
+                        }
+
                         async fn send_new_attack_target(
                             character_id: Guid<guid::Player>,
                             victim: LivingGuid,
-                            characters: &mut HashMap<Guid<guid::Player>, Character>,
+                            characters: &DirtyTrackingMap<Guid<guid::Player>, Character>,
                         ) {
                             let response = packets::server::SMSG_ATTACKSTART {
                                 attacker: LivingGuid::Player(character_id).into(),
@@ -402,32 +410,32 @@ impl Server {
                             }
                         }
 
-                        match guid {
+                        let target_change = match guid {
                             Some(SelectableGuid::Player(guid)) => {
                                 let new_victim = LivingGuid::Player(guid);
                                 melee_state.victim = Some(new_victim);
-                                send_new_attack_target(
-                                    character_id,
-                                    new_victim,
-                                    &mut self.characters,
-                                )
-                                .await;
+                                AttackTargetChange::Start(new_victim)
                             }
                             Some(SelectableGuid::Unit(guid)) => {
                                 let new_victim = LivingGuid::Unit(guid);
-                                melee_state.victim = Some(LivingGuid::Unit(guid));
-                                send_new_attack_target(
-                                    character_id,
-                                    new_victim,
-                                    &mut self.characters,
-                                )
-                                .await;
+                                melee_state.victim = Some(new_victim);
+                                AttackTargetChange::Start(new_victim)
                             }
-                            _ => {
-                                let Some(previous_victim) = melee_state.victim.take() else {
-                                    continue;
-                                };
+                            _ => AttackTargetChange::Stop(
+                                melee_state
+                                    .victim
+                                    .take()
+                                    .expect("active victim checked above"),
+                            ),
+                        };
+                        drop(character);
 
+                        match target_change {
+                            AttackTargetChange::Start(new_victim) => {
+                                send_new_attack_target(character_id, new_victim, &self.characters)
+                                    .await;
+                            }
+                            AttackTargetChange::Stop(previous_victim) => {
                                 let response = packets::server::SMSG_ATTACKSTOP {
                                     attacker: LivingGuid::Player(character_id).into(),
                                     victim: Some(previous_victim.into()),
@@ -443,7 +451,7 @@ impl Server {
                     }
                 }
                 PlayerUpdateData::SetTutorialFlag { flag } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -451,7 +459,7 @@ impl Server {
                         TutorialFlags::from_bits(character.tutorial_flags.into_bits() | 1 << flag);
                 }
                 PlayerUpdateData::ClearTutorials => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -459,27 +467,29 @@ impl Server {
                         TutorialFlags::from_bits((1 << TutorialFlags::COUNT) - 1);
                 }
                 PlayerUpdateData::ResetTutorials => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
                     character.tutorial_flags = TutorialFlags::new();
                 }
                 PlayerUpdateData::StartCombat { victim } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        continue;
-                    };
+                    {
+                        let Some(mut character) = self.characters.get_mut(&character_id) else {
+                            continue;
+                        };
 
-                    //TODO: need to check victim being targetable for combat, e.g. not dead, range checks
+                        //TODO: need to check victim being targetable for combat, e.g. not dead, range checks
 
-                    match &mut character.melee_state {
-                        Some(state) => state.victim = Some(victim),
-                        None => {
-                            character.melee_state = Some(MeleeState {
-                                victim: Some(victim),
-                                last_main_hand: None,
-                                last_off_hand: None,
-                            });
+                        match &mut character.melee_state {
+                            Some(state) => state.victim = Some(victim),
+                            None => {
+                                character.melee_state = Some(MeleeState {
+                                    victim: Some(victim),
+                                    last_main_hand: None,
+                                    last_off_hand: None,
+                                });
+                            }
                         }
                     }
 
@@ -494,14 +504,16 @@ impl Server {
                     .await;
                 }
                 PlayerUpdateData::StopCombat => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        continue;
-                    };
+                    let previous_victim = {
+                        let Some(mut character) = self.characters.get_mut(&character_id) else {
+                            continue;
+                        };
 
-                    let previous_victim = character
-                        .melee_state
-                        .as_mut()
-                        .and_then(|state| state.victim.take());
+                        character
+                            .melee_state
+                            .as_mut()
+                            .and_then(|state| state.victim.take())
+                    };
 
                     let response = packets::server::SMSG_ATTACKSTOP {
                         attacker: LivingGuid::Player(character_id).into(),
@@ -515,7 +527,7 @@ impl Server {
                     .await;
                 }
                 PlayerUpdateData::ChatMessage(message) => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(character) = self.characters.get(&character_id) else {
                         continue;
                     };
 
@@ -583,7 +595,7 @@ impl Server {
                     }
                 }
                 PlayerUpdateData::SetAFK { message } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -602,7 +614,7 @@ impl Server {
                     }
                 }
                 PlayerUpdateData::SetDND { message } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
 
@@ -621,7 +633,7 @@ impl Server {
                     }
                 }
                 PlayerUpdateData::RunCommand(command) => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(character) = self.characters.get(&character_id) else {
                         continue;
                     };
 
@@ -854,7 +866,7 @@ impl Server {
                         }
                     };
 
-                    let Some(character) = self.characters.get_mut(&character_id) else {
+                    let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
                     let item_update_blocks = match character
@@ -956,29 +968,31 @@ impl Server {
                     }
                 }
                 PlayerUpdateData::OpenGossip { source_guid } => {
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        return;
-                    };
-                    character.gossip_cursor = None;
-                    if !character.is_alive() {
-                        return;
+                    {
+                        let Some(mut character) = self.characters.get_mut(&character_id) else {
+                            return;
+                        };
+                        character.gossip_cursor = None;
+                        if !character.is_alive() {
+                            return;
+                        }
+
+                        let Some(creature) = self.creatures.get(&source_guid) else {
+                            return;
+                        };
+                        if !creature.is_alive() {
+                            return;
+                        }
+
+                        let Some(gossip_menu_root) = &creature.gossip_menu else {
+                            return;
+                        };
+
+                        character.gossip_cursor = Some(GossipCursor {
+                            source_guid,
+                            menu_id: gossip_menu_root.root_menu_id,
+                        });
                     }
-
-                    let Some(creature) = self.creatures.get(&source_guid) else {
-                        return;
-                    };
-                    if !creature.is_alive() {
-                        return;
-                    }
-
-                    let Some(gossip_menu_root) = &creature.gossip_menu else {
-                        return;
-                    };
-
-                    character.gossip_cursor = Some(GossipCursor {
-                        source_guid,
-                        menu_id: gossip_menu_root.root_menu_id,
-                    });
                     self.send_gossip_menu(character_id).await;
                 }
                 PlayerUpdateData::SelectGossipOption {
@@ -1026,13 +1040,15 @@ impl Server {
                         return;
                     }
 
-                    let Some(character) = self.characters.get_mut(&character_id) else {
-                        return;
-                    };
-                    character.gossip_cursor = Some(GossipCursor {
-                        source_guid,
-                        menu_id: next_menu_id,
-                    });
+                    {
+                        let Some(mut character) = self.characters.get_mut(&character_id) else {
+                            return;
+                        };
+                        character.gossip_cursor = Some(GossipCursor {
+                            source_guid,
+                            menu_id: next_menu_id,
+                        });
+                    }
                     self.send_gossip_menu(character_id).await;
                 }
             }

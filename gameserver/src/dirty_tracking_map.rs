@@ -39,6 +39,10 @@ where
         self.values.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn get(&self, key: &K) -> Option<&V> {
         self.values.get(key)
     }
@@ -54,6 +58,14 @@ where
 
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.values.iter()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.values.keys()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.values.values()
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
@@ -93,6 +105,19 @@ where
 
     pub fn take_dirty(&mut self) -> HashSet<K> {
         std::mem::take(&mut self.dirty_keys)
+    }
+}
+
+impl<'a, K, V> IntoIterator for &'a DirtyTrackingMap<K, V>
+where
+    K: Eq + Hash + Clone,
+    V: DirtyTrackable,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = std::collections::hash_map::Iter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.iter()
     }
 }
 

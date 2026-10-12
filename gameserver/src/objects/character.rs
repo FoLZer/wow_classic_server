@@ -7,6 +7,7 @@ use gameobjects::{
         PlayerFieldBytes1, PlayerFieldBytes2, PlayerFieldBytes3, PlayerFields, PlayerFlags,
         QuestLogFields, TutorialFlags, VisibleItemFields,
     },
+    tracked_field::ClientUpdatable,
     unit::{
         NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
         UnitFieldBytes2Flags, UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
@@ -21,6 +22,7 @@ use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
 use crate::{
+    dirty_tracking_map::DirtyTrackable,
     game_data::GameDataAccessor,
     objects::{
         creature::MeleeState,
@@ -54,6 +56,14 @@ pub struct Character {
 
     pub melee_state: Option<MeleeState>,
     pub gossip_cursor: Option<GossipCursor>,
+}
+
+impl DirtyTrackable for Character {
+    fn is_dirty(&self) -> bool {
+        self.object_fields.has_updates()
+            || self.unit_fields.has_updates()
+            || self.player_fields.has_updates()
+    }
 }
 
 pub enum InventoryOperation {

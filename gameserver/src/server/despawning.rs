@@ -34,7 +34,11 @@ impl Server {
     }
 
     async fn remove_creatures(&mut self, creatures: &[Guid<guid::Unit>], now: Instant) {
-        for character in self.characters.values_mut() {
+        let character_guids = self.characters.keys().copied().collect::<Vec<_>>();
+        for character_guid in character_guids {
+            let Some(mut character) = self.characters.get_mut(&character_guid) else {
+                continue;
+            };
             for guid in creatures {
                 character.visible_creatures.remove(guid);
             }

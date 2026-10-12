@@ -5,7 +5,6 @@ mod spawning;
 mod visibility;
 
 use std::{
-    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -39,7 +38,7 @@ pub struct Server {
 
     creature_spawners: SparseSet<CreatureSpawner>,
     creatures: DirtyTrackingMap<Guid<guid::Unit>, Creature>,
-    characters: HashMap<Guid<guid::Player>, Character>,
+    characters: DirtyTrackingMap<Guid<guid::Player>, Character>,
     creature_corpses: DirtyTrackingMap<Guid<guid::Unit>, CreatureCorpse>,
 
     unit_guid_allocator: GuidAllocator<guid::Unit>,
@@ -109,7 +108,7 @@ impl Server {
             creature_spawners,
 
             creatures,
-            characters: HashMap::new(),
+            characters: DirtyTrackingMap::default(),
             creature_corpses: DirtyTrackingMap::default(),
 
             unit_guid_allocator,
