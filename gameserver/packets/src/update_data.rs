@@ -22,6 +22,56 @@ impl<T: ByteOrder> OrderedWrite<T> for UpdateBlocks {
 
         Ok(())
     }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u32>()
+            + size_of::<u8>()
+            + self
+                .blocks
+                .iter()
+                .map(OrderedWrite::<T>::serialized_size)
+                .sum::<usize>()
+    }
+}
+
+impl UpdateBlocks {
+    pub fn into_sized_batches(self, max_serialized_size: usize) -> Vec<Self> {
+        const HEADER_SIZE: usize = size_of::<u32>() + size_of::<u8>();
+        assert!(max_serialized_size >= HEADER_SIZE);
+
+        let mut batches = Vec::new();
+        let mut batch = Vec::new();
+        let mut batch_size = HEADER_SIZE;
+
+        for block in self.blocks {
+            let serialized_size =
+                <UpdateData as OrderedWrite<LittleEndian>>::serialized_size(&block);
+            assert!(
+                HEADER_SIZE + serialized_size <= max_serialized_size,
+                "single update block exceeds the packet size limit"
+            );
+
+            if batch_size + serialized_size > max_serialized_size {
+                batches.push(Self {
+                    has_transport: self.has_transport,
+                    blocks: std::mem::take(&mut batch),
+                });
+                batch_size = HEADER_SIZE;
+            }
+
+            batch_size += serialized_size;
+            batch.push(block);
+        }
+
+        if !batch.is_empty() {
+            batches.push(Self {
+                has_transport: self.has_transport,
+                blocks: batch,
+            });
+        }
+
+        batches
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +169,40 @@ impl<T: ByteOrder> OrderedWrite<T> for UpdateData {
 
         Ok(())
     }
+
+    fn serialized_size(&self) -> usize {
+        let update_type_size = size_of::<u8>();
+        match self {
+            Self::UpdateObject { guid, values } => {
+                update_type_size
+                    + packed_guid_size(guid)
+                    + <ValuesUpdate as OrderedWrite<LittleEndian>>::serialized_size(values)
+            }
+            Self::Movement {} => todo!(),
+            Self::CreateObject {
+                guid,
+                movement,
+                values,
+            }
+            | Self::CreateNewObject {
+                guid,
+                movement,
+                values,
+            } => {
+                update_type_size
+                    + packed_guid_size(guid)
+                    + size_of::<u8>()
+                    + <MovementUpdate as OrderedWrite<LittleEndian>>::serialized_size(movement)
+                    + <ValuesUpdate as OrderedWrite<LittleEndian>>::serialized_size(values)
+            }
+            Self::OutOfRangeDestroyObject { guids }
+            | Self::ForceDestroyObject { guids } => {
+                update_type_size
+                    + size_of::<u32>()
+                    + guids.iter().map(packed_guid_size).sum::<usize>()
+            }
+        }
+    }
 }
 
 fn write_packed_guid(guid: &AnyGuid, writer: &mut Vec<u8>) -> Result<(), std::io::Error> {
@@ -138,6 +222,17 @@ fn write_packed_guid(guid: &AnyGuid, writer: &mut Vec<u8>) -> Result<(), std::io
         }
     }
     Ok(())
+}
+
+fn packed_guid_size(guid: &AnyGuid) -> usize {
+    size_of::<u8>()
+        + guid
+            .get()
+            .get()
+            .to_le_bytes()
+            .into_iter()
+            .filter(|byte| *byte != 0)
+            .count()
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +345,34 @@ impl<T: ByteOrder> OrderedWrite<T> for MovementUpdate {
 
         Ok(())
     }
+
+    fn serialized_size(&self) -> usize {
+        let mut size = size_of::<u8>();
+        if let Some(position) = &self.position {
+            size += match position {
+                PositionUpdate::Living { movement_info, .. } => {
+                    <MovementInfo as OrderedWrite<LittleEndian>>::serialized_size(movement_info)
+                        + size_of::<f32>() * 6
+                }
+                PositionUpdate::NonLiving { .. } => size_of::<f32>() * 4,
+            };
+        }
+        if self.high_guid.is_some() {
+            size += size_of::<u32>();
+        }
+        if self.is_update_all {
+            size += size_of::<u32>();
+        }
+        size += match &self.full_guid {
+            PossibleUpdate::Value(guid) => packed_guid_size(guid),
+            PossibleUpdate::Clear => size_of::<u8>(),
+            PossibleUpdate::NoUpdate => 0,
+        };
+        if self.transport_time_millis.is_some() {
+            size += size_of::<u32>();
+        }
+        size
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -299,5 +422,18 @@ impl<T: ByteOrder> OrderedWrite<T> for ValuesUpdate {
         }
 
         Ok(())
+    }
+
+    fn serialized_size(&self) -> usize {
+        let mask_blocks = self
+            .mask_blocks
+            .storage()
+            .iter()
+            .rposition(|block| *block != 0)
+            .map_or(0, |index| index + 1);
+
+        size_of::<u8>()
+            + mask_blocks * size_of::<u32>()
+            + self.values_blocks.len() * size_of::<u32>()
     }
 }

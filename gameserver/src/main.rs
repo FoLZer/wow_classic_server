@@ -260,6 +260,8 @@ async fn main() {
                     behind.as_secs_f64() / TICK_DURATION.as_secs_f64(),
                 );
             }
+
+            tokio::task::yield_now().await;
         } else {
             tokio::time::sleep(TICK_DURATION - update_took).await;
         }

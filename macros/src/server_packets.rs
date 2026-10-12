@@ -29,6 +29,16 @@ pub fn create_server_packets_impl(input: TokenStream) -> TokenStream {
             )
         });
 
+        let attrs_size = v.attrs.iter().map(|v| {
+            let name = &v.name;
+            let ty = &v.ty;
+            let endianness = &v.endianness;
+
+            quote!(
+                <#ty as OrderedWrite<#endianness>>::serialized_size(&self.#name)
+            )
+        });
+
         quote! {
             #[allow(unused)]
             pub struct #name {
@@ -40,11 +50,23 @@ pub fn create_server_packets_impl(input: TokenStream) -> TokenStream {
             impl ServerPacket for #name {
                 const PACKET_NAME: &str = stringify!(#name);
 
+                fn body_size(&self) -> usize {
+                    0 #(+ #attrs_size)*
+                }
+
                 fn to_bytes(&self, session_key: Option<[u8; 40]>, encrypt_data: &mut (usize, u8)) -> Vec<u8> {
                     let inner_buf = self.to_bytes_inner_body().unwrap();
                     let mut outer_buf = Vec::new();
-                    debug_assert!(inner_buf.len() <= u16::MAX as usize - 4);
-                    outer_buf.write_u16::<BigEndian>(inner_buf.len() as u16 + 2).unwrap();
+                    let packet_size = inner_buf.len().checked_add(size_of::<u16>())
+                        .filter(|size| *size <= MAX_SERVER_PACKET_SIZE)
+                        .expect("server packet body exceeds the protocol size limit");
+                    if packet_size > MAX_SHORT_SERVER_PACKET_SIZE {
+                        outer_buf.write_u8(((packet_size >> 16) as u8) | 0x80).unwrap();
+                        outer_buf.write_u8((packet_size >> 8) as u8).unwrap();
+                        outer_buf.write_u8(packet_size as u8).unwrap();
+                    } else {
+                        outer_buf.write_u16::<BigEndian>(packet_size as u16).unwrap();
+                    }
                     outer_buf.write_u16::<LittleEndian>(#opcode).unwrap();
                     if let Some(session_key) = session_key {
                         for b in &mut outer_buf {

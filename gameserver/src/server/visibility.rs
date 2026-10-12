@@ -6,7 +6,7 @@ use gameobjects::tracked_field::ClientUpdatable;
 use log::{error, warn};
 use packets::{
     movement_info::{MovementFlags, MovementInfo},
-    server::ServerPacket,
+    server::{MAX_SERVER_PACKET_BODY_SIZE, ServerPacket},
     update_data::{
         MovementUpdate, PositionUpdate, PossibleUpdate, UpdateBlocks, UpdateData, ValuesUpdate,
     },
@@ -63,6 +63,10 @@ impl Server {
                 if character.sees_player_including_self(*guid) {
                     blocks.push(block.clone());
                 }
+            }
+
+            if blocks.is_empty() {
+                continue;
             }
 
             let response = packets::server::SMSG_UPDATE_OBJECT {
@@ -166,7 +170,7 @@ impl Server {
             let mut new_visible_characters = Vec::new();
 
             for (guid, potentially_new_character) in &self.characters {
-                if !character.sees_player(*guid)
+                if !character.sees_player_including_self(*guid)
                     && self.is_character_visible(character, potentially_new_character)
                 {
                     new_visible_characters.push(*guid);
@@ -236,6 +240,10 @@ impl Server {
                         values_blocks,
                     },
                 });
+            }
+
+            if blocks.is_empty() {
+                continue;
             }
 
             let response = packets::server::SMSG_UPDATE_OBJECT {
@@ -329,28 +337,31 @@ impl Server {
                 continue;
             }
 
-            let response = packets::server::SMSG_UPDATE_OBJECT {
-                update_data: UpdateBlocks {
-                    has_transport: false,
-                    blocks,
-                },
-            };
+            let batches = UpdateBlocks {
+                has_transport: false,
+                blocks,
+            }
+            .into_sized_batches(MAX_SERVER_PACKET_BODY_SIZE);
 
             let mut lock = character.stream_tx.lock().await;
 
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
-            {
-                error!(
-                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                continue;
-            };
+            for update_data in batches {
+                let response = packets::server::SMSG_UPDATE_OBJECT { update_data };
+
+                if let Err(e) = lock
+                    .write_all(&response.to_bytes(
+                        Some(character.session_key),
+                        &mut *character.encrypt_data.lock().await,
+                    ))
+                    .await
+                {
+                    error!(
+                        "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                        character.account_id, e
+                    );
+                    break;
+                };
+            }
         }
     }
 
@@ -519,12 +530,11 @@ impl Server {
                 });
             }
 
-            let response = packets::server::SMSG_UPDATE_OBJECT {
-                update_data: UpdateBlocks {
-                    has_transport: false,
-                    blocks,
-                },
-            };
+            let batches = UpdateBlocks {
+                has_transport: false,
+                blocks,
+            }
+            .into_sized_batches(MAX_SERVER_PACKET_BODY_SIZE);
 
             let Some(character) = self.characters.get_mut(&guid) else {
                 // Not possible due to how this map got constructed above
@@ -533,19 +543,23 @@ impl Server {
 
             let mut lock = character.stream_tx.lock().await;
 
-            if let Err(e) = lock
-                .write_all(&response.to_bytes(
-                    Some(character.session_key),
-                    &mut *character.encrypt_data.lock().await,
-                ))
-                .await
-            {
-                error!(
-                    "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
-                    character.account_id, e
-                );
-                return;
-            };
+            for update_data in batches {
+                let response = packets::server::SMSG_UPDATE_OBJECT { update_data };
+
+                if let Err(e) = lock
+                    .write_all(&response.to_bytes(
+                        Some(character.session_key),
+                        &mut *character.encrypt_data.lock().await,
+                    ))
+                    .await
+                {
+                    error!(
+                        "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
+                        character.account_id, e
+                    );
+                    return;
+                };
+            }
 
             for guid in new_visible_creatures {
                 character.visible_creatures.insert(guid);

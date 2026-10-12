@@ -27,8 +27,13 @@ use crate::{
 
 pub trait ServerPacket {
     const PACKET_NAME: &str;
+    fn body_size(&self) -> usize;
     fn to_bytes(&self, session_key: Option<[u8; 40]>, encrypt_data: &mut (usize, u8)) -> Vec<u8>;
 }
+
+pub const MAX_SHORT_SERVER_PACKET_SIZE: usize = 0x7fff;
+pub const MAX_SERVER_PACKET_SIZE: usize = 0x7f_ffff;
+pub const MAX_SERVER_PACKET_BODY_SIZE: usize = MAX_SERVER_PACKET_SIZE - size_of::<u16>();
 
 create_server_packets!(
 SMSG_CHAR_CREATE 0x03A {
@@ -331,11 +336,24 @@ pub trait OrderedWrite<T: ByteOrder> {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()>
     where
         Self: Sized;
+
+    fn serialized_size(&self) -> usize
+    where
+        Self: Sized,
+    {
+        let mut serialized = Vec::new();
+        self.write(&mut serialized).unwrap();
+        serialized.len()
+    }
 }
 
 impl<T: ByteOrder> OrderedWrite<T> for u8 {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_u8(*self)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<Self>()
     }
 }
 
@@ -343,11 +361,19 @@ impl<T: ByteOrder> OrderedWrite<T> for u16 {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_u16::<T>(*self)
     }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<Self>()
+    }
 }
 
 impl<T: ByteOrder> OrderedWrite<T> for u32 {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_u32::<T>(*self)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<Self>()
     }
 }
 
@@ -355,11 +381,19 @@ impl<T: ByteOrder> OrderedWrite<T> for Option<NonZeroU32> {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_u32::<T>(self.map_or(0, |v| v.get()))
     }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u32>()
+    }
 }
 
 impl<T: ByteOrder> OrderedWrite<T> for f32 {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_f32::<T>(*self)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<Self>()
     }
 }
 
@@ -371,11 +405,19 @@ impl<B: ByteOrder, T: OrderedWrite<B>, const N: usize> OrderedWrite<B> for [T; N
 
         Ok(())
     }
+
+    fn serialized_size(&self) -> usize {
+        self.iter().map(OrderedWrite::<B>::serialized_size).sum()
+    }
 }
 
 impl<T: ByteOrder> OrderedWrite<T> for CString {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         writer.write_all(self.as_bytes_with_nul())
+    }
+
+    fn serialized_size(&self) -> usize {
+        self.as_bytes_with_nul().len()
     }
 }
 
@@ -385,6 +427,10 @@ impl<T: ByteOrder> OrderedWrite<T> for Option<CString> {
             Some(v) => v.as_bytes_with_nul(),
             None => &[b'\0'],
         })
+    }
+
+    fn serialized_size(&self) -> usize {
+        self.as_ref().map_or(1, |value| value.as_bytes_with_nul().len())
     }
 }
 
@@ -403,6 +449,14 @@ impl<B: ByteOrder, T: OrderedWrite<B>> OrderedWrite<B> for Vec<T> {
         }
         Ok(())
     }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u8>()
+            + self
+                .iter()
+                .map(OrderedWrite::<B>::serialized_size)
+                .sum::<usize>()
+    }
 }
 
 impl<T: ByteOrder, Tz: TimeZone> OrderedWrite<T> for DateTime<Tz> {
@@ -416,5 +470,9 @@ impl<T: ByteOrder, Tz: TimeZone> OrderedWrite<T> for DateTime<Tz> {
             | self.minute();
 
         writer.write_u32::<T>(v)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u32>()
     }
 }

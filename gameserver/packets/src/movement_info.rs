@@ -57,6 +57,23 @@ impl<T: ByteOrder> OrderedWrite<T> for MovementInfo {
 
         Ok(())
     }
+
+    fn serialized_size(&self) -> usize {
+        let mut size = size_of::<u32>() * 7;
+        if self.movement_flags.on_transport() {
+            size += size_of::<u64>() + size_of::<u32>() * 5;
+        }
+        if self.movement_flags.swimming() {
+            size += size_of::<f32>();
+        }
+        if self.movement_flags.falling() {
+            size += size_of::<f32>() * 4;
+        }
+        if self.movement_flags.spline_elevation() {
+            size += size_of::<f32>();
+        }
+        size
+    }
 }
 
 #[bitfield(u32)]
