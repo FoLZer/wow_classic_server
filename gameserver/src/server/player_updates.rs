@@ -50,6 +50,7 @@ impl Server {
                             continue;
                         }
 
+                        let mut lock = recipient.stream_tx.lock().await;
                         let response = match opcode {
                             MovementOpcode::StartForward => {
                                 packets::server::MSG_MOVE_START_FORWARD {
@@ -239,7 +240,6 @@ impl Server {
                             ),
                         };
 
-                        let mut lock = recipient.stream_tx.lock().await;
                         if let Err(e) = lock.write_all(&response).await {
                             warn!(
                                 "Failed to relay movement to client (character_id: {}). Error: {:?}",
