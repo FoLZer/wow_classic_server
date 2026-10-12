@@ -14,6 +14,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{Arc, atomic::AtomicBool},
+    time::{Duration, Instant},
 };
 
 use concurrent_queue::ConcurrentQueue;
@@ -77,6 +78,8 @@ impl Default for AppSettings {
 }
 
 const TICKRATE: u32 = 20; // Ticks per second
+const TICK_DURATION: Duration = Duration::from_millis(1000 / TICKRATE as u64);
+const LAG_WARNING_INTERVAL: Duration = Duration::from_secs(1);
 
 const CONFIG_FILE: &str = "gameserver_config.toml";
 
@@ -226,8 +229,6 @@ async fn main() {
         });
     }
 
-    let max_sleep_for_ms = (1000 / TICKRATE) as i64;
-
     let mut server = Server::new(
         world_transition_character_queue,
         game_data_accessor,
@@ -236,18 +237,31 @@ async fn main() {
     )
     .await
     .expect("failed to fetch all required data from database");
+    let mut last_lag_warning = None;
     loop {
         let new_game_time = chrono::Local::now();
         let diff = (new_game_time - server.game_time).abs();
         server.game_time = new_game_time;
 
+        let update_started = Instant::now();
         server.update(diff).await;
+        let update_took = update_started.elapsed();
 
-        let update_took = (chrono::Local::now() - server.game_time).num_milliseconds();
-        //println!("Update took {update_took} ms");
-        let left_to_sleep = max_sleep_for_ms - update_took;
-        if left_to_sleep > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(left_to_sleep as u64)).await;
+        if update_took > TICK_DURATION {
+            if last_lag_warning
+                .is_none_or(|last_warning: Instant| last_warning.elapsed() >= LAG_WARNING_INTERVAL)
+            {
+                let behind = update_took - TICK_DURATION;
+                last_lag_warning = Some(Instant::now());
+                warn!(
+                    "Can't keep up! Game tick took {:.2} ms, {:.2} ms ({:.2} ticks) behind",
+                    update_took.as_secs_f64() * 1000.0,
+                    behind.as_secs_f64() * 1000.0,
+                    behind.as_secs_f64() / TICK_DURATION.as_secs_f64(),
+                );
+            }
+        } else {
+            tokio::time::sleep(TICK_DURATION - update_took).await;
         }
     }
 }

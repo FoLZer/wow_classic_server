@@ -21,6 +21,8 @@ pub trait UpdateWritable {
 //TODO: At the moment mask_bits will be populated with leading zeros which shouldn't really happen
 //This is solvable by statically calculating indexes for each field but right now I'm not sure how to do this in a macro
 pub trait ClientUpdatable {
+    fn has_updates(&self) -> bool;
+
     fn clear_update_flags(&mut self);
 
     fn write_update_block(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>);
@@ -143,6 +145,10 @@ impl<'a, T: Hash> TrackedField<T> {
 }
 
 impl<T: UpdateWritable> TrackedWriteTrait for TrackedField<T> {
+    fn has_update(&self) -> bool {
+        self.is_updated()
+    }
+
     fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
         if self.is_updated {
             self.write_forced(mask_bits, values_buf);
@@ -169,6 +175,10 @@ impl<T: UpdateWritable> TrackedWriteTrait for TrackedField<T> {
 }
 
 impl<T: UpdateWritable, const N: usize> TrackedWriteTrait for [TrackedField<T>; N] {
+    fn has_update(&self) -> bool {
+        self.iter().any(TrackedField::is_updated)
+    }
+
     fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>) {
         for v in self {
             v.write(mask_bits, values_buf);
@@ -183,6 +193,7 @@ impl<T: UpdateWritable, const N: usize> TrackedWriteTrait for [TrackedField<T>; 
 }
 
 pub(crate) trait TrackedWriteTrait {
+    fn has_update(&self) -> bool;
     fn write(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>);
     fn write_forced(&self, mask_bits: &mut BitVec<u32>, values_buf: &mut Vec<u32>);
 }

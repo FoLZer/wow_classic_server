@@ -13,7 +13,7 @@ use std::{
 use chrono::{DateTime, Local, TimeDelta};
 use common::guid::{self, Guid};
 use concurrent_queue::ConcurrentQueue;
-use log::warn;
+use log::{info, warn};
 use packets::server::ServerPacket;
 use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
@@ -69,8 +69,19 @@ impl Server {
         let mut unit_guid_allocator = GuidAllocator::new();
         let mut creatures = HashMap::new();
 
-        let mut creature_spawners =
-            SparseSet::from_vec(game_data_accessor.load_creature_spawners().await?);
+        let now = Instant::now();
+
+        info!("Started server world loading.");
+
+        let creature_spawners = game_data_accessor.load_creature_spawners().await?;
+
+        info!(
+            "Creature spawners loaded in {} ms. Spawners loaded: {}",
+            now.elapsed().as_millis(),
+            creature_spawners.len(),
+        );
+
+        let mut creature_spawners = SparseSet::from_vec(creature_spawners);
 
         Self::do_initial_spawns(
             &mut creature_spawners,
@@ -79,6 +90,12 @@ impl Server {
             &mut creatures,
         )
         .await;
+
+        info!(
+            "World loading done in {} ms. Creatures created: {}",
+            now.elapsed().as_millis(),
+            creatures.len()
+        );
 
         Ok(Self {
             game_time: Local::now(),

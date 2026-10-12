@@ -12,6 +12,14 @@ pub struct ObjectFields<GuidType: guid::GuidType> {
 }
 
 impl<T: guid::GuidType> ClientUpdatable for ObjectFields<T> {
+    fn has_updates(&self) -> bool {
+        self.guid.is_updated()
+            || self.object_type.is_updated()
+            || self.entry.is_updated()
+            || self.scale_x.is_updated()
+            || self._padding.is_updated()
+    }
+
     fn clear_update_flags(&mut self) {
         self.guid.clear_update_flag();
         self.object_type.clear_update_flag();

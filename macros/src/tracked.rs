@@ -100,6 +100,12 @@ pub fn tracked_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #s
 
         impl crate::tracked_field::ClientUpdatable for #name {
+            fn has_updates(&self) -> bool {
+                false #(
+                    || crate::tracked_field::TrackedWriteTrait::has_update(&self.#field_names)
+                )*
+            }
+
             fn clear_update_flags(&mut self) {
                 #(
                     #clear_flags_stmts

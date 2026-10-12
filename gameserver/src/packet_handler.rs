@@ -793,30 +793,6 @@ pub async fn packet_handler(
                         _ => (),
                     };
 
-                    let language = match game_data_accessor
-                        .validate_language(packet.chat.lang)
-                        .await
-                    {
-                        Ok(Some(language)) => language,
-                        Ok(None) => {
-                            warn!(
-                                "Client (character_id: {}) sent CMSG_MESSAGECHAT with an invalid language: {}",
-                                character_id.get(),
-                                packet.chat.lang
-                            );
-                            continue;
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to query language due to a DB error (language: {}, requesting character_id: {}). Error: {}",
-                                packet.chat.lang,
-                                character_id.get(),
-                                e
-                            );
-                            continue;
-                        }
-                    };
-
                     let text = packet.chat.message;
 
                     if let Ok(text) = text.to_str()
@@ -825,8 +801,8 @@ pub async fn packet_handler(
                         match parse_command(text) {
                             Ok(command) => {
                                 if let Err(_) = player_update_queue.push(PlayerUpdate {
-                                    character_id,
-                                    data: PlayerUpdateData::RunCommand(command),
+                                        character_id,
+                                        data: PlayerUpdateData::RunCommand(command),
                                 }) {
                                     return;
                                 };
@@ -861,6 +837,30 @@ pub async fn packet_handler(
                             }
                         }
                     }
+
+                    let language = match game_data_accessor
+                        .validate_language(packet.chat.lang)
+                        .await
+                    {
+                        Ok(Some(language)) => language,
+                        Ok(None) => {
+                            warn!(
+                                "Client (character_id: {}) sent CMSG_MESSAGECHAT with an invalid language: {}",
+                                character_id.get(),
+                                packet.chat.lang
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to query language due to a DB error (language: {}, requesting character_id: {}). Error: {}",
+                                packet.chat.lang,
+                                character_id.get(),
+                                e
+                            );
+                            continue;
+                        }
+                    };
 
                     let message = match packet.chat.ty {
                         ChatType::Say => ChatMessage::Say { language, text },

@@ -274,6 +274,10 @@ impl Server {
 
     // Creatures
     pub(super) async fn send_creature_updates_to_players(&mut self) {
+        if self.characters.is_empty() {
+            return;
+        }
+
         let mut update_blocks = HashMap::new();
 
         let creature_fields = self
@@ -286,6 +290,10 @@ impl Server {
             .map(|v| (&mut v.object_fields, &mut v.unit_fields));
 
         for (object_fields, unit_fields) in creature_fields.chain(corpse_fields) {
+            if !object_fields.has_updates() && !unit_fields.has_updates() {
+                continue;
+            }
+
             let mut mask_blocks = BitVec::new();
             let mut values_blocks = Vec::new();
 
@@ -311,12 +319,14 @@ impl Server {
         }
 
         for character in self.characters.values_mut() {
-            let mut blocks = Vec::new();
+            let blocks = character
+                .visible_creatures
+                .iter()
+                .filter_map(|guid| update_blocks.get(guid).cloned())
+                .collect::<Vec<_>>();
 
-            for (guid, block) in &update_blocks {
-                if character.sees_creature(*guid) {
-                    blocks.push(block.clone());
-                }
+            if blocks.is_empty() {
+                continue;
             }
 
             let response = packets::server::SMSG_UPDATE_OBJECT {
@@ -339,7 +349,7 @@ impl Server {
                     "Failed to send SMSG_UPDATE_OBJECT to client (account_id: {}). Error: {:?}",
                     character.account_id, e
                 );
-                return;
+                continue;
             };
         }
     }
