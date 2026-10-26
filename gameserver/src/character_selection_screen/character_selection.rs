@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use common::guid::{self, Guid};
 use log::error;
-use packets::character_info::{Equipment, GearInfo};
+use packets::character_info::{CharacterFlags, Equipment, GearInfo};
 use sqlx::{Pool, Sqlite};
 
 pub struct CharacterSelection {
@@ -23,7 +23,7 @@ pub struct CharacterSelection {
     pub position_y: f32,
     pub position_z: f32,
     pub guild_id: Option<NonZeroU32>,
-    pub flags: u32,
+    pub flags: CharacterFlags,
     pub first_login: bool,
     pub equipment: EquipmentVisualItems,
 }
@@ -57,7 +57,7 @@ impl CharacterSelection {
                 position_y: model.position_y as f32,
                 position_z: model.position_z as f32,
                 guild_id: model.guild_id.map(|v| NonZeroU32::new(v as u32).unwrap()), // Same as above
-                flags: 0,                                                             // TODO
+                flags: CharacterFlags::new(),
                 first_login: model.first_login,
                 equipment: EquipmentVisualItems {
                     head: if let Some(id) = model.equipment_head_id {

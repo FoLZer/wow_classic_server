@@ -1,5 +1,6 @@
 use std::{ffi::CString, str::FromStr};
 
+use bitfield_struct::bitfield;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use common::guid::{self, Guid, GuidType};
 
@@ -24,7 +25,7 @@ pub struct CharacterInfo {
     pub position_y: f32,
     pub position_z: f32,
     pub guild_id: u32,
-    pub flags: u32,
+    pub flags: CharacterFlags,
     pub first_login: bool,
     pub pet_display_id: u32,
     pub pet_level: u32,
@@ -32,6 +33,22 @@ pub struct CharacterInfo {
     pub equipment: Equipment,
     pub first_bag_display_id: u32,
     pub first_bag_inventory_type: u8,
+}
+
+#[bitfield(u32)]
+pub struct CharacterFlags {
+    #[bits(2)]
+    _unkn: u8,
+    pub locked_for_transfer: bool,
+    #[bits(7)]
+    _unkn: u8,
+    pub hide_helm: bool,
+    pub hide_cloak: bool,
+    _unkn: bool,
+    pub ghost: bool,
+    pub locked_awaiting_rename: bool,
+    #[bits(17)]
+    _unkn: u32,
 }
 
 #[derive(Clone)]
@@ -82,7 +99,7 @@ impl<T: ByteOrder> OrderedWrite<T> for CharacterInfo {
         <f32 as OrderedWrite<LittleEndian>>::write(&self.position_y, writer)?;
         <f32 as OrderedWrite<LittleEndian>>::write(&self.position_z, writer)?;
         <u32 as OrderedWrite<LittleEndian>>::write(&self.guild_id, writer)?;
-        <u32 as OrderedWrite<LittleEndian>>::write(&self.flags, writer)?;
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.flags.0, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&(self.first_login as u8), writer)?;
         <u32 as OrderedWrite<LittleEndian>>::write(&self.pet_display_id, writer)?;
         <u32 as OrderedWrite<LittleEndian>>::write(&self.pet_level, writer)?;
