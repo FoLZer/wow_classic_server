@@ -41,6 +41,34 @@ INSERT INTO character_display_id(race, gender, display_id)
 VALUES(1, 0, 49);
 INSERT INTO character_display_id(race, gender, display_id)
 VALUES(1, 1, 50);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(2, 0, 51);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(2, 1, 52);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(3, 0, 53);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(3, 1, 54);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(4, 0, 55);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(4, 1, 56);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(5, 0, 57);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(5, 1, 58);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(6, 0, 59);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(6, 1, 60);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(7, 0, 1563);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(7, 1, 1564);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(8, 0, 1478);
+INSERT INTO character_display_id(race, gender, display_id)
+VALUES(8, 1, 1479);
 /* Character Display Ids END */
 /* Item Prototypes START */
 INSERT INTO item_prototype(
