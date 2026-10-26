@@ -419,6 +419,17 @@ impl GameDataAccessor {
         }
     }
 
+    pub async fn get_faction_for_race(&self, race: ValidRace) -> Result<Option<u32>, sqlx::Error> {
+        match sqlx::query_scalar!("SELECT faction FROM race_faction WHERE race = ?", race.0)
+            .fetch_one(&self.db)
+            .await
+        {
+            Ok(v) => Ok(Some(v as u32)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn get_item_prototype(&self, id: u32) -> Result<Option<ItemPrototype>, sqlx::Error> {
         match ItemPrototype::load_from_db(&self.db, id).await {
             Ok(v) => Ok(Some(v)),

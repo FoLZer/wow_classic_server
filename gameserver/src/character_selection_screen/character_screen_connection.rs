@@ -335,6 +335,31 @@ impl CharacterScreenConnection {
                             };
                             continue;
                         }
+                        Err(CharacterCreateError::FactionNotFound) => {
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_CREATE_ERROR,
+                            };
+
+                            warn!(
+                                "Client (account_id: {}) tried to create a character with a race without assigned faction (race {})",
+                                self.account_id, packet.race
+                            );
+
+                            if let Err(e) = self
+                                .stream
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
+                                .await
+                            {
+                                warn!(
+                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
+                                    self.account_id, e
+                                )
+                            };
+                            continue;
+                        }
                         Err(CharacterCreateError::Database(e)) => {
                             error!("Character creation failed due to a DB error. Error: {}", e);
                             let response = packets::server::SMSG_CHAR_CREATE {

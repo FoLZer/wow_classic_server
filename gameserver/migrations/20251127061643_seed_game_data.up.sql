@@ -435,7 +435,29 @@ INSERT INTO faction(id, name)
 VALUES(34, "Defias Brotherhood");
 INSERT INTO faction(id, name)
 VALUES(35, "Friendly");
+INSERT INTO faction(id, name)
+VALUES(115, "PLAYER, Gnome");
+INSERT INTO faction(id, name)
+VALUES(116, "PLAYER, Troll");
 /* Factions END */
+/* Race Factions START */
+INSERT INTO race_faction(race, faction)
+VALUES(1, 1);
+INSERT INTO race_faction(race, faction)
+VALUES(2, 2);
+INSERT INTO race_faction(race, faction)
+VALUES(3, 3);
+INSERT INTO race_faction(race, faction)
+VALUES(4, 4);
+INSERT INTO race_faction(race, faction)
+VALUES(5, 5);
+INSERT INTO race_faction(race, faction)
+VALUES(6, 6);
+INSERT INTO race_faction(race, faction)
+VALUES(7, 115);
+INSERT INTO race_faction(race, faction)
+VALUES(8, 116);
+/* Race Factions END */
 /* Creature Type START */
 INSERT INTO creature_type(id, name)
 VALUES(7, "Humanoid");

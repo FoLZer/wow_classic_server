@@ -14,6 +14,7 @@ use gameobjects::{
         VirtualItemInfo,
     },
 };
+use log::error;
 use packets::{
     inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
     update_data::UpdateData,
@@ -121,7 +122,9 @@ impl Character {
     ) -> Result<Self, (OwnedWriteHalf, sqlx::Error)> {
         let character_id = guid.get_u32();
         let model = match sqlx::query!(
-            "SELECT * FROM character WHERE id = ? AND account_id = ?",
+            "SELECT character.*, race_faction.faction FROM character
+            LEFT JOIN race_faction ON race_faction.race = character.race
+            WHERE id = ? AND account_id = ?",
             character_id,
             account_id
         )
@@ -130,6 +133,13 @@ impl Character {
         {
             Ok(v) => v,
             Err(e) => return Err((stream_tx, e)),
+        };
+        let Some(faction) = model.faction else {
+            error!(
+                "Tried to load a character whose race has no faction assigned! (character_id: {character_id}, race: {})",
+                model.race
+            );
+            return Err((stream_tx, sqlx::Error::RowNotFound));
         };
 
         let items = CharacterItems {
@@ -336,7 +346,7 @@ impl Character {
                 max_health: 500.into(),
                 max_powers: [0.into(); 5],
                 level: (model.level as u32).into(),
-                faction_template: 1.into(),
+                faction_template: (faction as u32).into(),
                 bytes_1: UnitFieldBytes1::new()
                     .with_race(model.race as u8)
                     .with_class(model.class as u8)
@@ -721,6 +731,12 @@ impl Character {
         {
             Ok(Some(v)) => v,
             Ok(None) => return Err(CharacterCreateError::DisplayIdNotFound),
+            Err(e) => return Err(CharacterCreateError::Database(e)),
+        };
+
+        match game_data_accessor.get_faction_for_race(race).await {
+            Ok(Some(_)) => (),
+            Ok(None) => return Err(CharacterCreateError::FactionNotFound),
             Err(e) => return Err(CharacterCreateError::Database(e)),
         };
 
@@ -1651,5 +1667,6 @@ pub enum CharacterCreateError {
     InvalidGender,
     InvalidRaceClassCombination,
     DisplayIdNotFound,
+    FactionNotFound,
     Database(sqlx::Error),
 }
