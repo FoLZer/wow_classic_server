@@ -167,4 +167,14 @@ impl GossipSourceGuid {
             Self::Unit(guid) => guid.get(),
         }
     }
+
+    pub fn try_from_u64(v: u64) -> Option<Self> {
+        let prefix = (v >> 48) as u16;
+
+        match prefix {
+            GameObject::PREFIX => Guid::<GameObject>::try_from_u64(v).map(Self::GameObject),
+            Unit::PREFIX => Guid::<Unit>::try_from_u64(v).map(Self::Unit),
+            _ => None,
+        }
+    }
 }

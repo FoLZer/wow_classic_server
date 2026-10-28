@@ -1,7 +1,7 @@
 use std::{ffi::CString, io::ErrorKind, sync::Arc};
 
 use chrono::Local;
-use common::guid::{self, Guid, LivingGuid, SelectableGuid};
+use common::guid::{self, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
 use gameobjects::{
     player::TutorialFlags,
@@ -13,7 +13,7 @@ use packets::{
     client::{ClientPacket, ParseError},
     gossip::NpcTextOption,
     movement_info::MovementInfo,
-    server::ServerPacket,
+    server::{QuestStatus, ServerPacket},
 };
 use sqlx::{Pool, Sqlite};
 use tokio::{
@@ -1057,6 +1057,37 @@ pub async fn packet_handler(
                     },
                 }) {
                     return;
+                };
+            }
+            ClientPacket::CMSG_QUESTGIVER_STATUS_QUERY(packet) => {
+                let Some(questgiver_guid) = GossipSourceGuid::try_from_u64(packet.guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_QUESTGIVER_STATUS_QUERY with an invalid questgiver guid: {}",
+                        character_id.get(),
+                        packet.guid
+                    );
+                    continue;
+                };
+
+                // TODO
+                let response = packets::server::SMSG_QUESTGIVER_STATUS {
+                    questgiver_guid,
+                    status: Some(QuestStatus::Available),
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_QUESTGIVER_STATUS to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
                 };
             }
             _ => {

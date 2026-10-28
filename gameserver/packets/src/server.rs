@@ -290,6 +290,10 @@ SMSG_NPC_TEXT_UPDATE 0x180 {
     text_id: u32: LittleEndian,
     options: [NpcTextOption; 8]: LittleEndian
 },
+SMSG_QUESTGIVER_STATUS 0x183 {
+    questgiver_guid: GossipSourceGuid: LittleEndian,
+    status: Option<QuestStatus>: LittleEndian
+},
 SMSG_LIST_INVENTORY 0x19F {
     source: Guid<guid::Unit>: LittleEndian,
     query_result: VendorQueryResult: LittleEndian,
@@ -471,6 +475,41 @@ impl<T: ByteOrder, Tz: TimeZone> OrderedWrite<T> for DateTime<Tz> {
             | self.minute();
 
         writer.write_u32::<T>(v)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u32>()
+    }
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy)]
+pub enum QuestStatus {
+    Unavailable = 1,
+    Chat = 2,
+    Incomplete = 3,
+    RewardRep = 4,
+    Available = 5,
+    Reward = 6,
+    Reward2 = 7,
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for QuestStatus {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        writer.write_u32::<T>(*self as u32)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u32>()
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for Option<QuestStatus> {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        match self {
+            Some(v) => <QuestStatus as OrderedWrite<T>>::write(v, writer),
+            None => writer.write_u32::<T>(0),
+        }
     }
 
     fn serialized_size(&self) -> usize {
