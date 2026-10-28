@@ -269,11 +269,11 @@ impl ItemPrototype {
         let owner = owner.map(|v| v.get_u32());
         let creator = creator.map(|v| v.get_u32());
         let gift_creator = gift_creator.map(|v| v.get_u32());
-        let spell1_charges = self.spells[0].map(|v| v.id);
-        let spell2_charges = self.spells[1].map(|v| v.id);
-        let spell3_charges = self.spells[2].map(|v| v.id);
-        let spell4_charges = self.spells[3].map(|v| v.id);
-        let spell5_charges = self.spells[4].map(|v| v.id);
+        let spell1_charges = self.spells[0].map(|v| v.charges as i32);
+        let spell2_charges = self.spells[1].map(|v| v.charges as i32);
+        let spell3_charges = self.spells[2].map(|v| v.charges as i32);
+        let spell4_charges = self.spells[3].map(|v| v.charges as i32);
+        let spell5_charges = self.spells[4].map(|v| v.charges as i32);
 
         let id = sqlx::query!(
             "INSERT INTO item(
