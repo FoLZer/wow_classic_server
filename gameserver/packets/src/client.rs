@@ -186,6 +186,9 @@ CMSG_NPC_TEXT_QUERY 0x17F {
 CMSG_QUESTGIVER_STATUS_QUERY 0x182 {
     guid: u64: LittleEndian
 },
+CMSG_QUESTGIVER_HELLO 0x184 {
+    guid: u64: LittleEndian
+},
 CMSG_LIST_INVENTORY 0x19E {
     guid: u64: LittleEndian
 },
@@ -236,6 +239,9 @@ CMSG_AUTH_SESSION 0x1ED {
     client_proof: [u8; 20]: LittleEndian,
     decompressed_addon_info_size: u32: LittleEndian,
     compressed_addon_info: EndDataVec: LittleEndian
+},
+MSG_TABARDVENDOR_ACTIVATE 0x1F2 {
+    npc_guid: u64: LittleEndian
 },
 CMSG_ZONEUPDATE 0x1F4 {
     new_zone: u32: LittleEndian

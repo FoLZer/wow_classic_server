@@ -11,9 +11,11 @@ use log::{error, warn};
 use packets::{
     chat_message::{ChatType, ServerChatMessage, ServerChatType},
     client::{ClientPacket, ParseError},
-    gossip::NpcTextOption,
+    gossip::{NpcTextOption, U32Counted},
     movement_info::MovementInfo,
     server::{QuestStatus, ServerPacket},
+    stabled_pets::StabledPets,
+    trainer_list::TrainerType,
 };
 use sqlx::{Pool, Sqlite};
 use tokio::{
@@ -1090,6 +1092,182 @@ pub async fn packet_handler(
                     )
                 };
             }
+            ClientPacket::CMSG_TRAINER_LIST(packet) => {
+                let Some(trainer_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_TRAINER_LIST with an invalid trainer guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                //TODO
+                let response = packets::server::SMSG_TRAINER_LIST {
+                    trainer_guid,
+                    trainer_type: TrainerType::Class,
+                    spells: U32Counted(vec![]),
+                    greeting: CString::new("TEST").unwrap(),
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_TRAINER_LIST to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
+            ClientPacket::CMSG_BANKER_ACTIVATE(packet) => {
+                let Some(npc_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_BANKER_ACTIVATE with an invalid npc guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                //TODO: range checks
+                let response = packets::server::SMSG_SHOW_BANK { npc_guid };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_SHOW_BANK to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
+            ClientPacket::MSG_TABARDVENDOR_ACTIVATE(packet) => {
+                let Some(npc_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent MSG_TABARDVENDOR_ACTIVATE with an invalid npc guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                //TODO: range checks
+                let response = packets::server::MSG_TABARDVENDOR_ACTIVATE { npc_guid };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send MSG_TABARDVENDOR_ACTIVATE to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
+            ClientPacket::MSG_AUCTION_HELLO(packet) => {
+                let Some(auctioneer_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid)
+                else {
+                    warn!(
+                        "Client (character_id: {}) sent MSG_AUCTION_HELLO with an invalid npc guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::OpenAuctionHouse { auctioneer_guid },
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::MSG_LIST_STABLED_PETS(packet) => {
+                let Some(stable_master_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid)
+                else {
+                    warn!(
+                        "Client (character_id: {}) sent MSG_LIST_STABLED_PETS with an invalid npc guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                //TODO
+                let response = packets::server::MSG_LIST_STABLED_PETS {
+                    stable_master_guid,
+                    stabled_pets: StabledPets {
+                        stable_slots: 0,
+                        pets: vec![],
+                    },
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send MSG_LIST_STABLED_PETS to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
+            ClientPacket::CMSG_BATTLEMASTER_HELLO(packet) => {
+                let Some(battlemaster_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid)
+                else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_BATTLEMASTER_HELLO with an invalid npc guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                //TODO
+                let response = packets::server::SMSG_BATTLEFIELD_LIST {
+                    battlemaster_guid,
+                    map_id: 489,
+                    bracket: 0,
+                    instance_ids: U32Counted(vec![]),
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_BATTLEFIELD_LIST to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
@@ -1159,6 +1337,9 @@ pub enum PlayerUpdateData {
     },
     ListVendorInventory {
         vendor_guid: Guid<guid::Unit>,
+    },
+    OpenAuctionHouse {
+        auctioneer_guid: Guid<guid::Unit>,
     },
     BuyVendorItem {
         vendor_guid: Guid<guid::Unit>,

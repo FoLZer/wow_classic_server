@@ -11,5 +11,7 @@ pub mod item_info;
 pub mod movement_info;
 pub mod packed;
 pub mod server;
+pub mod stabled_pets;
+pub mod trainer_list;
 pub mod update_data;
 pub mod vendor_query;

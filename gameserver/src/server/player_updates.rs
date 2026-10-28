@@ -749,6 +749,72 @@ impl Server {
                     })
                     .await;
                 }
+                PlayerUpdateData::OpenAuctionHouse { auctioneer_guid } => {
+                    let Some(character) = self.characters.get(&character_id) else {
+                        continue;
+                    };
+                    if !character.is_alive() || !character.sees_creature(auctioneer_guid) {
+                        continue;
+                    }
+
+                    let Some(auctioneer) = self.creatures.get(&auctioneer_guid) else {
+                        continue;
+                    };
+                    if !auctioneer.is_alive()
+                        || !auctioneer.unit_fields.npc_flags.get().auctioneer()
+                    {
+                        continue;
+                    }
+
+                    // TODO: check distance
+                    let faction = *auctioneer.unit_fields.faction_template.get();
+                    let auction_house_id = match self
+                        .game_data_accessor
+                        .get_auction_house_for_faction(faction)
+                        .await
+                    {
+                        Ok(Some(id)) => id,
+                        Ok(None) => {
+                            warn!(
+                                "Auctioneer {} has faction {} with no auction house assigned to it",
+                                auctioneer_guid.get(),
+                                faction
+                            );
+                            continue;
+                        }
+                        Err(error) => {
+                            error!(
+                                "Failed to load the auction house for faction {} (character_id: {}). Error: {}",
+                                faction,
+                                character_id.get(),
+                                error
+                            );
+                            continue;
+                        }
+                    };
+
+                    let Some(character) = self.characters.get(&character_id) else {
+                        continue;
+                    };
+                    let response = packets::server::MSG_AUCTION_HELLO {
+                        auctioneer_guid,
+                        auction_house_id,
+                    };
+                    let mut lock = character.stream_tx.lock().await;
+                    if let Err(error) = lock
+                        .write_all(&response.to_bytes(
+                            Some(character.session_key),
+                            &mut *character.encrypt_data.lock().await,
+                        ))
+                        .await
+                    {
+                        warn!(
+                            "Failed to send MSG_AUCTION_HELLO to client (character_id: {}). Error: {:?}",
+                            character_id.get(),
+                            error
+                        );
+                    }
+                }
                 PlayerUpdateData::BuyVendorItem {
                     vendor_guid,
                     item_id,

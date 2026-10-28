@@ -390,7 +390,7 @@ impl Character<Loaded> {
                 bounding_radius: 4.into(),
                 combat_reach: 1.5.into(),
                 display_id: (model.display_id as u32).into(),
-                native_display_id: 0.into(),
+                native_display_id: (model.display_id as u32).into(),
                 mount_display_id: 0.into(),
                 min_damage: 70.into(),
                 max_damage: 80.into(),

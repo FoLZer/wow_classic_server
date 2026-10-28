@@ -430,6 +430,23 @@ impl GameDataAccessor {
         }
     }
 
+    pub async fn get_auction_house_for_faction(
+        &self,
+        faction: u32,
+    ) -> Result<Option<u32>, sqlx::Error> {
+        match sqlx::query_scalar!(
+            "SELECT auction_house FROM faction_auction_house WHERE faction = ?",
+            faction
+        )
+        .fetch_one(&self.db)
+        .await
+        {
+            Ok(v) => Ok(Some(v as u32)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn get_item_prototype(&self, id: u32) -> Result<Option<ItemPrototype>, sqlx::Error> {
         match ItemPrototype::load_from_db(&self.db, id).await {
             Ok(v) => Ok(Some(v)),

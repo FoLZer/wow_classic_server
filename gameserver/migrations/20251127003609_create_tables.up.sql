@@ -206,6 +206,15 @@ CREATE TABLE IF NOT EXISTS race_faction(
     faction TINYINT NOT NULL REFERENCES faction
 );
 /* Unchangeable for now: requires patching .dbc */
+CREATE TABLE IF NOT EXISTS auction_house(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS faction_auction_house(
+    faction INTEGER PRIMARY KEY NOT NULL REFERENCES faction,
+    auction_house INT NOT NULL REFERENCES auction_house
+);
+/* Unchangeable for now: requires patching .dbc */
 CREATE TABLE IF NOT EXISTS creature_type(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     name TEXT NOT NULL

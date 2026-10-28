@@ -21,6 +21,8 @@ use crate::{
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
     movement_info::MovementInfo,
     packed::Packed,
+    stabled_pets::StabledPets,
+    trainer_list::{TrainerSpell, TrainerType},
     update_data::UpdateBlocks,
     vendor_query::VendorQueryResult,
 };
@@ -309,6 +311,15 @@ SMSG_BUY_FAILED 0x1A5 {
     item_id: u32: LittleEndian,
     reason: u8: LittleEndian,
 },
+SMSG_TRAINER_LIST 0x1B1 {
+    trainer_guid: Guid<guid::Unit>: LittleEndian,
+    trainer_type: TrainerType: LittleEndian,
+    spells: U32Counted<TrainerSpell>: LittleEndian,
+    greeting: CString: LittleEndian,
+},
+SMSG_SHOW_BANK 0x1B8 {
+    npc_guid: Guid<guid::Unit>: LittleEndian
+},
 SMSG_QUERY_TIME_RESPONSE 0x1CF {
     time: DateTime<Local>: LittleEndian
 },
@@ -320,6 +331,9 @@ SMSG_AUTH_CHALLENGE 0x1EC {
 },
 SMSG_AUTH_RESPONSE 0x1EE {
     result: AccountResult: LittleEndian,
+},
+MSG_TABARDVENDOR_ACTIVATE 0x1F2 {
+    npc_guid: Guid<guid::Unit>: LittleEndian
 },
 SMSG_ACCOUNT_DATA_TIMES 0x209 {
     unkn: [u32; 32]: LittleEndian
@@ -333,6 +347,20 @@ SMSG_LOGIN_VERIFY_WORLD 0x236 {
     position_y: f32: LittleEndian,
     position_z: f32: LittleEndian,
     orientation: f32: LittleEndian,
+},
+SMSG_BATTLEFIELD_LIST 0x23D {
+    battlemaster_guid: Guid<guid::Unit>: LittleEndian,
+    map_id: u32: LittleEndian,
+    bracket: u8: LittleEndian,
+    instance_ids: U32Counted<u32>: LittleEndian,
+},
+MSG_AUCTION_HELLO 0x255 {
+    auctioneer_guid: Guid<guid::Unit>: LittleEndian,
+    auction_house_id: u32: LittleEndian,
+},
+MSG_LIST_STABLED_PETS 0x26F {
+    stable_master_guid: Guid<guid::Unit>: LittleEndian,
+    stabled_pets: StabledPets: LittleEndian,
 },
 );
 

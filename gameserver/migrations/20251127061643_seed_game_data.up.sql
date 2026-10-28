@@ -526,9 +526,25 @@ VALUES(34, "Defias Brotherhood");
 INSERT INTO faction(id, name)
 VALUES(35, "Friendly");
 INSERT INTO faction(id, name)
+VALUES(55, "Ironforge");
+INSERT INTO faction(id, name)
+VALUES(68, "Undercity");
+INSERT INTO faction(id, name)
+VALUES(80, "Darnassus");
+INSERT INTO faction(id, name)
+VALUES(104, "Thunder Bluff");
+INSERT INTO faction(id, name)
 VALUES(115, "PLAYER, Gnome");
 INSERT INTO faction(id, name)
 VALUES(116, "PLAYER, Troll");
+INSERT INTO faction(id, name)
+VALUES(120, "Booty Bay");
+INSERT INTO faction(id, name)
+VALUES(474, "Gadgetzan");
+INSERT INTO faction(id, name)
+VALUES(534, "Alliance Generic");
+INSERT INTO faction(id, name)
+VALUES(855, "Everlook");
 /* Factions END */
 /* Race Factions START */
 INSERT INTO race_faction(race, faction)
@@ -548,6 +564,44 @@ VALUES(7, 115);
 INSERT INTO race_faction(race, faction)
 VALUES(8, 116);
 /* Race Factions END */
+/* Auction Houses START */
+INSERT INTO auction_house(id, name)
+VALUES(1, "Stormwind Auction House");
+INSERT INTO auction_house(id, name)
+VALUES(2, "Alliance Auction House");
+INSERT INTO auction_house(id, name)
+VALUES(3, "Darnassus Auction House");
+INSERT INTO auction_house(id, name)
+VALUES(4, "Undercity Auction House");
+INSERT INTO auction_house(id, name)
+VALUES(5, "Thunder Bluff Auction House");
+INSERT INTO auction_house(id, name)
+VALUES(6, "Horde Auction House");
+INSERT INTO auction_house(id, name)
+VALUES(7, "Blackwater Auction House");
+/* Auction Houses END */
+/* Faction Auction Houses START */
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(12, 1);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(29, 6);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(55, 2);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(68, 4);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(80, 3);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(104, 5);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(120, 7);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(474, 7);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(534, 2);
+INSERT INTO faction_auction_house(faction, auction_house)
+VALUES(855, 7);
+/* Faction Auction Houses END */
 /* Creature Type START */
 INSERT INTO creature_type(id, name)
 VALUES(7, "Humanoid");
