@@ -16,13 +16,12 @@ pub struct ItemFields {
     pub expires_in: Option<NonZeroU32>,
     pub spell_charges: [u32; 5],
     pub flags: ItemFlags,
-    pub enchantments: [ItemEnchantment; 9],
+    pub enchantments: [ItemEnchantment; 7],
     pub property_seed: u32,
     pub random_properties_id: u32,
     pub item_text_id: u32,
     pub durability: u32,
     pub max_durability: u32,
-    pub _padding: u32,
 }
 
 #[bitfield(u32)]

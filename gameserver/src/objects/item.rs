@@ -8,7 +8,7 @@ use gameobjects::{
 };
 use log::error;
 use packets::update_data::{MovementUpdate, PossibleUpdate, UpdateData, ValuesUpdate};
-use sqlx::{Pool, Sqlite};
+use sqlx::SqliteExecutor;
 
 use crate::{game_data::GameDataAccessor, objects::item_prototype::ItemPrototype};
 
@@ -20,7 +20,7 @@ pub struct Item {
 impl Item {
     pub async fn load_from_db(
         game_data_accessor: &GameDataAccessor,
-        db: &Pool<Sqlite>,
+        db: impl SqliteExecutor<'_>,
         id: u32,
     ) -> Result<Option<Self>, sqlx::Error> {
         let model = match sqlx::query!("SELECT * FROM item WHERE id = ?", id)
@@ -131,25 +131,12 @@ impl Item {
                         charges: model.enchantment7_charges as u32,
                     }
                     .into(),
-                    gameobjects::item::ItemEnchantment {
-                        id: model.enchantment8_id as u32,
-                        duration: model.enchantment8_duration as u32,
-                        charges: model.enchantment8_charges as u32,
-                    }
-                    .into(),
-                    gameobjects::item::ItemEnchantment {
-                        id: model.enchantment9_id as u32,
-                        duration: model.enchantment9_duration as u32,
-                        charges: model.enchantment9_charges as u32,
-                    }
-                    .into(),
                 ],
                 property_seed: 0.into(),
                 random_properties_id: (model.random_properties_id as u32).into(),
                 item_text_id: (model.item_text_id as u32).into(),
                 durability: (model.durability as u32).into(),
                 max_durability: prototype.max_durability.into(),
-                _padding: 0.into(),
             },
         }))
     }

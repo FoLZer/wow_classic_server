@@ -19,7 +19,7 @@ use packets::{
     inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
     update_data::UpdateData,
 };
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Sqlite, SqliteExecutor};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
 use crate::{
@@ -162,6 +162,45 @@ impl Character<Loaded> {
             );
             return Err((stream_tx, sqlx::Error::RowNotFound));
         };
+
+        let mut bags = [const { None }; 4];
+        let bag_ids = [model.bag1_id, model.bag2_id, model.bag3_id, model.bag4_id];
+        for (slot, id) in bags.iter_mut().zip(bag_ids) {
+            if let Some(id) = id {
+                *slot = match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                    Ok(v) => v,
+                    Err(e) => return Err((stream_tx, e)),
+                };
+            }
+        }
+
+        let mut main_backpack = [const { None }; 16];
+        let backpack_ids = [
+            model.backpack1_id,
+            model.backpack2_id,
+            model.backpack3_id,
+            model.backpack4_id,
+            model.backpack5_id,
+            model.backpack6_id,
+            model.backpack7_id,
+            model.backpack8_id,
+            model.backpack9_id,
+            model.backpack10_id,
+            model.backpack11_id,
+            model.backpack12_id,
+            model.backpack13_id,
+            model.backpack14_id,
+            model.backpack15_id,
+            model.backpack16_id,
+        ];
+        for (slot, id) in main_backpack.iter_mut().zip(backpack_ids) {
+            if let Some(id) = id {
+                *slot = match Item::load_from_db(game_data_accessor, db, id as u32).await {
+                    Ok(v) => v,
+                    Err(e) => return Err((stream_tx, e)),
+                };
+            }
+        }
 
         let items = CharacterItems {
             equipment: EquipmentItems {
@@ -318,8 +357,8 @@ impl Character<Loaded> {
                     None
                 },
             },
-            bags: [const { None }; 4],
-            main_backpack: [const { None }; 16],
+            bags,
+            main_backpack,
             bank: [const { None }; 28],
             bank_bags: [const { None }; 7],
             vendor_buyback: [const { None }; 12],
@@ -645,8 +684,14 @@ impl Character<Loaded> {
                         .map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
                         .into(),
                 ],
-                bag_slots: [None.into(); 4],
-                main_backpack_slots: [None.into(); 16],
+                bag_slots: bag_ids.map(|id| {
+                    id.map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into()
+                }),
+                main_backpack_slots: backpack_ids.map(|id| {
+                    id.map(|v| Guid::from_u32(NonZeroU32::new(v as u32).unwrap()))
+                        .into()
+                }),
                 bank_slots: [None.into(); 28],
                 bank_bag_slots: [None.into(); 7],
                 vendor_buyback_slots: [None.into(); 12],
@@ -800,10 +845,15 @@ impl Character {
             Err(e) => return Err(CharacterCreateError::Database(e)),
         };
 
+        let mut tx = db
+            .begin()
+            .await
+            .map_err(|e| CharacterCreateError::Database(e))?;
+
         let equipment_head_id = if let Some(proto) = start_char_info.start_equipment.head {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -813,7 +863,7 @@ impl Character {
         let equipment_neck_id = if let Some(proto) = start_char_info.start_equipment.neck {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -824,7 +874,7 @@ impl Character {
         {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -834,7 +884,7 @@ impl Character {
         let equipment_body_id = if let Some(proto) = start_char_info.start_equipment.body {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -844,7 +894,7 @@ impl Character {
         let equipment_chest_id = if let Some(proto) = start_char_info.start_equipment.chest {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -854,7 +904,7 @@ impl Character {
         let equipment_waist_id = if let Some(proto) = start_char_info.start_equipment.waist {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -864,7 +914,7 @@ impl Character {
         let equipment_legs_id = if let Some(proto) = start_char_info.start_equipment.legs {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -874,7 +924,7 @@ impl Character {
         let equipment_feet_id = if let Some(proto) = start_char_info.start_equipment.feet {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -884,7 +934,7 @@ impl Character {
         let equipment_wrists_id = if let Some(proto) = start_char_info.start_equipment.wrists {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -894,7 +944,7 @@ impl Character {
         let equipment_hands_id = if let Some(proto) = start_char_info.start_equipment.hands {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -904,7 +954,7 @@ impl Character {
         let equipment_finger1_id = if let Some(proto) = start_char_info.start_equipment.finger1 {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -914,7 +964,7 @@ impl Character {
         let equipment_finger2_id = if let Some(proto) = start_char_info.start_equipment.finger2 {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -924,7 +974,7 @@ impl Character {
         let equipment_trinket1_id = if let Some(proto) = start_char_info.start_equipment.trinket1 {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -934,7 +984,7 @@ impl Character {
         let equipment_trinket2_id = if let Some(proto) = start_char_info.start_equipment.trinket2 {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -944,7 +994,7 @@ impl Character {
         let equipment_back_id = if let Some(proto) = start_char_info.start_equipment.back {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -954,7 +1004,7 @@ impl Character {
         let equipment_mainhand_id = if let Some(proto) = start_char_info.start_equipment.mainhand {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -964,7 +1014,7 @@ impl Character {
         let equipment_offhand_id = if let Some(proto) = start_char_info.start_equipment.offhand {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -974,7 +1024,7 @@ impl Character {
         let equipment_ranged_id = if let Some(proto) = start_char_info.start_equipment.ranged {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -984,7 +1034,7 @@ impl Character {
         let equipment_tabard_id = if let Some(proto) = start_char_info.start_equipment.tabard {
             Some(
                 proto
-                    .create_item(db, None, None, None, proto.max_count)
+                    .create_item(&mut *tx, None, None, None, proto.max_count)
                     .await
                     .map_err(|e| CharacterCreateError::Database(e))?,
             )
@@ -1048,9 +1098,13 @@ impl Character {
             equipment_ranged_id,
             equipment_tabard_id
         )
-        .execute(db)
+        .execute(&mut *tx)
         .await
         .map_err(|e| CharacterCreateError::Database(e))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| CharacterCreateError::Database(e))?;
 
         Ok(())
     }
@@ -1073,6 +1127,80 @@ impl Character {
             .get(slot)
             .as_ref()
             .map(|item| *item.object_fields.guid.get())
+    }
+
+    async fn save_inventory(&self, db: impl SqliteExecutor<'_>) -> Result<(), sqlx::Error> {
+        use EquipmentSlot::*;
+
+        let item_id = |slot| self.item_guid(slot).map(|guid| guid.get_u32().get());
+        let equipment = |slot| item_id(Slot::Equipment(slot));
+        let bag = |slot| item_id(Slot::BagItem(slot));
+        let backpack = |slot| item_id(Slot::MainBag(slot));
+
+        let result = sqlx::query!(
+            "UPDATE character SET
+                equipment_head_id = ?, equipment_neck_id = ?, equipment_shoulders_id = ?,
+                equipment_body_id = ?, equipment_chest_id = ?, equipment_waist_id = ?,
+                equipment_legs_id = ?, equipment_feet_id = ?, equipment_wrists_id = ?,
+                equipment_hands_id = ?, equipment_finger1_id = ?, equipment_finger2_id = ?,
+                equipment_trinket1_id = ?, equipment_trinket2_id = ?, equipment_back_id = ?,
+                equipment_mainhand_id = ?, equipment_offhand_id = ?, equipment_ranged_id = ?,
+                equipment_tabard_id = ?,
+                bag1_id = ?, bag2_id = ?, bag3_id = ?, bag4_id = ?,
+                backpack1_id = ?, backpack2_id = ?, backpack3_id = ?, backpack4_id = ?,
+                backpack5_id = ?, backpack6_id = ?, backpack7_id = ?, backpack8_id = ?,
+                backpack9_id = ?, backpack10_id = ?, backpack11_id = ?, backpack12_id = ?,
+                backpack13_id = ?, backpack14_id = ?, backpack15_id = ?, backpack16_id = ?
+            WHERE id = ?",
+            equipment(Head),
+            equipment(Neck),
+            equipment(Shoulders),
+            equipment(Body),
+            equipment(Chest),
+            equipment(Waist),
+            equipment(Legs),
+            equipment(Feet),
+            equipment(Wrists),
+            equipment(Hands),
+            equipment(Finger1),
+            equipment(Finger2),
+            equipment(Trinket1),
+            equipment(Trinket2),
+            equipment(Back),
+            equipment(MainHand),
+            equipment(OffHand),
+            equipment(Ranged),
+            equipment(Tabard),
+            bag(0),
+            bag(1),
+            bag(2),
+            bag(3),
+            backpack(0),
+            backpack(1),
+            backpack(2),
+            backpack(3),
+            backpack(4),
+            backpack(5),
+            backpack(6),
+            backpack(7),
+            backpack(8),
+            backpack(9),
+            backpack(10),
+            backpack(11),
+            backpack(12),
+            backpack(13),
+            backpack(14),
+            backpack(15),
+            self.guid().get_u32().get()
+        )
+        .execute(db)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        Ok(())
     }
 
     fn free_backpack_slots(
@@ -1124,6 +1252,7 @@ impl Character {
     pub async fn swap_items(
         &mut self,
         game_data_accessor: &GameDataAccessor,
+        db: &Pool<Sqlite>,
         src: Slot,
         dst: Slot,
     ) -> Result<(), MoveItemError> {
@@ -1232,12 +1361,21 @@ impl Character {
             self.move_item(Slot::Equipment(EquipmentSlot::OffHand), free_slot);
         }
 
+        if let Err(e) = self.save_inventory(db).await {
+            if let Some(free_slot) = displaced_off_hand {
+                self.move_item(free_slot, Slot::Equipment(EquipmentSlot::OffHand));
+            }
+            self.swap_slots(src, dst);
+            return Err(e.into());
+        }
+
         Ok(())
     }
 
     pub async fn auto_equip_item(
         &mut self,
         game_data_accessor: &GameDataAccessor,
+        db: &Pool<Sqlite>,
         src: Slot,
     ) -> Result<(), MoveItemError> {
         let Some(item) = self.items.get(src) else {
@@ -1263,12 +1401,13 @@ impl Character {
             ));
         };
 
-        self.swap_items(game_data_accessor, src, dst).await
+        self.swap_items(game_data_accessor, db, src, dst).await
     }
 
     pub async fn store_item_in_backpack(
         &mut self,
         game_data_accessor: &GameDataAccessor,
+        db: &Pool<Sqlite>,
         src: Slot,
     ) -> Result<(), MoveItemError> {
         if self.items.get(src).is_none() {
@@ -1287,7 +1426,7 @@ impl Character {
             return Err(self.inventory_error(InventoryChangeErrorType::BagFull, Some(src), None));
         };
 
-        self.swap_items(game_data_accessor, src, dst).await
+        self.swap_items(game_data_accessor, db, src, dst).await
     }
 
     pub async fn store_new_item_in_backpack(
@@ -1337,12 +1476,15 @@ impl Character {
             slots
         };
 
+        let mut tx = db.begin().await?;
+
         let mut items = Vec::with_capacity(slots.len());
         for stack_count in stack_counts {
             let item_id = prototype
-                .create_item(db, Some(self.guid()), None, None, stack_count)
+                .create_item(&mut *tx, Some(self.guid()), None, None, stack_count)
                 .await?;
-            let Some(item) = Item::load_from_db(game_data_accessor, db, item_id).await? else {
+            let Some(item) = Item::load_from_db(game_data_accessor, &mut *tx, item_id).await?
+            else {
                 return Err(self.inventory_error(
                     InventoryChangeErrorType::ItemNotFound,
                     None,
@@ -1353,9 +1495,21 @@ impl Character {
         }
 
         let mut update_blocks = Vec::with_capacity(items.len());
-        for (slot, item) in slots.into_iter().zip(items) {
+        for (&slot, item) in slots.iter().zip(items) {
             update_blocks.push(item.build_create_update_block());
             self.insert_item(slot, item);
+        }
+
+        let saved = match self.save_inventory(&mut *tx).await {
+            Ok(()) => tx.commit().await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = saved {
+            for slot in slots {
+                self.items.get_mut(slot).take();
+                self.update_slot_fields(slot);
+            }
+            return Err(e.into());
         }
 
         Ok(update_blocks)

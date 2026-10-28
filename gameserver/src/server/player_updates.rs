@@ -261,17 +261,17 @@ impl Server {
                     let result = match operation {
                         InventoryOperation::Swap { src, dst } => {
                             character
-                                .swap_items(&self.game_data_accessor, src, dst)
+                                .swap_items(&self.game_data_accessor, &self.db, src, dst)
                                 .await
                         }
                         InventoryOperation::AutoEquip { src } => {
                             character
-                                .auto_equip_item(&self.game_data_accessor, src)
+                                .auto_equip_item(&self.game_data_accessor, &self.db, src)
                                 .await
                         }
                         InventoryOperation::StoreInBackpack { src } => {
                             character
-                                .store_item_in_backpack(&self.game_data_accessor, src)
+                                .store_item_in_backpack(&self.game_data_accessor, &self.db, src)
                                 .await
                         }
                     };

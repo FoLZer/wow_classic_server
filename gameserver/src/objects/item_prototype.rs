@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use common::guid::{self, Guid};
 use packets::item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat};
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Sqlite, SqliteExecutor};
 
 #[derive(Debug)]
 pub struct ItemPrototype {
@@ -260,7 +260,7 @@ impl ItemPrototype {
 
     pub async fn create_item(
         &self,
-        db: &Pool<Sqlite>,
+        db: impl SqliteExecutor<'_>,
         owner: Option<Guid<guid::Player>>,
         creator: Option<Guid<guid::Player>>,
         gift_creator: Option<Guid<guid::Player>>,
@@ -287,11 +287,9 @@ impl ItemPrototype {
                 enchantment4_id, enchantment4_duration, enchantment4_charges,
                 enchantment5_id, enchantment5_duration, enchantment5_charges,
                 enchantment6_id, enchantment6_duration, enchantment6_charges,
-                enchantment7_id, enchantment7_duration, enchantment7_charges,
-                enchantment8_id, enchantment8_duration, enchantment8_charges,
-                enchantment9_id, enchantment9_duration, enchantment9_charges
+                enchantment7_id, enchantment7_duration, enchantment7_charges
             )
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             self.item_id,
             owner,
             creator,
@@ -310,8 +308,6 @@ impl ItemPrototype {
             0, //TODO: random_properties_id
             0, //TODO: item_text_id
             self.max_durability,
-            0, 0, 0,
-            0, 0, 0,
             0, 0, 0,
             0, 0, 0,
             0, 0, 0,

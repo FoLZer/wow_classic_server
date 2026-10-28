@@ -292,13 +292,7 @@ CREATE TABLE IF NOT EXISTS item(
     enchantment6_charges INTEGER NOT NULL,
     enchantment7_id INTEGER NOT NULL,
     enchantment7_duration INTEGER NOT NULL,
-    enchantment7_charges INTEGER NOT NULL,
-    enchantment8_id INTEGER NOT NULL,
-    enchantment8_duration INTEGER NOT NULL,
-    enchantment8_charges INTEGER NOT NULL,
-    enchantment9_id INTEGER NOT NULL,
-    enchantment9_duration INTEGER NOT NULL,
-    enchantment9_charges INTEGER NOT NULL
+    enchantment7_charges INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS character(
@@ -344,8 +338,34 @@ CREATE TABLE IF NOT EXISTS character(
     equipment_mainhand_id INT REFERENCES item,
     equipment_offhand_id INT REFERENCES item,
     equipment_ranged_id INT REFERENCES item,
-    equipment_tabard_id INT REFERENCES item
+    equipment_tabard_id INT REFERENCES item,
     /* Equipmnet END */
+
+    /* Bags START */
+    bag1_id INT REFERENCES item,
+    bag2_id INT REFERENCES item,
+    bag3_id INT REFERENCES item,
+    bag4_id INT REFERENCES item,
+    /* Bags END */
+
+    /* Main backpack START */
+    backpack1_id INT REFERENCES item,
+    backpack2_id INT REFERENCES item,
+    backpack3_id INT REFERENCES item,
+    backpack4_id INT REFERENCES item,
+    backpack5_id INT REFERENCES item,
+    backpack6_id INT REFERENCES item,
+    backpack7_id INT REFERENCES item,
+    backpack8_id INT REFERENCES item,
+    backpack9_id INT REFERENCES item,
+    backpack10_id INT REFERENCES item,
+    backpack11_id INT REFERENCES item,
+    backpack12_id INT REFERENCES item,
+    backpack13_id INT REFERENCES item,
+    backpack14_id INT REFERENCES item,
+    backpack15_id INT REFERENCES item,
+    backpack16_id INT REFERENCES item
+    /* Main backpack END */
 );
 
 CREATE TABLE IF NOT EXISTS creature(
