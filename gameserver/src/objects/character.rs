@@ -1044,7 +1044,7 @@ impl Character {
 
         let race = race.get();
         let class = class.get();
-        sqlx::query!(
+        let character_id = sqlx::query!(
             "INSERT INTO character(
                 account_id, name, race, class, gender, skin,
                 face, hair_style, hair_color, facial_hair, level,
@@ -1100,7 +1100,40 @@ impl Character {
         )
         .execute(&mut *tx)
         .await
-        .map_err(|e| CharacterCreateError::Database(e))?;
+        .map_err(|e| CharacterCreateError::Database(e))?
+        .last_insert_rowid();
+
+        let created_item_ids = [
+            equipment_head_id,
+            equipment_neck_id,
+            equipment_shoulders_id,
+            equipment_body_id,
+            equipment_chest_id,
+            equipment_waist_id,
+            equipment_legs_id,
+            equipment_feet_id,
+            equipment_wrists_id,
+            equipment_hands_id,
+            equipment_finger1_id,
+            equipment_finger2_id,
+            equipment_trinket1_id,
+            equipment_trinket2_id,
+            equipment_back_id,
+            equipment_mainhand_id,
+            equipment_offhand_id,
+            equipment_ranged_id,
+            equipment_tabard_id,
+        ];
+        for item_id in created_item_ids.into_iter().flatten() {
+            sqlx::query!(
+                "UPDATE item SET owner = ? WHERE id = ?",
+                character_id,
+                item_id
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| CharacterCreateError::Database(e))?;
+        }
 
         tx.commit()
             .await
