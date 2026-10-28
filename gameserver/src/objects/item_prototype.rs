@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use common::guid::{self, Guid};
 use packets::item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat};
 use sqlx::{Pool, Sqlite};
@@ -59,7 +61,7 @@ pub struct ItemPrototype {
     pub item_set: u32,
     pub max_durability: u32,
     pub area: u32,
-    pub map: u32,
+    pub map: Option<NonZeroU32>,
     pub bag_family: u32,
     pub duration: Option<u32>,
 }
@@ -250,7 +252,7 @@ impl ItemPrototype {
             item_set: model.item_set as u32,
             max_durability: model.max_durability as u32,
             area: model.area as u32,
-            map: model.map as u32,
+            map: model.map.map(|v| NonZeroU32::new(v as u32).unwrap()),
             bag_family: model.bag_family as u32,
             duration: model.duration.map(|v| v as u32),
         })

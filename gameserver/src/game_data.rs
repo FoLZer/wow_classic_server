@@ -1,4 +1,4 @@
-use std::{fmt::Display, time::Duration};
+use std::{collections::HashMap, fmt::Display, time::Duration};
 
 use log::error;
 use packets::character_info::GearInfo;
@@ -465,13 +465,30 @@ impl GameDataAccessor {
         }
     }
 
-    pub async fn load_creature_spawners(&self) -> Result<Vec<CreatureSpawner>, sqlx::Error> {
-        let static_spawners = sqlx::query!("SELECT * FROM creature_spawner_static",)
+    pub async fn load_always_loaded_maps(&self) -> Result<Vec<u32>, sqlx::Error> {
+        let maps = sqlx::query_scalar!("SELECT id FROM map WHERE always_loaded")
             .fetch_all(&self.db)
             .await?
             .into_iter()
-            .map(|v| {
-                CreatureSpawner::Static(StaticCreatureSpawner::new(
+            .map(|v| v as u32)
+            .collect();
+
+        Ok(maps)
+    }
+
+    pub async fn load_creature_spawners(
+        &self,
+    ) -> Result<HashMap<u32, Vec<CreatureSpawner>>, sqlx::Error> {
+        let mut spawners: HashMap<u32, Vec<CreatureSpawner>> = HashMap::new();
+
+        for v in sqlx::query!("SELECT * FROM creature_spawner_static",)
+            .fetch_all(&self.db)
+            .await?
+        {
+            spawners
+                .entry(v.map as u32)
+                .or_default()
+                .push(CreatureSpawner::Static(StaticCreatureSpawner::new(
                     (
                         v.position_x as f32,
                         v.position_y as f32,
@@ -480,10 +497,10 @@ impl GameDataAccessor {
                     v.orientation as f32,
                     v.spawn_creature_id as u32,
                     Duration::from_millis(v.respawn_time as u64),
-                ))
-            });
+                )));
+        }
 
-        Ok(static_spawners.collect())
+        Ok(spawners)
     }
 }
 

@@ -25,6 +25,7 @@ use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 use crate::{
     dirty_tracking_map::DirtyTrackable,
     game_data::GameDataAccessor,
+    map_instance::InstanceId,
     objects::{
         creature::MeleeState,
         gossip::GossipCursor,
@@ -34,7 +35,17 @@ use crate::{
     packet_handler::{EquipmentSlot, Slot},
 };
 
-pub struct Character {
+/// A character that has been loaded but is not present in the world
+pub struct Loaded;
+
+/// A character that is present in the world
+pub struct InWorld {
+    instance_id: InstanceId,
+}
+
+pub struct Character<S = InWorld> {
+    state: S,
+
     pub map_id: u32,
     pub position: (f32, f32, f32),
     pub orientation: f32,
@@ -78,6 +89,14 @@ impl Character {
         *self.object_fields.guid.get()
     }
 
+    pub fn instance_id(&self) -> InstanceId {
+        self.state.instance_id
+    }
+
+    pub fn leave_world(self) -> Character<Loaded> {
+        self.with_state(Loaded)
+    }
+
     pub fn sees(&self, guid: LivingGuid) -> bool {
         match guid {
             LivingGuid::Player(guid) => self.sees_player(guid),
@@ -110,7 +129,9 @@ impl Character {
         let dz = self.position.2 - position.2;
         dx * dx + dy * dy + dz * dz
     }
+}
 
+impl Character<Loaded> {
     pub async fn load_from_db(
         game_data_accessor: &GameDataAccessor,
         db: &Pool<Sqlite>,
@@ -306,6 +327,8 @@ impl Character {
         };
 
         Ok(Self {
+            state: Loaded,
+
             map_id: model.map as u32,
             position: (
                 model.position_x as f32,
@@ -686,6 +709,43 @@ impl Character {
         })
     }
 
+    pub fn enter_world(self, instance_id: InstanceId) -> Character {
+        self.with_state(InWorld { instance_id })
+    }
+}
+
+impl<S> Character<S> {
+    fn with_state<T>(self, state: T) -> Character<T> {
+        Character {
+            state,
+
+            map_id: self.map_id,
+            position: self.position,
+            orientation: self.orientation,
+
+            account_id: self.account_id,
+            session_key: self.session_key,
+            stream_tx: self.stream_tx,
+            encrypt_data: self.encrypt_data,
+
+            items: self.items,
+
+            object_fields: self.object_fields,
+            unit_fields: self.unit_fields,
+            player_fields: self.player_fields,
+
+            other_visible_players: self.other_visible_players,
+            visible_creatures: self.visible_creatures,
+
+            tutorial_flags: self.tutorial_flags,
+
+            melee_state: self.melee_state,
+            gossip_cursor: self.gossip_cursor,
+        }
+    }
+}
+
+impl Character {
     pub fn is_alive(&self) -> bool {
         *self.unit_fields.health.get() != 0
     }

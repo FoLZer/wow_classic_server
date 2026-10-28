@@ -4,6 +4,7 @@ mod dirty_tracking_map;
 mod game_data;
 mod guid_allocator;
 mod ipc_connection;
+mod map_instance;
 mod objects;
 mod packet_handler;
 mod server;
@@ -40,7 +41,7 @@ use crate::{
     },
     game_data::GameDataAccessor,
     ipc_connection::start_ipc_task,
-    objects::character::Character,
+    objects::character::{Character, Loaded},
     server::Server,
 };
 
@@ -111,7 +112,15 @@ async fn main() {
         ))
         .await
         .unwrap();
-    sqlx::migrate!().run(&db).await.unwrap();
+    let mut migrator = sqlx::migrate!();
+    migrator.set_ignore_missing(true);
+    migrator.run(&db).await.unwrap();
+    #[cfg(internal_migrations)]
+    {
+        let mut migrator = sqlx::migrate!("internal/migrations");
+        migrator.set_ignore_missing(true);
+        migrator.run(&db).await.unwrap();
+    }
 
     let server_pipe: Arc<Mutex<Option<SendHalf>>> = Arc::new(Mutex::new(None));
     // Once connection is established, the key gets removed from here
@@ -133,13 +142,13 @@ async fn main() {
     );
 
     let world_transition_character_queue: Arc<
-        ConcurrentQueue<(Box<Character>, OwnedReadHalf, (usize, u8))>,
+        ConcurrentQueue<(Box<Character<Loaded>>, OwnedReadHalf, (usize, u8))>,
     > = Arc::new(ConcurrentQueue::unbounded());
 
     let game_data_accessor = GameDataAccessor::new(db.clone());
 
     let (character_transition_to_character_screen_tx, character_transition_to_character_screen_rx) =
-        mpsc::unbounded_channel::<(Character, OwnedReadHalf, (usize, u8))>();
+        mpsc::unbounded_channel::<(Character<Loaded>, OwnedReadHalf, (usize, u8))>();
 
     {
         let world_transition_character_queue = world_transition_character_queue.clone();
@@ -274,7 +283,7 @@ async fn run_character_selection_screen_loop(
     game_data_accessor: &GameDataAccessor,
     db: &Pool<Sqlite>,
     world_transition_character_queue: &ConcurrentQueue<(
-        Box<Character>,
+        Box<Character<Loaded>>,
         OwnedReadHalf,
         (usize, u8),
     )>,

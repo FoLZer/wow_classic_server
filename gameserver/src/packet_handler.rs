@@ -518,7 +518,7 @@ pub async fn packet_handler(
                     item_set: item_prototype.item_set,
                     max_durability: item_prototype.max_durability,
                     area: item_prototype.area,
-                    map: item_prototype.map,
+                    map: item_prototype.map.map_or(0, |v| v.get()),
                     bag_family: item_prototype.bag_family,
                 };
 

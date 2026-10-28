@@ -15,6 +15,7 @@ use crate::{
     dirty_tracking_map::DirtyTrackingMap,
     game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
+    map_instance::InstanceId,
     objects::{creature::Creature, creature_prototype::CreaturePrototype},
     server::Server,
     sparse_set::SparseSet,
@@ -22,6 +23,7 @@ use crate::{
 
 impl Server {
     pub(super) async fn do_initial_spawns(
+        instance_id: InstanceId,
         creature_spawners: &mut SparseSet<CreatureSpawner>,
         game_data_accessor: &GameDataAccessor,
         unit_guid_allocator: &mut GuidAllocator<guid::Unit>,
@@ -55,7 +57,14 @@ impl Server {
                     }
                 };
 
-                Self::spawn_creature(unit_guid_allocator, prototype, spawn_info, creatures, Some(index));
+                Self::spawn_creature(
+                    unit_guid_allocator,
+                    prototype,
+                    spawn_info,
+                    creatures,
+                    instance_id,
+                    Some(index),
+                );
             }
 
             if !spawner_result.keep_active {
@@ -68,60 +77,70 @@ impl Server {
         }
     }
 
-    pub(super) fn notify_creature_spawner(&mut self, spawner_index: usize) {
-        let Some(spawner) = self.creature_spawners.get_mut(spawner_index) else {
+    pub(super) fn notify_creature_spawner(
+        &mut self,
+        instance_id: InstanceId,
+        spawner_index: usize,
+    ) {
+        let Some(instance) = self.instances.get_mut(&instance_id) else {
+            return;
+        };
+        let Some(spawner) = instance.creature_spawners.get_mut(spawner_index) else {
             return;
         };
         spawner.notify_creature_died();
-        self.creature_spawners.activate(spawner_index);
+        instance.creature_spawners.activate(spawner_index);
     }
 
     pub(super) async fn process_queued_creature_spawners(&mut self) {
-        let mut to_deactivate = Vec::new();
+        for (&instance_id, instance) in &mut self.instances {
+            let mut to_deactivate = Vec::new();
 
-        self.creature_spawners.for_each_async(async |index, spawner| {
-            let spawner_result = spawner.get_creatures_to_spawn();
+            instance.creature_spawners.for_each_async(async |index, spawner| {
+                let spawner_result = spawner.get_creatures_to_spawn();
 
-            for spawn_info in spawner_result.creatures_to_spawn {
-                // TODO: prefetch, a tick should not be stuck waiting for db access here, especially sequentially like that
-                let prototype = match self
-                    .game_data_accessor
-                    .get_creature_prototype(spawn_info.spawn_creature_id)
-                    .await
-                {
-                    Ok(Some(v)) => v,
-                    Ok(None) => {
-                        error!(
-                            "Tried to spawn a creature with a missing prototype (id: {})",
-                            spawn_info.spawn_creature_id
-                        );
-                        continue;
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to query creature prototype due to a DB error (id: {}). Error: {}",
-                            spawn_info.spawn_creature_id, e
-                        );
-                        continue;
-                    }
-                };
+                for spawn_info in spawner_result.creatures_to_spawn {
+                    // TODO: prefetch, a tick should not be stuck waiting for db access here, especially sequentially like that
+                    let prototype = match self
+                        .game_data_accessor
+                        .get_creature_prototype(spawn_info.spawn_creature_id)
+                        .await
+                    {
+                        Ok(Some(v)) => v,
+                        Ok(None) => {
+                            error!(
+                                "Tried to spawn a creature with a missing prototype (id: {})",
+                                spawn_info.spawn_creature_id
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to query creature prototype due to a DB error (id: {}). Error: {}",
+                                spawn_info.spawn_creature_id, e
+                            );
+                            continue;
+                        }
+                    };
 
-                Self::spawn_creature(
-                    &mut self.unit_guid_allocator,
-                    prototype,
-                    spawn_info,
-                    &mut self.creatures,
-                    Some(index),
-                );
+                    Self::spawn_creature(
+                        &mut self.unit_guid_allocator,
+                        prototype,
+                        spawn_info,
+                        &mut self.creatures,
+                        instance_id,
+                        Some(index),
+                    );
+                }
+
+                if !spawner_result.keep_active {
+                    to_deactivate.push(index);
+                }
+            }).await;
+
+            for index in to_deactivate {
+                instance.creature_spawners.deactivate(index);
             }
-
-            if !spawner_result.keep_active {
-                to_deactivate.push(index);
-            }
-        }).await;
-
-        for index in to_deactivate {
-            self.creature_spawners.deactivate(index);
         }
     }
 
@@ -130,6 +149,7 @@ impl Server {
         prototype: CreaturePrototype,
         spawn_info: CreatureSpawnInfo,
         creatures_out: &mut DirtyTrackingMap<Guid<guid::Unit>, Creature>,
+        instance_id: InstanceId,
         spawner_index: Option<usize>,
     ) {
         let guid = unit_guid_allocator
@@ -139,6 +159,7 @@ impl Server {
         creatures_out.insert(
             guid,
             Creature {
+                instance_id,
                 position: spawn_info.position,
                 orientation: spawn_info.orientation,
                 object_fields: ObjectFields {

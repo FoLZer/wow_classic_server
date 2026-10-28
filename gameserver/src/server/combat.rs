@@ -9,6 +9,7 @@ use packets::attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDama
 
 use crate::{
     dirty_tracking_map::DirtyTrackingMut,
+    map_instance::InstanceId,
     objects::{character::Character, creature::Creature, creature_corpse::CreatureCorpse},
     server::Server,
 };
@@ -181,6 +182,13 @@ impl Server {
             return MeleeSwingResult::Failed;
         }
 
+        let Some(attacker_instance) = self.living_unit_instance(attacker) else {
+            return MeleeSwingResult::Failed;
+        };
+        if self.living_unit_instance(victim) != Some(attacker_instance) {
+            return MeleeSwingResult::Failed;
+        }
+
         let Some((attacker_position, attacker_reach)) =
             self.living_unit_position_and_reach(attacker)
         else {
@@ -266,11 +274,12 @@ impl Server {
                     return MeleeSwingResult::Failed;
                 };
                 if let Some(spawner_index) = victim.spawner_index {
-                    self.notify_creature_spawner(spawner_index);
+                    self.notify_creature_spawner(victim.instance_id, spawner_index);
                 }
                 self.creature_corpses.insert(
                     victim_guid,
                     CreatureCorpse {
+                        instance_id: victim.instance_id,
                         position: victim.position,
                         orientation: victim.orientation,
                         object_fields: victim.object_fields,
@@ -313,6 +322,19 @@ impl Server {
                 .creatures
                 .get(&guid)
                 .map(|creature| (creature.position, *creature.unit_fields.combat_reach.get())),
+        }
+    }
+
+    fn living_unit_instance(&self, guid: LivingGuid) -> Option<InstanceId> {
+        match guid {
+            LivingGuid::Player(guid) => self
+                .characters
+                .get(&guid)
+                .map(|character| character.instance_id()),
+            LivingGuid::Unit(guid) => self
+                .creatures
+                .get(&guid)
+                .map(|creature| creature.instance_id),
         }
     }
 

@@ -20,3 +20,4 @@ DROP TABLE IF EXISTS creature;
 DROP TABLE IF EXISTS gossip_menu_item;
 DROP TABLE IF EXISTS gossip_menu;
 DROP TABLE IF EXISTS npc_text;
+DROP TABLE IF EXISTS map;

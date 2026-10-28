@@ -22,7 +22,7 @@ use tokio::{
 use crate::{
     character_selection_screen::character_selection::CharacterSelection,
     game_data::GameDataAccessor,
-    objects::character::{Character, CharacterCreateError},
+    objects::character::{Character, CharacterCreateError, Loaded},
 };
 
 lazy_static! {
@@ -621,7 +621,7 @@ impl CharacterScreenConnection {
     // For this to succeed the character must have only 1 reference, this being the one passed to this function
     // If this is not the case, the function will panic
     pub fn from_game_character(
-        character: Character,
+        character: Character<Loaded>,
         read_half: OwnedReadHalf,
         decrypt_data: (usize, u8),
         db: Pool<Sqlite>,

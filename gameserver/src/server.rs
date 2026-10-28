@@ -5,6 +5,7 @@ mod spawning;
 mod visibility;
 
 use std::{
+    collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -18,11 +19,15 @@ use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
-    creature_spawner::CreatureSpawner,
     dirty_tracking_map::DirtyTrackingMap,
     game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
-    objects::{character::Character, creature::Creature, creature_corpse::CreatureCorpse},
+    map_instance::{InstanceId, MapInstance},
+    objects::{
+        character::{Character, Loaded},
+        creature::Creature,
+        creature_corpse::CreatureCorpse,
+    },
     packet_handler::PlayerUpdate,
     sparse_set::SparseSet,
 };
@@ -36,7 +41,10 @@ pub struct Server {
     say_message_range: f32,
     yell_message_range: f32,
 
-    creature_spawners: SparseSet<CreatureSpawner>,
+    instances: HashMap<InstanceId, MapInstance>,
+    // Maps that always have exactly one instance, map id -> instance id
+    static_instances: HashMap<u32, InstanceId>,
+
     creatures: DirtyTrackingMap<Guid<guid::Unit>, Creature>,
     characters: DirtyTrackingMap<Guid<guid::Player>, Character>,
     creature_corpses: DirtyTrackingMap<Guid<guid::Unit>, CreatureCorpse>,
@@ -46,9 +54,9 @@ pub struct Server {
     // A queue containing all parsed updates received from players during this tick
     player_update_queue: Arc<ConcurrentQueue<PlayerUpdate>>,
     world_transition_character_queue:
-        Arc<ConcurrentQueue<(Box<Character>, OwnedReadHalf, (usize, u8))>>,
+        Arc<ConcurrentQueue<(Box<Character<Loaded>>, OwnedReadHalf, (usize, u8))>>,
     character_transition_to_character_screen_tx:
-        mpsc::UnboundedSender<(Character, OwnedReadHalf, (usize, u8))>,
+        mpsc::UnboundedSender<(Character<Loaded>, OwnedReadHalf, (usize, u8))>,
     game_data_accessor: GameDataAccessor,
     db: Pool<Sqlite>,
 }
@@ -56,11 +64,11 @@ pub struct Server {
 impl Server {
     pub async fn new(
         world_transition_character_queue: Arc<
-            ConcurrentQueue<(Box<Character>, OwnedReadHalf, (usize, u8))>,
+            ConcurrentQueue<(Box<Character<Loaded>>, OwnedReadHalf, (usize, u8))>,
         >,
         game_data_accessor: GameDataAccessor,
         character_transition_to_character_screen_tx: mpsc::UnboundedSender<(
-            Character,
+            Character<Loaded>,
             OwnedReadHalf,
             (usize, u8),
         )>,
@@ -73,27 +81,52 @@ impl Server {
 
         info!("Started server world loading.");
 
-        let creature_spawners = game_data_accessor.load_creature_spawners().await?;
+        let always_loaded_maps = game_data_accessor.load_always_loaded_maps().await?;
+        let mut creature_spawners = game_data_accessor.load_creature_spawners().await?;
 
         info!(
             "Creature spawners loaded in {} ms. Spawners loaded: {}",
             now.elapsed().as_millis(),
-            creature_spawners.len(),
+            creature_spawners.values().map(Vec::len).sum::<usize>(),
         );
 
-        let mut creature_spawners = SparseSet::from_vec(creature_spawners);
+        let mut instances = HashMap::new();
+        let mut static_instances = HashMap::new();
 
-        Self::do_initial_spawns(
-            &mut creature_spawners,
-            &game_data_accessor,
-            &mut unit_guid_allocator,
-            &mut creatures,
-        )
-        .await;
+        for (index, map_id) in always_loaded_maps.into_iter().enumerate() {
+            let instance_id = InstanceId::new(index as u32);
+            let creatures_before = creatures.len();
+            let mut instance = MapInstance {
+                map_id,
+                creature_spawners: SparseSet::from_vec(
+                    creature_spawners.remove(&map_id).unwrap_or_default(),
+                ),
+            };
+
+            Self::do_initial_spawns(
+                instance_id,
+                &mut instance.creature_spawners,
+                &game_data_accessor,
+                &mut unit_guid_allocator,
+                &mut creatures,
+            )
+            .await;
+
+            info!(
+                "Created static instance {} for map {}. Creatures created: {}",
+                instance_id.get(),
+                instance.map_id,
+                creatures.len() - creatures_before
+            );
+
+            instances.insert(instance_id, instance);
+            static_instances.insert(map_id, instance_id);
+        }
 
         info!(
-            "World loading done in {} ms. Creatures created: {}",
+            "World loading done in {} ms. Instances created: {}, Creatures created: {}",
             now.elapsed().as_millis(),
+            instances.len(),
             creatures.len()
         );
 
@@ -105,7 +138,8 @@ impl Server {
             say_message_range: 500.0,
             yell_message_range: 90000.0,
 
-            creature_spawners,
+            instances,
+            static_instances,
 
             creatures,
             characters: DirtyTrackingMap::default(),
@@ -177,12 +211,16 @@ impl Server {
     async fn broadcast_packet_in_range<T: ServerPacket, F: Fn(&Character) -> bool>(
         &self,
         packet: &T,
+        source_instance: InstanceId,
         source_position: (f32, f32, f32),
         range: f32,
         except: F,
     ) {
         for character in self.characters.values() {
-            if character.distance_to_squared(source_position) > range || except(character) {
+            if character.instance_id() != source_instance
+                || character.distance_to_squared(source_position) > range
+                || except(character)
+            {
                 continue;
             }
 

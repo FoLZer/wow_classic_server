@@ -1,3 +1,93 @@
+/* Maps START */
+INSERT INTO map(id, name, always_loaded)
+VALUES(0, "Eastern Kingdoms", TRUE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(1, "Kalimdor", TRUE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(13, "Testing", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(25, "Scott Test", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(29, "CashTest", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(30, "Alterac Valley", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(33, "Shadowfang Keep", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(34, "Stormwind Stockade", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(35, "<unused>StormwindPrison", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(36, "Deadmines", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(37, "Azshara Crater", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(42, "Collin's Test", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(43, "Wailing Caverns", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(44, "<unused> Monastery", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(47, "Razorfen Kraul", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(48, "Blackfathom Deeps", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(70, "Uldaman", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(90, "Gnomeregan", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(109, "Sunken Temple", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(129, "Razorfen Downs", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(169, "Emerald Dream", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(189, "Scarlet Monastery", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(209, "Zul'Farrak", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(229, "Blackrock Spire", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(230, "Blackrock Depths", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(249, "Onyxia's Lair", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(269, "Caverns of Time", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(289, "Scholomance", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(309, "Zul'Gurub", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(329, "Stratholme", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(349, "Maraudon", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(369, "Deeprun Tram", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(389, "Ragefire Chasm", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(409, "Molten Core", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(429, "Dire Maul", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(449, "Alliance PVP Barracks", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(450, "Horde PVP Barracks", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(451, "Development Land", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(469, "Blackwing Lair", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(489, "Warsong Gulch", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(509, "Ruins of Ahn'Qiraj", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(529, "Arathi Basin", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(531, "Ahn'Qiraj Temple", FALSE);
+INSERT INTO map(id, name, always_loaded)
+VALUES(533, "Naxxramas", FALSE);
+/* Maps END */
 /* Races START */
 INSERT INTO race(id, name)
 VALUES(1, "Human");
@@ -301,7 +391,7 @@ VALUES(
         0,
         60,
         0,
-        0,
+        NULL,
         0,
         0
     );
@@ -1079,6 +1169,7 @@ VALUES(3, 789, 0, 5, 1),
 /* Creature Vendor Items END */
 /* Static Creature Spawners START */
 INSERT INTO creature_spawner_static(
+        map,
         position_x,
         position_y,
         position_z,
@@ -1087,6 +1178,7 @@ INSERT INTO creature_spawner_static(
         respawn_time
     )
 VALUES(
+        0,
         -8949.95,
         -132.493,
         83.5312,
@@ -1096,6 +1188,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8910.4795,
         -106.27133,
         81.85089,
@@ -1105,6 +1198,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8907.7,
         -108.81111,
         81.84876,
@@ -1114,6 +1208,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8904.616,
         -111.07647,
         81.84876,
@@ -1123,6 +1218,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8901.532,
         -113.34183,
         81.84876,
@@ -1132,6 +1228,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8898.448,
         -115.60719,
         81.84876,
@@ -1141,6 +1238,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8895.364,
         -117.87255,
         81.84876,
@@ -1150,6 +1248,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8892.280,
         -120.13791,
         81.84876,
@@ -1159,6 +1258,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8889.196,
         -122.40327,
         81.84876,
@@ -1168,6 +1268,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8886.112,
         -124.66863,
         81.84876,
@@ -1177,6 +1278,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8883.028,
         -126.93399,
         81.84876,
@@ -1186,6 +1288,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8879.944,
         -129.19935,
         81.84876,
@@ -1195,6 +1298,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8876.860,
         -131.46471,
         81.84876,
@@ -1204,6 +1308,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8873.776,
         -133.73007,
         81.84876,
@@ -1213,6 +1318,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8870.692,
         -135.99543,
         81.84876,
@@ -1222,6 +1328,7 @@ VALUES(
         10000
     ),
     (
+        0,
         -8867.608,
         -138.26079,
         81.84876,

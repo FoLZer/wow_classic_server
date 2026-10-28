@@ -3,9 +3,10 @@ use std::time::Instant;
 use common::guid;
 use gameobjects::{object::ObjectFields, tracked_field::ClientUpdatable, unit::UnitFields};
 
-use crate::dirty_tracking_map::DirtyTrackable;
+use crate::{dirty_tracking_map::DirtyTrackable, map_instance::InstanceId};
 
 pub struct CreatureCorpse {
+    pub instance_id: InstanceId,
     pub position: (f32, f32, f32),
     pub orientation: f32,
 

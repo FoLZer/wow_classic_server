@@ -5,6 +5,7 @@ use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid, Selectable
 use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable};
 use log::{error, warn};
 use packets::{
+    account_result::AccountResult,
     chat_message::{ChatTag, ServerChatMessage, ServerChatType},
     gossip::{GossipMenuItem, U32Counted},
     movement_info::{MovementFlags, MovementInfo},
@@ -355,7 +356,7 @@ impl Server {
                     };
                     // If this fails the connection is going to be shut due to Drop being called
                     let _ = self.character_transition_to_character_screen_tx.send((
-                        character,
+                        character.leave_world(),
                         rx,
                         decrypt_data,
                     ));
@@ -537,6 +538,7 @@ impl Server {
                         continue;
                     };
 
+                    let source_instance = character.instance_id();
                     let source_position = character.position;
                     match message {
                         ChatMessage::Say { language, text } => {
@@ -553,6 +555,7 @@ impl Server {
 
                             self.broadcast_packet_in_range(
                                 &response,
+                                source_instance,
                                 source_position,
                                 self.say_message_range,
                                 |_| false,
@@ -577,6 +580,7 @@ impl Server {
 
                             self.broadcast_packet_in_range(
                                 &response,
+                                source_instance,
                                 source_position,
                                 self.yell_message_range,
                                 |_| false,
@@ -1112,6 +1116,45 @@ impl Server {
 
     pub(super) async fn add_queued_characters(&mut self) {
         for (character, rx, decrypt_data) in self.world_transition_character_queue.try_iter() {
+            // TODO: handle non-statically loaded instances
+            let Some(&instance_id) = self.static_instances.get(&character.map_id) else {
+                warn!(
+                    "Character tried to enter a map without an instance (account_id: {}, character_id: {}, map_id: {})",
+                    character.account_id,
+                    character.object_fields.guid.get().get_u32(),
+                    character.map_id
+                );
+
+                let response = packets::server::SMSG_CHAR_LOGIN_FAILED {
+                    result: AccountResult::CHAR_LOGIN_NO_WORLD,
+                };
+
+                if let Err(e) = character
+                    .stream_tx
+                    .lock()
+                    .await
+                    .write_all(&response.to_bytes(
+                        Some(character.session_key),
+                        &mut *character.encrypt_data.lock().await,
+                    ))
+                    .await
+                {
+                    error!(
+                        "Failed to send SMSG_CHAR_LOGIN_FAILED to client (account_id: {}). Error: {:?}",
+                        character.account_id, e
+                    );
+                }
+
+                // If this fails the connection is going to be shut due to Drop being called
+                let _ = self.character_transition_to_character_screen_tx.send((
+                    *character,
+                    rx,
+                    decrypt_data,
+                ));
+                continue;
+            };
+            let character = character.enter_world(instance_id);
+
             let response = packets::server::SMSG_LOGIN_VERIFY_WORLD {
                 map: character.map_id,
                 position_x: character.position.0,
@@ -1317,7 +1360,7 @@ impl Server {
             let stream_tx = character.stream_tx.clone();
 
             self.characters
-                .insert(character.object_fields.guid.get().clone(), *character);
+                .insert(character.object_fields.guid.get().clone(), character);
 
             tokio::task::spawn(packet_handler(
                 rx,

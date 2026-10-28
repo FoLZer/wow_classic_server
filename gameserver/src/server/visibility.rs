@@ -601,16 +601,19 @@ impl Server {
     }
 
     fn is_character_visible(&self, from: &Character, to: &Character) -> bool {
-        true // TODO
+        from.instance_id() == to.instance_id()
+            && Self::is_in_visibility_distance(from.position, to.position)
     }
 
     fn is_creature_visible_to_player(&self, from: &Character, to: &Creature) -> bool {
-        Self::is_in_visibility_distance(from.position, to.position)
+        from.instance_id() == to.instance_id
+            && Self::is_in_visibility_distance(from.position, to.position)
         // TODO
     }
 
     fn is_corpse_visible_to_player(&self, from: &Character, to: &CreatureCorpse) -> bool {
-        Self::is_in_visibility_distance(from.position, to.position)
+        from.instance_id() == to.instance_id
+            && Self::is_in_visibility_distance(from.position, to.position)
         // TODO
     }
 

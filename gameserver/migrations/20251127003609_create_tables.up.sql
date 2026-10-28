@@ -1,4 +1,11 @@
 /* ---------------- Game data START ---------------- */
+/* Unchangeable for now: requires patching .dbc */
+CREATE TABLE IF NOT EXISTS map(
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL,
+    /* Whether the map has a single instance that is created on server startup and never unloaded */
+    always_loaded BOOLEAN NOT NULL
+);
 CREATE TABLE IF NOT EXISTS item_prototype(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     class INT NOT NULL,
@@ -126,7 +133,7 @@ CREATE TABLE IF NOT EXISTS item_prototype(
     item_set INT NOT NULL,
     max_durability INT NOT NULL,
     area INT NOT NULL,
-    map INT NOT NULL,
+    map INT REFERENCES map,
     bag_family INT NOT NULL,
 
     duration INT
@@ -156,7 +163,7 @@ CREATE TABLE IF NOT EXISTS player_start_data(
     race TINYINT NOT NULL,
     class TINYINT NOT NULL,
     area INT NOT NULL,
-    map INT NOT NULL,
+    map INT NOT NULL REFERENCES map,
     position_x FLOAT NOT NULL,
     position_y FLOAT NOT NULL,
     position_z FLOAT NOT NULL,
@@ -299,7 +306,7 @@ CREATE TABLE IF NOT EXISTS character(
     facial_hair TINYINT NOT NULL,
     level TINYINT NOT NULL,
     area INT NOT NULL,
-    map INT NOT NULL,
+    map INT NOT NULL REFERENCES map,
     position_x FLOAT NOT NULL,
     position_y FLOAT NOT NULL,
     position_z FLOAT NOT NULL,
@@ -381,6 +388,7 @@ CREATE TABLE IF NOT EXISTS creature_vendor_item(
 
 CREATE TABLE IF NOT EXISTS creature_spawner_static(
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    map INT NOT NULL REFERENCES map,
     position_x FLOAT NOT NULL,
     position_y FLOAT NOT NULL,
     position_z FLOAT NOT NULL,

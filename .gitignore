@@ -6,3 +6,4 @@ authserver.db-wal
 gameserver.db
 gameserver.db-shm
 gameserver.db-wal
+gameserver/internal/
