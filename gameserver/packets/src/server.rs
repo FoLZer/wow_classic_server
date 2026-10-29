@@ -311,6 +311,10 @@ SMSG_BUY_FAILED 0x1A5 {
     item_id: u32: LittleEndian,
     reason: u8: LittleEndian,
 },
+SMSG_TAXINODE_STATUS 0x1AB {
+    npc_guid: Guid<guid::Unit>: LittleEndian,
+    is_known: U8Bool: LittleEndian,
+},
 SMSG_TRAINER_LIST 0x1B1 {
     trainer_guid: Guid<guid::Unit>: LittleEndian,
     trainer_type: TrainerType: LittleEndian,
@@ -386,6 +390,25 @@ impl<T: ByteOrder> OrderedWrite<T> for u8 {
 
     fn serialized_size(&self) -> usize {
         size_of::<Self>()
+    }
+}
+
+/// A bool sent as a single byte
+pub struct U8Bool(pub bool);
+
+impl From<bool> for U8Bool {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for U8Bool {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        writer.write_u8(self.0 as u8)
+    }
+
+    fn serialized_size(&self) -> usize {
+        size_of::<u8>()
     }
 }
 

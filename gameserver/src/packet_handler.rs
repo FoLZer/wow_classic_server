@@ -1268,6 +1268,37 @@ pub async fn packet_handler(
                     )
                 };
             }
+            ClientPacket::CMSG_TAXINODE_STATUS_QUERY(packet) => {
+                let Some(npc_guid) = Guid::<guid::Unit>::try_from_u64(packet.npc_guid) else {
+                    warn!(
+                        "Client (character_id: {}) sent CMSG_TAXINODE_STATUS_QUERY with an invalid npc guid: {}",
+                        character_id.get(),
+                        packet.npc_guid
+                    );
+                    continue;
+                };
+
+                //TODO
+                let response = packets::server::SMSG_TAXINODE_STATUS {
+                    npc_guid,
+                    is_known: false.into(),
+                };
+
+                if let Err(e) = tx
+                    .lock()
+                    .await
+                    .write_all(
+                        &response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to send SMSG_TAXINODE_STATUS to client (character_id: {}). Error: {:?}",
+                        character_id.get(),
+                        e
+                    )
+                };
+            }
             _ => {
                 warn!(
                     "Client (character_id: {}) tried to send a packet in a wrong state (current state: game world). Packet: {:?}",
