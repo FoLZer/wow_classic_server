@@ -608,6 +608,9 @@ impl CharacterScreenConnection {
                         )
                     };
                 }
+                // The client sends 2 CMSG_CANCEL_TRADE after SMSG_LOGOUT_COMPLETE
+                // this handler must ignore this packet as we'll handle cancelling trades serverside
+                ClientPacket::CMSG_CANCEL_TRADE(_) => {}
                 _ => {
                     warn!(
                         "Client (account_id: {}) tried to send a packet in a wrong state (current state: character screen). Packet: {:?}",
