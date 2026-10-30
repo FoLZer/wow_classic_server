@@ -6,6 +6,7 @@ use std::{
 use common::guid::{self, Guid, LivingGuid};
 use gameobjects::unit::UnitFields;
 use packets::attacker_state::{DamageSchool, HitHand, HitInfo, SubDamage, SubDamages, VictimState};
+use rand::{RngExt, rng};
 
 use crate::{
     dirty_tracking_map::DirtyTrackingMut,
@@ -213,6 +214,10 @@ impl Server {
             return MeleeSwingResult::OutOfRange;
         }
 
+        let Some(damage) = self.roll_melee_damage(attacker, hand) else {
+            return MeleeSwingResult::Failed;
+        };
+
         let Some(victim_fields) = self.living_unit_fields_mut(victim) else {
             // TODO: victim is gone (logged out, despawned), stop the attack with SMSG_ATTACKSTOP
             return MeleeSwingResult::Failed;
@@ -225,8 +230,7 @@ impl Server {
 
         // TODO: check that the victim can be attacked (not immune, not evading, faction, etc.)
 
-        // TODO: roll the hit table (miss/dodge/parry/block/crit/glancing/crushing) and calculate the damage
-        let damage = 1;
+        // TODO: roll the hit table (miss/dodge/parry/block/crit/glancing/crushing)
         let hit_info = HitInfo::new()
             .with_affects_victim(true)
             .with_off_hand(matches!(hand, HitHand::Off));
@@ -336,6 +340,21 @@ impl Server {
                 .get(&guid)
                 .map(|creature| creature.instance_id),
         }
+    }
+
+    fn roll_melee_damage(&self, attacker: LivingGuid, hand: HitHand) -> Option<u32> {
+        let fields = self.living_unit_fields(attacker)?;
+        let (min_damage, max_damage) = match hand {
+            HitHand::Main => (fields.min_damage.get(), fields.max_damage.get()),
+            HitHand::Off => (
+                fields.min_offhand_damage.get(),
+                fields.max_offhand_damage.get(),
+            ),
+        };
+        let min_damage = min_damage.into_inner() as u32;
+        let max_damage = max_damage.into_inner() as u32;
+
+        Some(rng().random_range(min_damage.min(max_damage)..=max_damage))
     }
 
     fn living_unit_fields(&self, guid: LivingGuid) -> Option<&UnitFields> {

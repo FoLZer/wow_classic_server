@@ -9,12 +9,13 @@ use gameobjects::{
     },
     tracked_field::ClientUpdatable,
     unit::{
-        NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
+        AttackPowerMods, NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
         UnitFieldBytes2Flags, UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
         VirtualItemInfo,
     },
 };
 use log::error;
+use ordered_float::NotNan;
 use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
@@ -27,7 +28,7 @@ use crate::{
 
 pub mod inventory;
 
-use inventory::{CharacterItems, EquipmentItems};
+use inventory::{CharacterItems, EquipmentItems, WeaponStats};
 
 /// A character that has been loaded but is not present in the world
 pub struct Loaded;
@@ -357,7 +358,13 @@ impl Character<Loaded> {
             keyring: [const { None }; 12],
         };
 
-        Ok(Self {
+        let equipped_prototypes = match items.load_equipped_prototypes(game_data_accessor).await {
+            Ok(v) => v,
+            Err(e) => return Err((stream_tx, e)),
+        };
+        let unarmed = WeaponStats::default();
+
+        let mut character = Self {
             state: Loaded,
 
             map_id: model.map as u32,
@@ -415,18 +422,18 @@ impl Character<Loaded> {
                 aura_levels: [0.into(); 12],
                 aura_applications: [0.into(); 12],
                 aura_state: 0.into(),
-                base_attack_time: 2000.into(),
-                offhand_attack_time: 0.into(),
-                ranged_attack_time: 0.into(),
+                base_attack_time: unarmed.attack_time.into(),
+                offhand_attack_time: unarmed.attack_time.into(),
+                ranged_attack_time: unarmed.attack_time.into(),
                 bounding_radius: 4.into(),
                 combat_reach: 1.5.into(),
                 display_id: (model.display_id as u32).into(),
                 native_display_id: (model.display_id as u32).into(),
                 mount_display_id: 0.into(),
-                min_damage: 70.into(),
-                max_damage: 80.into(),
-                min_offhand_damage: 90.into(),
-                max_offhand_damage: 130.into(),
+                min_damage: unarmed.min_damage.into(),
+                max_damage: unarmed.max_damage.into(),
+                min_offhand_damage: unarmed.min_damage.into(),
+                max_offhand_damage: unarmed.max_damage.into(),
                 bytes_2: UnitFieldBytes2::new()
                     .with_stand_state(StandStateType::Stand)
                     .with_loyalty_level(0)
@@ -463,13 +470,13 @@ impl Character<Loaded> {
                     .with_flags(UnitFieldBytes3Flags::new())
                     .into(),
                 attack_power: 1.into(),
-                attack_power_mods: 0.into(),
-                attack_power_multiplier: 1.into(),
+                attack_power_mods: AttackPowerMods::new().into(),
+                attack_power_multiplier: NotNan::<f32>::new(0.0).unwrap().into(),
                 ranged_attack_power: 0.into(),
-                ranged_attack_power_mods: 0.into(),
-                ranged_attack_power_multiplier: 0.into(),
-                min_ranged_damage: 0.into(),
-                max_ranged_damage: 0.into(),
+                ranged_attack_power_mods: AttackPowerMods::new().into(),
+                ranged_attack_power_multiplier: NotNan::<f32>::new(0.0).unwrap().into(),
+                min_ranged_damage: unarmed.min_damage.into(),
+                max_ranged_damage: unarmed.max_damage.into(),
                 power_cost_modifiers: [0.into(); 7],
                 power_cost_multipliers: [1.into(); 7],
                 _padding: 0.into(),
@@ -713,7 +720,7 @@ impl Character<Loaded> {
                 resistance_buff_mods_negative: [0.into(); 7],
                 mod_damage_done_pos: [0.into(); 7],
                 mod_damage_done_neg: [0.into(); 7],
-                mod_damage_done_pct: [0.into(); 7],
+                mod_damage_done_pct: [NotNan::<f32>::new(1.0).unwrap().into(); 7],
                 _unknown_bytes_4: 0.into(),
                 ammo_id: 0.into(),
                 self_res_spell: 0.into(),
@@ -743,7 +750,13 @@ impl Character<Loaded> {
 
             melee_state: None,
             gossip_cursor: None,
-        })
+        };
+
+        for (slot, prototype) in &equipped_prototypes {
+            character.add_item_stats(*slot, prototype);
+        }
+
+        Ok(character)
     }
 
     pub fn enter_world(self, instance_id: InstanceId) -> Character {

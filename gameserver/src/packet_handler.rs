@@ -1558,6 +1558,30 @@ pub enum EquipmentSlot {
     Tabard = 18,
 }
 
+impl EquipmentSlot {
+    pub const ALL: [EquipmentSlot; 19] = [
+        Self::Head,
+        Self::Neck,
+        Self::Shoulders,
+        Self::Body,
+        Self::Chest,
+        Self::Waist,
+        Self::Legs,
+        Self::Feet,
+        Self::Wrists,
+        Self::Hands,
+        Self::Finger1,
+        Self::Finger2,
+        Self::Trinket1,
+        Self::Trinket2,
+        Self::Back,
+        Self::MainHand,
+        Self::OffHand,
+        Self::Ranged,
+        Self::Tabard,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
     Equipment(EquipmentSlot),

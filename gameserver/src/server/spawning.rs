@@ -2,12 +2,13 @@ use common::guid::{self, Guid};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     unit::{
-        NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
+        AttackPowerMods, NpcFlags, SheathState, StandStateType, UnitFieldBytes1, UnitFieldBytes2,
         UnitFieldBytes2Flags, UnitFieldBytes3, UnitFieldBytes3Flags, UnitFields, UnitFlags,
         VirtualItemInfo,
     },
 };
 use log::error;
+use ordered_float::NotNan;
 use rand::{RngExt, rng};
 
 use crate::{
@@ -262,10 +263,11 @@ impl Server {
                     display_id: prototype.display_id.into(),
                     native_display_id: prototype.native_display_id.into(),
                     mount_display_id: prototype.initial_mount_display_id.unwrap_or(0).into(),
-                    min_damage: 0.into(),
-                    max_damage: 0.into(),
-                    min_offhand_damage: 0.into(),
-                    max_offhand_damage: 0.into(),
+                    //TODO: Damage from the creature prototype
+                    min_damage: NotNan::<f32>::from(1u8).into(),
+                    max_damage: NotNan::<f32>::from(2u8).into(),
+                    min_offhand_damage: NotNan::<f32>::default().into(),
+                    max_offhand_damage: NotNan::<f32>::default().into(),
                     bytes_2: UnitFieldBytes2::new()
                         .with_stand_state(StandStateType::Stand)
                         .with_loyalty_level(0)
@@ -305,13 +307,13 @@ impl Server {
                         .with_flags(UnitFieldBytes3Flags::new())
                         .into(),
                     attack_power: 1.into(),
-                    attack_power_mods: 0.into(),
-                    attack_power_multiplier: 1.into(),
+                    attack_power_mods: AttackPowerMods::new().into(),
+                    attack_power_multiplier: NotNan::<f32>::new(0.0).unwrap().into(),
                     ranged_attack_power: 0.into(),
-                    ranged_attack_power_mods: 0.into(),
-                    ranged_attack_power_multiplier: 0.into(),
-                    min_ranged_damage: 0.into(),
-                    max_ranged_damage: 0.into(),
+                    ranged_attack_power_mods: AttackPowerMods::new().into(),
+                    ranged_attack_power_multiplier: NotNan::<f32>::new(0.0).unwrap().into(),
+                    min_ranged_damage: NotNan::<f32>::default().into(),
+                    max_ranged_damage: NotNan::<f32>::default().into(),
                     power_cost_modifiers: [0.into(); 7],
                     power_cost_multipliers: [1.into(); 7],
                     _padding: 0.into(),

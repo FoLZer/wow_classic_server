@@ -1,6 +1,7 @@
 use bitfield_struct::bitfield;
 use common::guid::{self, Guid, SelectableGuid};
 use macros::tracked;
+use ordered_float::NotNan;
 
 use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
 
@@ -37,10 +38,10 @@ pub struct UnitFields {
     pub display_id: u32,
     pub native_display_id: u32,
     pub mount_display_id: u32,
-    pub min_damage: u32,
-    pub max_damage: u32,
-    pub min_offhand_damage: u32,
-    pub max_offhand_damage: u32,
+    pub min_damage: NotNan<f32>,
+    pub max_damage: NotNan<f32>,
+    pub min_offhand_damage: NotNan<f32>,
+    pub max_offhand_damage: NotNan<f32>,
     pub bytes_2: UnitFieldBytes2,
     pub pet_number: u32,
     pub pet_name_timestamp: u32,
@@ -69,16 +70,28 @@ pub struct UnitFields {
     pub base_health: u32,
     pub bytes_3: UnitFieldBytes3,
     pub attack_power: u32,
-    pub attack_power_mods: u32,
-    pub attack_power_multiplier: u32,
+    pub attack_power_mods: AttackPowerMods,
+    pub attack_power_multiplier: NotNan<f32>,
     pub ranged_attack_power: u32,
-    pub ranged_attack_power_mods: u32,
-    pub ranged_attack_power_multiplier: u32,
-    pub min_ranged_damage: u32,
-    pub max_ranged_damage: u32,
+    pub ranged_attack_power_mods: AttackPowerMods,
+    pub ranged_attack_power_multiplier: NotNan<f32>,
+    pub min_ranged_damage: NotNan<f32>,
+    pub max_ranged_damage: NotNan<f32>,
     pub power_cost_modifiers: [u32; 7],
     pub power_cost_multipliers: [u32; 7],
     pub _padding: u32,
+}
+
+#[bitfield(u32)]
+pub struct AttackPowerMods {
+    pub positive: u16,
+    pub negative: u16,
+}
+
+impl UpdateWritable for AttackPowerMods {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.0;
+    }
 }
 
 #[bitfield(u32)]

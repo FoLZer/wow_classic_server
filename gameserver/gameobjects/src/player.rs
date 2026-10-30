@@ -1,6 +1,7 @@
 use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
 use macros::tracked;
+use ordered_float::NotNan;
 
 use crate::tracked_field::{TrackedWriteTrait, UpdateWritable};
 
@@ -50,7 +51,7 @@ pub struct PlayerFields {
     pub resistance_buff_mods_negative: [u32; 7],
     pub mod_damage_done_pos: [u32; 7],
     pub mod_damage_done_neg: [u32; 7],
-    pub mod_damage_done_pct: [u32; 7],
+    pub mod_damage_done_pct: [NotNan<f32>; 7],
     pub _unknown_bytes_4: u32,
     pub ammo_id: u32,
     pub self_res_spell: u32,

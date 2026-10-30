@@ -7,6 +7,7 @@ use std::{
 
 use bit_vec::BitVec;
 use common::guid::{AnyGuid, Guid, GuidType, SelectableGuid};
+use ordered_float::NotNan;
 
 pub trait UpdateWritable {
     fn get_update_blocks_count() -> usize {
@@ -214,6 +215,12 @@ impl UpdateWritable for u32 {
 }
 
 impl UpdateWritable for f32 {
+    fn write(&self, blocks: &mut [u32]) {
+        blocks[0] = self.to_bits();
+    }
+}
+
+impl UpdateWritable for NotNan<f32> {
     fn write(&self, blocks: &mut [u32]) {
         blocks[0] = self.to_bits();
     }

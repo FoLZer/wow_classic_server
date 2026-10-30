@@ -1,5 +1,6 @@
 use common::guid::{self, Guid};
 use gameobjects::player::VisibleItemFields;
+use ordered_float::NotNan;
 use packets::{
     inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
     update_data::UpdateData,
@@ -11,7 +12,7 @@ use crate::{
     objects::{
         character::Character,
         item::Item,
-        item_prototype::{InventoryType, ItemPrototype},
+        item_prototype::{InventoryType, ItemClass, ItemPrototype},
     },
     packet_handler::{EquipmentSlot, Slot},
 };
@@ -55,16 +56,18 @@ struct SwapPrototypes {
 
 // All moves of a change happen at once: every item is taken out before any is placed
 #[derive(Clone, Copy)]
-struct ItemMove {
+struct ItemMove<'p> {
     from: Slot,
     to: Slot,
+    prototype: &'p ItemPrototype,
 }
 
-impl ItemMove {
+impl ItemMove<'_> {
     fn reversed(self) -> Self {
         Self {
             from: self.to,
             to: self.from,
+            ..self
         }
     }
 }
@@ -102,8 +105,8 @@ impl StackChange {
     }
 }
 
-enum InventoryChange {
-    Move(Vec<ItemMove>),
+enum InventoryChange<'p> {
+    Move(Vec<ItemMove<'p>>),
     Stack(Vec<StackChange>),
 }
 
@@ -327,7 +330,7 @@ impl Character {
         prototypes: &'p SwapPrototypes,
         src: Slot,
         dst: Slot,
-    ) -> Result<InventoryChange, InventoryChangeErrorType> {
+    ) -> Result<InventoryChange<'p>, InventoryChangeErrorType> {
         let main_hand = Slot::Equipment(EquipmentSlot::MainHand);
         let off_hand = Slot::Equipment(EquipmentSlot::OffHand);
 
@@ -336,8 +339,12 @@ impl Character {
             return Err(InventoryChangeErrorType::ItemDoesntGoToSlot);
         }
 
-        let src_move = ItemMove { from: src, to: dst };
-        self.check_move(&prototypes.src, src_move)?;
+        let src_move = ItemMove {
+            from: src,
+            to: dst,
+            prototype: &prototypes.src,
+        };
+        self.check_move(src_move)?;
 
         // Only stacks in the backpack can be merged into
         if let (Some(src_item), Some(dst_item)) = (self.items.get(src), self.items.get(dst))
@@ -351,8 +358,12 @@ impl Character {
 
         let mut moves = vec![src_move];
         if let Some(dst_prototype) = &prototypes.dst {
-            let dst_move = src_move.reversed();
-            self.check_move(dst_prototype, dst_move)?;
+            let dst_move = ItemMove {
+                from: dst,
+                to: src,
+                prototype: dst_prototype,
+            };
+            self.check_move(dst_move)?;
             moves.push(dst_move);
         }
 
@@ -387,19 +398,17 @@ impl Character {
             let off_hand_move = ItemMove {
                 from: off_hand,
                 to: free_slot,
+                prototype: off_hand_prototype,
             };
-            self.check_move(off_hand_prototype, off_hand_move)?;
+            self.check_move(off_hand_move)?;
             moves.push(off_hand_move);
         }
 
         Ok(InventoryChange::Move(moves))
     }
 
-    fn check_move(
-        &self,
-        prototype: &ItemPrototype,
-        item_move: ItemMove,
-    ) -> Result<(), InventoryChangeErrorType> {
+    fn check_move(&self, item_move: ItemMove) -> Result<(), InventoryChangeErrorType> {
+        let prototype = item_move.prototype;
         let changes_equipment = matches!(item_move.from, Slot::Equipment(_))
             || matches!(item_move.to, Slot::Equipment(_));
         if changes_equipment && self.in_combat() && !prototype.equipable_in_combat() {
@@ -430,7 +439,7 @@ impl Character {
     async fn apply_moves(
         &mut self,
         db: &Pool<Sqlite>,
-        moves: &[ItemMove],
+        moves: &[ItemMove<'_>],
     ) -> Result<InventoryChanges, MoveItemError> {
         self.move_items(moves);
 
@@ -438,6 +447,17 @@ impl Character {
             let reversed_moves = moves.iter().map(|m| m.reversed()).collect::<Vec<_>>();
             self.move_items(&reversed_moves);
             return Err(e.into());
+        }
+
+        for item_move in moves {
+            if let Slot::Equipment(slot) = item_move.from {
+                self.remove_item_stats(slot, item_move.prototype);
+            }
+        }
+        for item_move in moves {
+            if let Slot::Equipment(slot) = item_move.to {
+                self.add_item_stats(slot, item_move.prototype);
+            }
         }
 
         Ok(InventoryChanges::default())
@@ -519,6 +539,19 @@ impl Character {
                 self.insert_item(slot, item);
             }
             return Err(e.into());
+        }
+
+        for change in changes {
+            match *change {
+                StackChange::Create {
+                    slot: Slot::Equipment(slot),
+                    ..
+                } => self.add_item_stats(slot, prototype),
+                StackChange::Destroy {
+                    slot: Slot::Equipment(slot),
+                } => self.remove_item_stats(slot, prototype),
+                _ => {}
+            }
         }
 
         let mut inventory_changes = InventoryChanges::default();
@@ -684,7 +717,11 @@ impl Character {
             return Err(InventoryChangeErrorType::ItemDoesntGoToSlot);
         }
 
-        self.check_move(prototype, ItemMove { from: src, to: dst })?;
+        self.check_move(ItemMove {
+            from: src,
+            to: dst,
+            prototype,
+        })?;
 
         let Some(dst_item) = self.items.get(dst) else {
             return Ok(vec![
@@ -944,6 +981,81 @@ impl Character {
     }
 }
 
+pub(super) struct WeaponStats {
+    pub min_damage: NotNan<f32>,
+    pub max_damage: NotNan<f32>,
+    pub attack_time: u32,
+}
+
+impl Default for WeaponStats {
+    // Unarmed
+    fn default() -> Self {
+        Self {
+            min_damage: NotNan::from(1u8),
+            max_damage: NotNan::from(2u8),
+            attack_time: 2000,
+        }
+    }
+}
+
+impl WeaponStats {
+    fn of_weapon(prototype: &ItemPrototype) -> Option<Self> {
+        (prototype.class == ItemClass::Weapon).then(|| Self {
+            min_damage: NotNan::new(prototype.damage[0].min as f32)
+                .expect("an integer is never NaN"),
+            max_damage: NotNan::new(prototype.damage[0].max as f32)
+                .expect("an integer is never NaN"),
+            attack_time: prototype.delay,
+        })
+    }
+}
+
+impl<S> Character<S> {
+    //TODO: Armor from agility, damage from attack power
+    pub(super) fn add_item_stats(&mut self, slot: EquipmentSlot, prototype: &ItemPrototype) {
+        *self.unit_fields.normal_resistance.get_mut_using_copy() += prototype.armor;
+        if let Some(weapon) = WeaponStats::of_weapon(prototype) {
+            self.set_weapon_stats(slot, weapon);
+        }
+    }
+
+    fn remove_item_stats(&mut self, slot: EquipmentSlot, prototype: &ItemPrototype) {
+        let mut armor = self.unit_fields.normal_resistance.get_mut_using_copy();
+        *armor = armor.saturating_sub(prototype.armor);
+        drop(armor);
+
+        if WeaponStats::of_weapon(prototype).is_some() {
+            self.set_weapon_stats(slot, WeaponStats::default());
+        }
+    }
+
+    fn set_weapon_stats(&mut self, slot: EquipmentSlot, weapon: WeaponStats) {
+        let unit_fields = &mut self.unit_fields;
+        let (attack_time, min_damage, max_damage) = match slot {
+            EquipmentSlot::MainHand => (
+                &mut unit_fields.base_attack_time,
+                &mut unit_fields.min_damage,
+                &mut unit_fields.max_damage,
+            ),
+            EquipmentSlot::OffHand => (
+                &mut unit_fields.offhand_attack_time,
+                &mut unit_fields.min_offhand_damage,
+                &mut unit_fields.max_offhand_damage,
+            ),
+            EquipmentSlot::Ranged => (
+                &mut unit_fields.ranged_attack_time,
+                &mut unit_fields.min_ranged_damage,
+                &mut unit_fields.max_ranged_damage,
+            ),
+            _ => return,
+        };
+
+        *attack_time.get_mut_using_copy() = weapon.attack_time;
+        *min_damage.get_mut_using_copy() = weapon.min_damage;
+        *max_damage.get_mut_using_copy() = weapon.max_damage;
+    }
+}
+
 pub(super) struct CharacterItems {
     pub equipment: EquipmentItems,
     pub bags: [Option<Item>; 4],
@@ -956,6 +1068,23 @@ pub(super) struct CharacterItems {
 }
 
 impl CharacterItems {
+    pub(super) async fn load_equipped_prototypes(
+        &self,
+        game_data_accessor: &GameDataAccessor,
+    ) -> Result<Vec<(EquipmentSlot, ItemPrototype)>, sqlx::Error> {
+        let mut prototypes = Vec::new();
+        for slot in EquipmentSlot::ALL {
+            let Some(item) = self.equipment.get(slot) else {
+                continue;
+            };
+            if let Some(prototype) = item.load_prototype(game_data_accessor).await? {
+                prototypes.push((slot, prototype));
+            }
+        }
+
+        Ok(prototypes)
+    }
+
     fn get(&self, slot: Slot) -> &Option<Item> {
         match slot {
             Slot::Equipment(slot) => self.equipment.get(slot),
