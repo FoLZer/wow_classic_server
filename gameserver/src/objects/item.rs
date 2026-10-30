@@ -141,6 +141,64 @@ impl Item {
         }))
     }
 
+    pub fn guid(&self) -> Guid<guid::Item> {
+        *self.object_fields.guid.get()
+    }
+
+    pub fn entry(&self) -> u32 {
+        *self.object_fields.entry.get()
+    }
+
+    pub fn stack_count(&self) -> u32 {
+        *self.item_fields.stack_count.get()
+    }
+
+    pub fn set_stack_count(&mut self, count: u32) {
+        *self.item_fields.stack_count.get_mut_using_copy() = count;
+    }
+
+    pub fn stackable_amount_onto(&self, other: &Item, max_stack: u32) -> Option<u32> {
+        if self.entry() != other.entry() {
+            return None;
+        }
+
+        let free_space = max_stack.saturating_sub(other.stack_count());
+        (free_space > 0).then(|| free_space.min(self.stack_count()))
+    }
+
+    pub async fn save_stack_count(&self, db: impl SqliteExecutor<'_>) -> Result<(), sqlx::Error> {
+        let id = self.guid().get_u32().get();
+        let stack_count = self.stack_count();
+
+        let result = sqlx::query!(
+            "UPDATE item SET stack_count = ? WHERE id = ?",
+            stack_count,
+            id
+        )
+        .execute(db)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_from_db(&self, db: impl SqliteExecutor<'_>) -> Result<(), sqlx::Error> {
+        let id = self.guid().get_u32().get();
+
+        let result = sqlx::query!("DELETE FROM item WHERE id = ?", id)
+            .execute(db)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+
+        Ok(())
+    }
+
     pub fn build_create_update_block(&self) -> UpdateData {
         let mut mask_blocks = BitVec::new();
         let mut values_blocks = Vec::new();

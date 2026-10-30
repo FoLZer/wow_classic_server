@@ -12,6 +12,7 @@ use packets::{
     chat_message::{ChatType, ServerChatMessage, ServerChatType},
     client::{ClientPacket, ParseError},
     gossip::{NpcTextOption, U32Counted},
+    inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
     movement_info::MovementInfo,
     server::{QuestStatus, ServerPacket},
     stabled_pets::StabledPets,
@@ -26,7 +27,7 @@ use tokio::{
 
 use crate::{
     game_data::{GameDataAccessor, ValidLanguage},
-    objects::character::InventoryOperation,
+    objects::character::inventory::InventoryOperation,
 };
 
 pub async fn packet_handler(
@@ -348,11 +349,17 @@ pub async fn packet_handler(
                 };
             }
             ClientPacket::CMSG_AUTOEQUIP_ITEM(packet) => {
-                if packet.src_bag != 0xff {
-                    todo!()
-                }
-
-                let src_slot = parse_slot(packet.src_slot);
+                let Some(src_slot) = parse_slot(packet.src_bag, packet.src_slot) else {
+                    send_inventory_change_failure(
+                        &tx,
+                        session_key,
+                        &encrypt_data,
+                        character_id,
+                        InventoryChangeErrorType::ItemNotFound,
+                    )
+                    .await;
+                    continue;
+                };
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
@@ -364,11 +371,31 @@ pub async fn packet_handler(
                 };
             }
             ClientPacket::CMSG_AUTOSTORE_BAG_ITEM(packet) => {
-                if packet.src_bag != 0xff || packet.dst_bag != 0xff {
-                    todo!()
-                }
+                let Some(src_slot) = parse_slot(packet.src_bag, packet.src_slot) else {
+                    send_inventory_change_failure(
+                        &tx,
+                        session_key,
+                        &encrypt_data,
+                        character_id,
+                        InventoryChangeErrorType::ItemNotFound,
+                    )
+                    .await;
+                    continue;
+                };
 
-                let src_slot = parse_slot(packet.src_slot);
+                //TODO: Bags
+                if packet.dst_bag != 0xff {
+                    if let Err(_) = player_update_queue.push(PlayerUpdate {
+                        character_id,
+                        data: PlayerUpdateData::Inventory(InventoryOperation::Reject {
+                            src: src_slot,
+                            error: InventoryChangeErrorType::ItemDoesntGoToSlot,
+                        }),
+                    }) {
+                        return;
+                    };
+                    continue;
+                }
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
@@ -380,14 +407,71 @@ pub async fn packet_handler(
                 };
             }
             ClientPacket::CMSG_SWAP_INV_ITEM(packet) => {
-                let src_slot = parse_slot(packet.src_slot);
-                let dst_slot = parse_slot(packet.dst_slot);
+                let Some(src_slot) = parse_slot(0xff, packet.src_slot) else {
+                    send_inventory_change_failure(
+                        &tx,
+                        session_key,
+                        &encrypt_data,
+                        character_id,
+                        InventoryChangeErrorType::ItemNotFound,
+                    )
+                    .await;
+                    continue;
+                };
+                let Some(dst_slot) = parse_slot(0xff, packet.dst_slot) else {
+                    if let Err(_) = player_update_queue.push(PlayerUpdate {
+                        character_id,
+                        data: PlayerUpdateData::Inventory(InventoryOperation::Reject {
+                            src: src_slot,
+                            error: InventoryChangeErrorType::ItemDoesntGoToSlot,
+                        }),
+                    }) {
+                        return;
+                    };
+                    continue;
+                };
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
                     data: PlayerUpdateData::Inventory(InventoryOperation::Swap {
                         src: src_slot,
                         dst: dst_slot,
+                    }),
+                }) {
+                    return;
+                };
+            }
+            ClientPacket::CMSG_SPLIT_ITEM(packet) => {
+                let Some(src_slot) = parse_slot(packet.src_bag, packet.src_slot) else {
+                    send_inventory_change_failure(
+                        &tx,
+                        session_key,
+                        &encrypt_data,
+                        character_id,
+                        InventoryChangeErrorType::ItemNotFound,
+                    )
+                    .await;
+                    continue;
+                };
+                let Some(dst_slot) = parse_slot(packet.dst_bag, packet.dst_slot) else {
+                    if let Err(_) = player_update_queue.push(PlayerUpdate {
+                        character_id,
+                        data: PlayerUpdateData::Inventory(InventoryOperation::Reject {
+                            src: src_slot,
+                            error: InventoryChangeErrorType::ItemDoesntGoToSlot,
+                        }),
+                    }) {
+                        return;
+                    };
+                    continue;
+                };
+
+                if let Err(_) = player_update_queue.push(PlayerUpdate {
+                    character_id,
+                    data: PlayerUpdateData::Inventory(InventoryOperation::Split {
+                        src: src_slot,
+                        dst: dst_slot,
+                        count: packet.count as u32,
                     }),
                 }) {
                     return;
@@ -1039,15 +1123,21 @@ pub async fn packet_handler(
                     );
                     continue;
                 };
-                if packet.bag_guid != character_id.get().get()
-                    || !(23..=38).contains(&packet.bag_slot)
-                {
-                    warn!(
-                        "Client (character_id: {}) sent CMSG_BUY_ITEM_IN_SLOT with an unsupported bag or slot",
-                        character_id.get()
-                    );
+                //TODO: Bags
+                let requested_slot = (packet.bag_guid == character_id.get().get())
+                    .then(|| parse_slot(0xff, packet.bag_slot))
+                    .flatten();
+                let Some(requested_slot) = requested_slot else {
+                    send_inventory_change_failure(
+                        &tx,
+                        session_key,
+                        &encrypt_data,
+                        character_id,
+                        InventoryChangeErrorType::ItemDoesntGoToSlot,
+                    )
+                    .await;
                     continue;
-                }
+                };
 
                 if let Err(_) = player_update_queue.push(PlayerUpdate {
                     character_id,
@@ -1055,7 +1145,7 @@ pub async fn packet_handler(
                         vendor_guid,
                         item_id: packet.item_id,
                         purchase_amount: packet.purchase_amount,
-                        requested_slot: Some(Slot::MainBag(packet.bag_slot - 23)),
+                        requested_slot: Some(requested_slot),
                     },
                 }) {
                     return;
@@ -1380,8 +1470,14 @@ pub enum PlayerUpdateData {
     },
 }
 
-fn parse_slot(slot: u8) -> Slot {
-    match slot {
+// `bag` is 0xff for slots that aren't inside a bag
+//TODO: Bags, bank and keyring
+fn parse_slot(bag: u8, slot: u8) -> Option<Slot> {
+    if bag != 0xff {
+        return None;
+    }
+
+    let slot = match slot {
         0 => Slot::Equipment(EquipmentSlot::Head),
         1 => Slot::Equipment(EquipmentSlot::Neck),
         2 => Slot::Equipment(EquipmentSlot::Shoulders),
@@ -1403,8 +1499,39 @@ fn parse_slot(slot: u8) -> Slot {
         18 => Slot::Equipment(EquipmentSlot::Tabard),
         19..=22 => Slot::BagItem(slot - 19),
         23..=38 => Slot::MainBag(slot - 23),
-        _ => todo!(),
-    }
+        _ => return None,
+    };
+
+    Some(slot)
+}
+
+async fn send_inventory_change_failure(
+    tx: &Mutex<OwnedWriteHalf>,
+    session_key: [u8; 40],
+    encrypt_data: &Mutex<(usize, u8)>,
+    character_id: Guid<guid::Player>,
+    error: InventoryChangeErrorType,
+) {
+    let response = packets::server::SMSG_INVENTORY_CHANGE_FAILURE {
+        result: InventoryChangeError {
+            error,
+            item1: None,
+            item2: None,
+        },
+    };
+
+    let mut lock = tx.lock().await;
+
+    if let Err(e) = lock
+        .write_all(&response.to_bytes(Some(session_key), &mut *encrypt_data.lock().await))
+        .await
+    {
+        warn!(
+            "Failed to send SMSG_INVENTORY_CHANGE_FAILURE to client (character_id: {}). Error: {:?}",
+            character_id.get(),
+            e
+        )
+    };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1436,12 +1563,6 @@ pub enum Slot {
     Equipment(EquipmentSlot),
     BagItem(u8),
     MainBag(u8),
-}
-
-impl Slot {
-    pub fn is_equipable(&self) -> bool {
-        matches!(self, Slot::Equipment(_) | Slot::BagItem(_))
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

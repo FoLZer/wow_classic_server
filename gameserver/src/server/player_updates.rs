@@ -8,6 +8,7 @@ use packets::{
     account_result::AccountResult,
     chat_message::{ChatTag, ServerChatMessage, ServerChatType},
     gossip::{GossipMenuItem, U32Counted},
+    inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
     movement_info::{MovementFlags, MovementInfo},
     server::ServerPacket,
     update_data::{
@@ -20,7 +21,10 @@ use tokio::io::AsyncWriteExt;
 use crate::{
     dirty_tracking_map::DirtyTrackingMap,
     objects::{
-        character::{Character, InventoryOperation, MoveItemError},
+        character::{
+            Character,
+            inventory::{InventoryChanges, InventoryOperation, MoveItemError},
+        },
         creature::MeleeState,
         gossip::GossipCursor,
     },
@@ -274,10 +278,21 @@ impl Server {
                                 .store_item_in_backpack(&self.game_data_accessor, &self.db, src)
                                 .await
                         }
+                        InventoryOperation::Split { src, dst, count } => {
+                            character
+                                .split_item(&self.game_data_accessor, &self.db, src, dst, count)
+                                .await
+                        }
+                        InventoryOperation::Reject { error, .. } => Err(MoveItemError::Inventory(
+                            character.inventory_operation_error(operation, error),
+                        )),
                     };
 
                     let result = match result {
-                        Ok(()) => continue,
+                        Ok(changes) => {
+                            send_inventory_changes(&character, changes).await;
+                            continue;
+                        }
                         Err(MoveItemError::Inventory(e)) => e,
                         Err(MoveItemError::Database(e)) => {
                             error!(
@@ -285,7 +300,11 @@ impl Server {
                                 character_id.get(),
                                 e
                             );
-                            continue;
+                            // The client keeps the items locked until it gets a response
+                            character.inventory_operation_error(
+                                operation,
+                                InventoryChangeErrorType::CantDoRightNow,
+                            )
                         }
                     };
 
@@ -905,8 +924,20 @@ impl Server {
 
                     let prototype = match self.game_data_accessor.get_item_prototype(item_id).await
                     {
-                        Ok(Some(prototype)) => prototype,
-                        Ok(None) => {
+                        Ok(prototype) => prototype,
+                        Err(error) => {
+                            error!(
+                                "Failed to load a purchased item prototype (item_id: {}, character_id: {}). Error: {}",
+                                item_id,
+                                character_id.get(),
+                                error
+                            );
+                            None
+                        }
+                    };
+                    let prototype = match prototype {
+                        Some(prototype) => prototype,
+                        None => {
                             let Some(character) = self.characters.get(&character_id) else {
                                 continue;
                             };
@@ -931,22 +962,13 @@ impl Server {
                             }
                             continue;
                         }
-                        Err(error) => {
-                            error!(
-                                "Failed to load a purchased item prototype (item_id: {}, character_id: {}). Error: {}",
-                                item_id,
-                                character_id.get(),
-                                error
-                            );
-                            continue;
-                        }
                     };
 
                     let Some(mut character) = self.characters.get_mut(&character_id) else {
                         continue;
                     };
-                    let item_update_blocks = match character
-                        .store_new_item_in_backpack(
+                    let result = match character
+                        .store_new_items(
                             &self.game_data_accessor,
                             &self.db,
                             &prototype,
@@ -955,8 +977,25 @@ impl Server {
                         )
                         .await
                     {
-                        Ok(update_blocks) => update_blocks,
-                        Err(MoveItemError::Inventory(result)) => {
+                        Ok(changes) => Ok(changes),
+                        Err(MoveItemError::Inventory(result)) => Err(result),
+                        Err(MoveItemError::Database(error)) => {
+                            error!(
+                                "Failed to create a purchased item (item_id: {}, character_id: {}). Error: {}",
+                                item_id,
+                                character_id.get(),
+                                error
+                            );
+                            Err(InventoryChangeError {
+                                error: InventoryChangeErrorType::CantDoRightNow,
+                                item1: None,
+                                item2: None,
+                            })
+                        }
+                    };
+                    let changes = match result {
+                        Ok(changes) => changes,
+                        Err(result) => {
                             let response =
                                 packets::server::SMSG_INVENTORY_CHANGE_FAILURE { result };
                             let mut lock = character.stream_tx.lock().await;
@@ -975,38 +1014,10 @@ impl Server {
                             }
                             continue;
                         }
-                        Err(MoveItemError::Database(error)) => {
-                            error!(
-                                "Failed to create a purchased item (item_id: {}, character_id: {}). Error: {}",
-                                item_id,
-                                character_id.get(),
-                                error
-                            );
-                            continue;
-                        }
                     };
 
                     *character.player_fields.coinage.get_mut_using_copy() -= price;
-                    let response = packets::server::SMSG_UPDATE_OBJECT {
-                        update_data: UpdateBlocks {
-                            has_transport: false,
-                            blocks: item_update_blocks,
-                        },
-                    };
-                    let mut lock = character.stream_tx.lock().await;
-                    if let Err(error) = lock
-                        .write_all(&response.to_bytes(
-                            Some(character.session_key),
-                            &mut *character.encrypt_data.lock().await,
-                        ))
-                        .await
-                    {
-                        warn!(
-                            "Failed to send purchased item updates to client (character_id: {}). Error: {:?}",
-                            character_id.get(),
-                            error
-                        );
-                    }
+                    send_inventory_changes(&character, changes).await;
 
                     let new_count = if let Some(mut vendor) = self.creatures.get_mut(&vendor_guid) {
                         vendor
@@ -1029,6 +1040,7 @@ impl Server {
                         new_count,
                         purchase_count: purchase_amount as u32,
                     };
+                    let mut lock = character.stream_tx.lock().await;
                     if let Err(error) = lock
                         .write_all(&response.to_bytes(
                             Some(character.session_key),
@@ -1439,6 +1451,51 @@ impl Server {
                 self.game_data_accessor.clone(),
                 self.db.clone(),
             ));
+        }
+    }
+}
+
+async fn send_inventory_changes(character: &Character, changes: InventoryChanges) {
+    let mut lock = character.stream_tx.lock().await;
+
+    for guid in changes.destroyed {
+        let response = packets::server::SMSG_DESTROY_OBJECT {
+            guid: AnyGuid::Item(guid),
+        };
+        if let Err(e) = lock
+            .write_all(&response.to_bytes(
+                Some(character.session_key),
+                &mut *character.encrypt_data.lock().await,
+            ))
+            .await
+        {
+            warn!(
+                "Failed to send SMSG_DESTROY_OBJECT for an item to client (character_id: {}). Error: {:?}",
+                character.guid().get(),
+                e
+            );
+        }
+    }
+
+    if !changes.updated.is_empty() {
+        let response = packets::server::SMSG_UPDATE_OBJECT {
+            update_data: UpdateBlocks {
+                has_transport: false,
+                blocks: changes.updated,
+            },
+        };
+        if let Err(e) = lock
+            .write_all(&response.to_bytes(
+                Some(character.session_key),
+                &mut *character.encrypt_data.lock().await,
+            ))
+            .await
+        {
+            warn!(
+                "Failed to send item updates to client (character_id: {}). Error: {:?}",
+                character.guid().get(),
+                e
+            );
         }
     }
 }

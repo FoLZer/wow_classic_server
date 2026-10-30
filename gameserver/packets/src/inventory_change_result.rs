@@ -27,6 +27,7 @@ impl<T: ByteOrder> OrderedWrite<T> for InventoryChangeError {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum InventoryChangeErrorType {
     CantEquipLevel { required_level: u32 },
     CantEquipSkill,

@@ -164,6 +164,13 @@ CMSG_SWAP_INV_ITEM 0x10D {
     src_slot: u8: LittleEndian,
     dst_slot: u8: LittleEndian,
 },
+CMSG_SPLIT_ITEM 0x10E {
+    src_bag: u8: LittleEndian,
+    src_slot: u8: LittleEndian,
+    dst_bag: u8: LittleEndian,
+    dst_slot: u8: LittleEndian,
+    count: u8: LittleEndian,
+},
 CMSG_CANCEL_TRADE 0x11C {
 },
 CMSG_SET_SELECTION 0x13D {

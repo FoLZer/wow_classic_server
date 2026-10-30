@@ -4,6 +4,8 @@ use common::guid::{self, Guid};
 use packets::item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat};
 use sqlx::{Pool, Sqlite, SqliteExecutor};
 
+use crate::packet_handler::EquipmentSlot;
+
 #[derive(Debug)]
 pub struct ItemPrototype {
     pub item_id: u32,
@@ -483,6 +485,35 @@ impl TryFrom<u8> for InventoryType {
             27 => Ok(Self::Quiver),
             28 => Ok(Self::Relic),
             _ => Err(value),
+        }
+    }
+}
+
+impl InventoryType {
+    //TODO: Bags and quivers go into bag slots
+    pub fn equip_slots(self, can_dual_wield: bool) -> &'static [EquipmentSlot] {
+        use EquipmentSlot::*;
+
+        match self {
+            Self::Head => &[Head],
+            Self::Neck => &[Neck],
+            Self::Shoulders => &[Shoulders],
+            Self::Body => &[Body],
+            Self::Chest | Self::Robe => &[Chest],
+            Self::Waist => &[Waist],
+            Self::Legs => &[Legs],
+            Self::Feet => &[Feet],
+            Self::Wrists => &[Wrists],
+            Self::Hands => &[Hands],
+            Self::Finger => &[Finger1, Finger2],
+            Self::Trinket => &[Trinket1, Trinket2],
+            Self::Cloak => &[Back],
+            Self::Weapon if can_dual_wield => &[MainHand, OffHand],
+            Self::Weapon | Self::TwoHandWeapon | Self::WeaponMainHand => &[MainHand],
+            Self::Shield | Self::WeaponOffHand | Self::Holdable => &[OffHand],
+            Self::Ranged | Self::Thrown | Self::RangedRight | Self::Relic => &[Ranged],
+            Self::Tabard => &[Tabard],
+            Self::NonEquip | Self::Bag | Self::Ammo | Self::Quiver => &[],
         }
     }
 }
