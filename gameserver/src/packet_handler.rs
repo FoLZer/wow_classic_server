@@ -9,7 +9,8 @@ use gameobjects::{
 };
 use log::{error, warn};
 use packets::{
-    chat_message::{ChatType, ServerChatMessage, ServerChatType},
+    bounded::Bounded,
+    chat_message::{ChatText, ChatType, ServerChatMessage, ServerChatType},
     client::{ClientPacket, ParseError},
     gossip::{NpcTextOption, U32Counted},
     inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
@@ -490,7 +491,10 @@ pub async fn packet_handler(
                 let response = match CharacterNameQueryData::load_from_db(&db, guid).await {
                     Ok(Some(data)) => packets::server::SMSG_NAME_QUERY_RESPONSE {
                         guid,
-                        name: Some(CString::new(data.name).unwrap()),
+                        name: Some(
+                            Bounded::try_from(data.name.as_str())
+                                .expect("character name exceeds the client limit"),
+                        ),
                         realm_name: None,
                         race: data.race as u32,
                         gender: data.gender as u32,
@@ -553,10 +557,11 @@ pub async fn packet_handler(
                     item_id,
                     class: item_prototype.class as u32,
                     sub_class: item_prototype.sub_class,
-                    name_1: CString::new(item_prototype.name).unwrap(),
-                    name_2: CString::new("").unwrap(),
-                    name_3: CString::new("").unwrap(),
-                    name_4: CString::new("").unwrap(),
+                    name_1: Bounded::try_from(item_prototype.name.as_str())
+                        .expect("item name exceeds the client limit"),
+                    name_2: Bounded::default(),
+                    name_3: Bounded::default(),
+                    name_4: Bounded::default(),
                     display_info_id: item_prototype.display_info_id,
                     quality: item_prototype.quality,
                     flags: item_prototype.flags,
@@ -591,7 +596,8 @@ pub async fn packet_handler(
                     ranged_mod_range: item_prototype.ranged_mod_range,
                     spells: item_prototype.spells,
                     bonding: item_prototype.bonding,
-                    description: CString::new(item_prototype.description).unwrap(),
+                    description: Bounded::try_from(item_prototype.description.as_str())
+                        .expect("item description exceeds the client limit"),
                     page_text: item_prototype.page_text,
                     language_id: item_prototype.language_id,
                     page_material: item_prototype.page_material,
@@ -685,12 +691,15 @@ pub async fn packet_handler(
 
                 let response = packets::server::SMSG_CREATURE_QUERY_RESPONSE {
                     creature_id,
-                    name_1: CString::new(creature_prototype.name).unwrap(),
-                    name_2: CString::new("").unwrap(),
-                    name_3: CString::new("").unwrap(),
-                    name_4: CString::new("").unwrap(),
-                    sub_name: CString::new(creature_prototype.sub_name.unwrap_or(String::new()))
-                        .unwrap(),
+                    name_1: Bounded::try_from(creature_prototype.name.as_str())
+                        .expect("creature name exceeds the client limit"),
+                    name_2: Bounded::default(),
+                    name_3: Bounded::default(),
+                    name_4: Bounded::default(),
+                    sub_name: Bounded::try_from(
+                        creature_prototype.sub_name.as_deref().unwrap_or_default(),
+                    )
+                    .expect("creature sub name exceeds the client limit"),
                     flags: creature_prototype.flags,
                     creature_type: creature_prototype.r#type,
                     family: creature_prototype.family,
@@ -896,11 +905,14 @@ pub async fn packet_handler(
                             }
                             Err(CommandParseError::NothingToParse) => (), // Send the message as normal (anti-spam in the future?)
                             Err(CommandParseError::UnkownCommand(command)) => {
+                                let text = ChatText::try_from(
+                                    format!("Unknown command: .{command}").as_str(),
+                                )
+                                .unwrap_or_else(|_| ChatText::try_from("Unknown command").unwrap());
                                 let response = packets::server::SMSG_MESSAGECHAT {
                                     chat: ServerChatMessage {
                                         ty: ServerChatType::System,
-                                        text: CString::new(format!("Unknown command: .{command}"))
-                                            .unwrap(),
+                                        text,
                                     },
                                 };
 
@@ -941,6 +953,18 @@ pub async fn packet_handler(
                             error!(
                                 "Failed to query language due to a DB error (language: {}, requesting character_id: {}). Error: {}",
                                 packet.chat.lang,
+                                character_id.get(),
+                                e
+                            );
+                            continue;
+                        }
+                    };
+
+                    let text = match ChatText::new(text) {
+                        Ok(text) => text,
+                        Err(e) => {
+                            warn!(
+                                "Client (character_id: {}) sent CMSG_MESSAGECHAT with a too long message: {}",
                                 character_id.get(),
                                 e
                             );
@@ -1008,8 +1032,10 @@ pub async fn packet_handler(
                     options: [
                         NpcTextOption {
                             probability: 1.0,
-                            text_male: CString::new(npc_text.text_male).unwrap(),
-                            text_female: CString::new(npc_text.text_female).unwrap(),
+                            text_male: Bounded::try_from(npc_text.text_male.as_str())
+                                .expect("npc text exceeds the client limit"),
+                            text_female: Bounded::try_from(npc_text.text_female.as_str())
+                                .expect("npc text exceeds the client limit"),
                             language: npc_text.language,
                             emotes: [(0, 0); 3],
                         },
@@ -1196,8 +1222,8 @@ pub async fn packet_handler(
                 let response = packets::server::SMSG_TRAINER_LIST {
                     trainer_guid,
                     trainer_type: TrainerType::Class,
-                    spells: U32Counted(vec![]),
-                    greeting: CString::new("TEST").unwrap(),
+                    spells: Bounded::default(),
+                    greeting: Bounded::try_from("TEST").unwrap(),
                 };
 
                 if let Err(e) = tx
@@ -1305,7 +1331,7 @@ pub async fn packet_handler(
                     stable_master_guid,
                     stabled_pets: StabledPets {
                         stable_slots: 0,
-                        pets: vec![],
+                        pets: Bounded::default(),
                     },
                 };
 
@@ -1617,57 +1643,57 @@ pub enum MovementOpcode {
 pub enum ChatMessage {
     Say {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Party {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Raid {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Guild {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Officer {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Yell {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Whisper {
         language: ValidLanguage,
         target_name: CString,
-        text: CString,
+        text: ChatText,
     },
     Emote {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     Channel {
         language: ValidLanguage,
         channel_name: CString,
-        text: CString,
+        text: ChatText,
     },
     RaidLeader {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     RaidWarning {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     BattleGround {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
     BattleGroundLeader {
         language: ValidLanguage,
-        text: CString,
+        text: ChatText,
     },
 }
 

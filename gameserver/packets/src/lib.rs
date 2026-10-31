@@ -2,6 +2,7 @@
 
 pub mod account_result;
 pub mod attacker_state;
+pub mod bounded;
 pub mod character_info;
 pub mod chat_message;
 pub mod client;

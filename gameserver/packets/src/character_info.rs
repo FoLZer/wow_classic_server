@@ -1,15 +1,18 @@
-use std::{ffi::CString, str::FromStr};
+use std::ffi::CString;
 
 use bitfield_struct::bitfield;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use common::guid::{self, Guid, GuidType};
 
-use crate::server::OrderedWrite;
+use crate::{bounded::Bounded, server::OrderedWrite};
+
+pub type CharacterName = Bounded<CString, 48>;
+pub type CharacterList = Bounded<Vec<CharacterInfo>, 10>;
 
 #[derive(Clone)]
 pub struct CharacterInfo {
     pub guid: Guid<guid::Player>,
-    pub name: String,
+    pub name: CharacterName,
     pub race: u8,
     pub class: u8,
     pub gender: u8,
@@ -83,7 +86,7 @@ pub struct GearInfo {
 impl<T: ByteOrder> OrderedWrite<T> for CharacterInfo {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         <Guid<guid::Player> as OrderedWrite<LittleEndian>>::write(&self.guid, writer)?;
-        <CString as OrderedWrite<LittleEndian>>::write(&CString::from_str(&self.name)?, writer)?;
+        <CharacterName as OrderedWrite<LittleEndian>>::write(&self.name, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.race, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.class, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.gender, writer)?;

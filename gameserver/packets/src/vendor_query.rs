@@ -2,12 +2,12 @@ use std::num::NonZeroU32;
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 
-use crate::server::OrderedWrite;
+use crate::{bounded::Bounded, server::OrderedWrite};
 
 pub enum VendorQueryResult {
     Ok {
         /// Count must not be 0 here, if vendor has no items use Err(VendorQueryError::NoInventory)
-        items: Vec<SerializedVendorItem>,
+        items: VendorItems,
     },
     Err(VendorQueryError),
 }
@@ -31,6 +31,8 @@ impl<B: ByteOrder> OrderedWrite<B> for VendorQueryResult {
         Ok(())
     }
 }
+
+pub type VendorItems = Bounded<Vec<SerializedVendorItem>, 128>;
 
 pub enum VendorQueryError {
     NoInventory,

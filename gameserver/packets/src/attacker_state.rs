@@ -1,7 +1,7 @@
 use bitfield_struct::bitfield;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 
-use crate::server::OrderedWrite;
+use crate::{bounded::Bounded, server::OrderedWrite};
 
 #[bitfield(u32)]
 pub struct HitInfo {
@@ -92,24 +92,7 @@ impl<T: ByteOrder> OrderedWrite<T> for SubDamage {
     }
 }
 
-// SubDamages can only have MAX_LEN entries at max, the server will crash if this is not accounted for
-pub struct SubDamages(pub Vec<SubDamage>);
-
-impl SubDamages {
-    // the client stores sub damages in fixed arrays without checking the count
-    pub const MAX_LEN: usize = 5;
-}
-
-impl<T: ByteOrder> OrderedWrite<T> for SubDamages {
-    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        assert!(
-            self.0.len() <= Self::MAX_LEN,
-            "SubDamages must not have more than 5 entries to be sent to the client"
-        );
-
-        <Vec<SubDamage> as OrderedWrite<LittleEndian>>::write(&self.0, writer)
-    }
-}
+pub type SubDamages = Bounded<Vec<SubDamage>, 5>;
 
 #[derive(Clone, Copy)]
 pub enum HitHand {

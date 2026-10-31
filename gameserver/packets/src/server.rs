@@ -1,10 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use std::{
-    ffi::CString,
-    io::{ErrorKind, Write},
-    num::NonZeroU32,
-};
+use std::{ffi::CString, io::Write, num::NonZeroU32};
 
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
@@ -14,9 +10,10 @@ use macros::create_server_packets;
 use crate::{
     account_result::AccountResult,
     attacker_state::{HitInfo, SubDamages, VictimState},
-    character_info::CharacterInfo,
+    bounded::Bounded,
+    character_info::{CharacterList, CharacterName},
     chat_message::ServerChatMessage,
-    gossip::{GossipMenuItem, GossipQuestMenuItem, NpcTextOption, U32Counted},
+    gossip::{GossipMenuItems, GossipQuestMenuItems, NpcTextOption, U32Counted},
     inventory_change_result::InventoryChangeError,
     item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
     movement_info::MovementInfo,
@@ -45,7 +42,7 @@ SMSG_CHAR_DELETE 0x03C {
     result: AccountResult: LittleEndian,
 },
 SMSG_CHAR_ENUM 0x03B {
-    characters: Vec<CharacterInfo>: LittleEndian,
+    characters: CharacterList: LittleEndian,
 },
 SMSG_CHAR_LOGIN_FAILED 0x041 {
     result: AccountResult: LittleEndian,
@@ -61,8 +58,8 @@ SMSG_LOGOUT_RESPONSE 0x04C {
 SMSG_LOGOUT_COMPLETE 0x04D {},
 SMSG_NAME_QUERY_RESPONSE 0x051 {
     guid: Guid<guid::Player>: LittleEndian,
-    name: Option<CString>: LittleEndian, // Max 48 bytes with NUL
-    realm_name: Option<CString>: LittleEndian, // Max 256 bytes with NUL
+    name: Option<CharacterName>: LittleEndian,
+    realm_name: Option<Bounded<CString, 256>>: LittleEndian,
     race: u32: LittleEndian,
     gender: u32: LittleEndian,
     class: u32: LittleEndian,
@@ -71,10 +68,10 @@ SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
     item_id: u32: LittleEndian,
     class: u32: LittleEndian,
     sub_class: u32: LittleEndian,
-    name_1: CString: LittleEndian,
-    name_2: CString: LittleEndian,
-    name_3: CString: LittleEndian,
-    name_4: CString: LittleEndian,
+    name_1: Bounded<CString, 256>: LittleEndian,
+    name_2: Bounded<CString, 256>: LittleEndian,
+    name_3: Bounded<CString, 256>: LittleEndian,
+    name_4: Bounded<CString, 256>: LittleEndian,
     display_info_id: u32: LittleEndian,
     quality: u32: LittleEndian,
     flags: ItemFlags: LittleEndian,
@@ -113,7 +110,7 @@ SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
     spells: [Option<ItemSpell>; 5]: LittleEndian,
 
     bonding: u32: LittleEndian,
-    description: CString: LittleEndian,
+    description: Bounded<CString, 1024>: LittleEndian,
     page_text: u32: LittleEndian,
     language_id: u32: LittleEndian,
     page_material: u32: LittleEndian,
@@ -131,11 +128,11 @@ SMSG_ITEM_QUERY_SINGLE_RESPONSE 0x058 {
 },
 SMSG_CREATURE_QUERY_RESPONSE 0x061 {
     creature_id: u32: LittleEndian,
-    name_1: CString: LittleEndian,
-    name_2: CString: LittleEndian,
-    name_3: CString: LittleEndian,
-    name_4: CString: LittleEndian,
-    sub_name: CString: LittleEndian,
+    name_1: Bounded<CString, 256>: LittleEndian,
+    name_2: Bounded<CString, 256>: LittleEndian,
+    name_3: Bounded<CString, 256>: LittleEndian,
+    name_4: Bounded<CString, 256>: LittleEndian,
+    sub_name: Bounded<CString, 256>: LittleEndian,
     flags: u32: LittleEndian,
     creature_type: u32: LittleEndian,
     family: Option<NonZeroU32>: LittleEndian,
@@ -285,8 +282,8 @@ SMSG_BINDPOINTUPDATE 0x155 {
 SMSG_GOSSIP_MESSAGE 0x17D {
     source: GossipSourceGuid: LittleEndian,
     title_id: u32: LittleEndian,
-    menu_items: U32Counted<GossipMenuItem>: LittleEndian,
-    quest_menu_items: U32Counted<GossipQuestMenuItem>: LittleEndian
+    menu_items: GossipMenuItems: LittleEndian,
+    quest_menu_items: GossipQuestMenuItems: LittleEndian
 },
 SMSG_NPC_TEXT_UPDATE 0x180 {
     text_id: u32: LittleEndian,
@@ -318,8 +315,9 @@ SMSG_TAXINODE_STATUS 0x1AB {
 SMSG_TRAINER_LIST 0x1B1 {
     trainer_guid: Guid<guid::Unit>: LittleEndian,
     trainer_type: TrainerType: LittleEndian,
-    spells: U32Counted<TrainerSpell>: LittleEndian,
-    greeting: CString: LittleEndian,
+    // 1024 is arbitrary safe bound here, it can be increased up to ~20k but such high values are unreliable due to stack limits
+    spells: Bounded<U32Counted<TrainerSpell>, 1024>: LittleEndian,
+    greeting: Bounded<CString, 512>: LittleEndian,
 },
 SMSG_SHOW_BANK 0x1B8 {
     npc_guid: Guid<guid::Unit>: LittleEndian
@@ -463,55 +461,6 @@ impl<B: ByteOrder, T: OrderedWrite<B>, const N: usize> OrderedWrite<B> for [T; N
 
     fn serialized_size(&self) -> usize {
         self.iter().map(OrderedWrite::<B>::serialized_size).sum()
-    }
-}
-
-impl<T: ByteOrder> OrderedWrite<T> for CString {
-    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        writer.write_all(self.as_bytes_with_nul())
-    }
-
-    fn serialized_size(&self) -> usize {
-        self.as_bytes_with_nul().len()
-    }
-}
-
-impl<T: ByteOrder> OrderedWrite<T> for Option<CString> {
-    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        writer.write_all(match self {
-            Some(v) => v.as_bytes_with_nul(),
-            None => &[b'\0'],
-        })
-    }
-
-    fn serialized_size(&self) -> usize {
-        self.as_ref()
-            .map_or(1, |value| value.as_bytes_with_nul().len())
-    }
-}
-
-impl<B: ByteOrder, T: OrderedWrite<B>> OrderedWrite<B> for Vec<T> {
-    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        if self.len() > u8::MAX as usize {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "Vec must not have more than 255 entries to be sent to the client",
-            ));
-        }
-
-        writer.write_u8(self.len() as u8)?;
-        for v in self {
-            v.write(writer)?;
-        }
-        Ok(())
-    }
-
-    fn serialized_size(&self) -> usize {
-        size_of::<u8>()
-            + self
-                .iter()
-                .map(OrderedWrite::<B>::serialized_size)
-                .sum::<usize>()
     }
 }
 

@@ -6,7 +6,7 @@ use std::{
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use common::guid::{self, Guid, LivingGuid};
 
-use crate::{client::OrderedRead, server::OrderedWrite};
+use crate::{bounded::Bounded, client::OrderedRead, server::OrderedWrite};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(u32)]
@@ -96,6 +96,12 @@ pub enum ChatTag {
     GM = 3,
 }
 
+pub type ChannelName = Bounded<CString, 128>;
+pub type MonsterName = Bounded<CString, 256>;
+// the client formats "Type: [%d], Channel: [%s], Player Name: [%s], Text: [%s]" into a 2048 byte
+// buffer without bounds checks: ChatText + ChannelName + CharacterName <= 2000
+pub type ChatText = Bounded<CString, 1024>;
+
 /// Chat type of SMSG_MESSAGECHAT together with its type-specific fields.
 /// Types without `lang` are sent as universal, types without `tag` as `ChatTag::None`:
 /// the client ignores those fields for them.
@@ -149,22 +155,22 @@ pub enum ServerChatType {
     System,
     MonsterSay {
         speaker: Guid<guid::Unit>,
-        name: CString,
+        name: MonsterName,
         target: Option<LivingGuid>,
         lang: u32,
     },
     MonsterYell {
         speaker: Guid<guid::Unit>,
-        name: CString,
+        name: MonsterName,
         target: Option<LivingGuid>,
         lang: u32,
     },
     MonsterEmote {
-        name: CString,
+        name: MonsterName,
         target: Option<LivingGuid>,
     },
     Channel {
-        channel_name: CString,
+        channel_name: ChannelName,
         sender_pvp_rank: u32,
         sender: Guid<guid::Player>,
         lang: u32,
@@ -181,7 +187,7 @@ pub enum ServerChatType {
         tag: ChatTag,
     },
     MonsterWhisper {
-        name: CString,
+        name: MonsterName,
         target: Option<LivingGuid>,
         lang: u32,
     },
@@ -196,7 +202,7 @@ pub enum ServerChatType {
         tag: ChatTag,
     },
     RaidBossEmote {
-        name: CString,
+        name: MonsterName,
         target: Option<LivingGuid>,
     },
     BattleGround {
@@ -244,7 +250,7 @@ impl ServerChatType {
 #[derive(Debug, Clone)]
 pub struct ServerChatMessage {
     pub ty: ServerChatType,
-    pub text: CString,
+    pub text: ChatText,
 }
 
 impl ServerChatMessage {

@@ -2,7 +2,10 @@ use std::num::NonZeroU32;
 
 use common::guid::{self, Guid};
 use log::error;
-use packets::character_info::{CharacterFlags, Equipment, GearInfo};
+use packets::{
+    bounded::Bounded,
+    character_info::{CharacterFlags, Equipment, GearInfo},
+};
 use sqlx::{Pool, Sqlite};
 
 pub struct CharacterSelection {
@@ -357,7 +360,8 @@ impl CharacterSelection {
     pub fn to_packet(self) -> packets::character_info::CharacterInfo {
         packets::character_info::CharacterInfo {
             guid: self.guid,
-            name: self.name,
+            name: Bounded::try_from(self.name.as_str())
+                .expect("character name exceeds the client limit"),
             race: self.race,
             class: self.class,
             gender: self.gender,

@@ -241,7 +241,7 @@ impl Server {
             attacker: attacker.into(),
             victim: victim.into(),
             total_damage: damage,
-            sub_damages: SubDamages(vec![SubDamage {
+            sub_damages: SubDamages::from_array([SubDamage {
                 school: DamageSchool::Physical,
                 damage: damage as f32,
                 int_damage: damage,

@@ -16,6 +16,7 @@ use gameobjects::{
 };
 use log::error;
 use ordered_float::NotNan;
+use packets::character_info::{CharacterList, CharacterName};
 use sqlx::{Pool, Sqlite};
 use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
@@ -824,6 +825,21 @@ impl Character {
         //TODO: all the validate_ function calls must be joined and done in parallel
         //TODO: validate name
         let name = packet.character_name.to_string_lossy().to_string();
+        if CharacterName::try_from(name.as_str()).is_err() {
+            return Err(CharacterCreateError::NameTooLong);
+        }
+
+        let num_characters = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM character WHERE account_id = ?",
+            account_id
+        )
+        .fetch_one(db)
+        .await
+        .map_err(|e| CharacterCreateError::Database(e))?;
+
+        if num_characters as usize >= CharacterList::MAX_LENGTH {
+            return Err(CharacterCreateError::AccountLimit);
+        }
         //TODO: validate skin, face, hairstyle, etc.
 
         let start_char_info = match game_data_accessor
@@ -1152,6 +1168,8 @@ pub enum CharacterCreateError {
     InvalidRace,
     InvalidClass,
     InvalidGender,
+    NameTooLong,
+    AccountLimit,
     InvalidRaceClassCombination,
     DisplayIdNotFound,
     FactionNotFound,

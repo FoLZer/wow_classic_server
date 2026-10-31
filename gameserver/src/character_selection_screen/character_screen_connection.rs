@@ -7,6 +7,7 @@ use lazy_static::lazy_static;
 use log::{error, info, warn};
 use packets::{
     account_result::AccountResult,
+    character_info::CharacterList,
     client::{ClientPacket, ParseError},
     server::ServerPacket,
 };
@@ -184,7 +185,10 @@ impl CharacterScreenConnection {
                     };
 
                     let response = packets::server::SMSG_CHAR_ENUM {
-                        characters: characters.into_iter().map(|v| v.to_packet()).collect(),
+                        characters: CharacterList::new(
+                            characters.into_iter().map(|v| v.to_packet()).collect(),
+                        )
+                        .expect("account has more characters than the client can display"),
                     };
 
                     if let Err(e) = self
@@ -269,6 +273,46 @@ impl CharacterScreenConnection {
                                 "Client (account_id: {}) tried to create a character with an invalid gender ({})",
                                 self.account_id, packet.gender
                             );
+
+                            if let Err(e) = self
+                                .stream
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
+                                .await
+                            {
+                                error!(
+                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
+                                    self.account_id, e
+                                )
+                            };
+                            continue;
+                        }
+                        Err(CharacterCreateError::NameTooLong) => {
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_NAME_TOO_LONG,
+                            };
+
+                            if let Err(e) = self
+                                .stream
+                                .write_all(
+                                    &response
+                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
+                                )
+                                .await
+                            {
+                                error!(
+                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
+                                    self.account_id, e
+                                )
+                            };
+                            continue;
+                        }
+                        Err(CharacterCreateError::AccountLimit) => {
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_CREATE_ACCOUNT_LIMIT,
+                            };
 
                             if let Err(e) = self
                                 .stream

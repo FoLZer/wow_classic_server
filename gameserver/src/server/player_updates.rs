@@ -1,4 +1,4 @@
-use std::{ffi::CString, num::NonZeroU32};
+use std::num::NonZeroU32;
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
@@ -6,15 +6,16 @@ use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable};
 use log::{error, warn};
 use packets::{
     account_result::AccountResult,
+    bounded::Bounded,
     chat_message::{ChatTag, ServerChatMessage, ServerChatType},
-    gossip::{GossipMenuItem, U32Counted},
+    gossip::{GossipMenuItem, GossipMenuItems, GossipQuestMenuItems, U32Counted},
     inventory_change_result::{InventoryChangeError, InventoryChangeErrorType},
     movement_info::{MovementFlags, MovementInfo},
     server::ServerPacket,
     update_data::{
         MovementUpdate, PositionUpdate, PossibleUpdate, UpdateBlocks, UpdateData, ValuesUpdate,
     },
-    vendor_query::{SerializedVendorItem, VendorQueryError, VendorQueryResult},
+    vendor_query::{SerializedVendorItem, VendorItems, VendorQueryError, VendorQueryResult},
 };
 use tokio::io::AsyncWriteExt;
 
@@ -671,14 +672,17 @@ impl Server {
                             let response = packets::server::SMSG_MESSAGECHAT {
                                 chat: ServerChatMessage {
                                     ty: ServerChatType::System,
-                                    text: CString::new(format!(
-                                        "Your position: (x: {}, y: {}, z: {}, orientation: {})",
-                                        character.position.0,
-                                        character.position.1,
-                                        character.position.2,
-                                        character.orientation
-                                    ))
-                                    .unwrap(),
+                                    text: Bounded::try_from(
+                                        format!(
+                                            "Your position: (x: {}, y: {}, z: {}, orientation: {})",
+                                            character.position.0,
+                                            character.position.1,
+                                            character.position.2,
+                                            character.orientation
+                                        )
+                                        .as_str(),
+                                    )
+                                    .expect("message exceeds the chat limit"),
                                 },
                             };
 
@@ -752,19 +756,22 @@ impl Server {
                     debug_assert_ne!(inventory.len(), 0);
 
                     respond(VendorQueryResult::Ok {
-                        items: inventory
-                            .iter()
-                            .enumerate()
-                            .map(|(index, item)| SerializedVendorItem {
-                                index: NonZeroU32::new(index as u32 + 1).unwrap(),
-                                item_id: item.item_id,
-                                display_id: item.display_id,
-                                num_available: item.num_available,
-                                price: item.price,
-                                durability: item.durability,
-                                purchase_amount: item.purchase_amount,
-                            })
-                            .collect(),
+                        items: VendorItems::new(
+                            inventory
+                                .iter()
+                                .enumerate()
+                                .map(|(index, item)| SerializedVendorItem {
+                                    index: NonZeroU32::new(index as u32 + 1).unwrap(),
+                                    item_id: item.item_id,
+                                    display_id: item.display_id,
+                                    num_available: item.num_available,
+                                    price: item.price,
+                                    durability: item.durability,
+                                    purchase_amount: item.purchase_amount,
+                                })
+                                .collect(),
+                        )
+                        .expect("vendor inventory exceeds the client limit"),
                     })
                     .await;
                 }
@@ -1167,14 +1174,16 @@ impl Server {
                 index: item.index,
                 icon: item.icon,
                 coded: u8::from(item.coded),
-                text: CString::new(item.text.as_str()).unwrap(),
+                text: Bounded::try_from(item.text.as_str())
+                    .expect("gossip item text exceeds the client limit"),
             })
-            .collect();
+            .collect::<Vec<_>>();
         let response = packets::server::SMSG_GOSSIP_MESSAGE {
             source: GossipSourceGuid::Unit(cursor.source_guid),
             title_id: menu.title_text_id,
-            menu_items: U32Counted(menu_items),
-            quest_menu_items: U32Counted(vec![]),
+            menu_items: GossipMenuItems::new(U32Counted(menu_items))
+                .expect("gossip menu exceeds the client limit"),
+            quest_menu_items: GossipQuestMenuItems::default(),
         };
 
         let mut lock = character.stream_tx.lock().await;

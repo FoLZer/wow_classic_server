@@ -399,6 +399,10 @@ pub struct ValuesUpdate {
     pub values_blocks: Vec<u32>,
 }
 
+impl ValuesUpdate {
+    pub const MAX_MASK_BLOCKS: usize = 41;
+}
+
 impl<T: ByteOrder> OrderedWrite<T> for ValuesUpdate {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
         let blocks = {
@@ -412,6 +416,14 @@ impl<T: ByteOrder> OrderedWrite<T> for ValuesUpdate {
             }
             &storage[0..l]
         };
+
+        assert!(
+            blocks.len() <= Self::MAX_MASK_BLOCKS,
+            "update mask has {} blocks, the client supports at most {}",
+            blocks.len(),
+            Self::MAX_MASK_BLOCKS
+        );
+
         writer.write_u8(blocks.len() as u8)?;
         for block in blocks {
             writer.write_u32::<LittleEndian>(*block)?;
