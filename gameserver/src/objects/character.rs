@@ -1,6 +1,7 @@
 use std::{collections::HashSet, num::NonZeroU32, sync::Arc};
 
 use common::guid::{self, Guid, LivingGuid};
+use gamedata::{accessor::GameDataAccessor, gossip::GossipCursor};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     player::{
@@ -22,9 +23,8 @@ use tokio::{net::tcp::OwnedWriteHalf, sync::Mutex};
 
 use crate::{
     dirty_tracking_map::DirtyTrackable,
-    game_data::GameDataAccessor,
     map_instance::InstanceId,
-    objects::{creature::MeleeState, gossip::GossipCursor, item::Item},
+    objects::{creature::MeleeState, item::Item},
 };
 
 pub mod inventory;
@@ -801,6 +801,59 @@ impl Character {
         *self.unit_fields.health.get() != 0
     }
 
+    pub async fn delete_character(
+        account_id: u32,
+        character_id: NonZeroU32,
+        db: &Pool<Sqlite>,
+    ) -> Result<(), DeleteCharacterResult> {
+        let character_id = character_id.get();
+        let mut tx = db.begin().await?;
+
+        let item_ids = sqlx::query_scalar!("SELECT id FROM item WHERE owner = ?", character_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+        sqlx::query!("UPDATE item SET owner = NULL WHERE owner = ?", character_id)
+            .execute(&mut *tx)
+            .await?;
+
+        // TODO: this probably needs to be propogated to the currently active clients
+        sqlx::query!(
+            "UPDATE item SET creator = NULL WHERE creator = ?",
+            character_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE item SET gift_creator = NULL WHERE gift_creator = ?",
+            character_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let deleted = sqlx::query!(
+            "DELETE FROM character WHERE id = ? AND account_id = ?",
+            character_id,
+            account_id
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        if deleted == 0 {
+            return Err(DeleteCharacterResult::CharacterNotFound);
+        }
+
+        for item_id in item_ids {
+            sqlx::query!("DELETE FROM item WHERE id = ?", item_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await.map_err(DeleteCharacterResult::from)
+    }
+
     pub async fn create_new_character(
         packet: &packets::client::CMSG_CHAR_CREATE,
         account_id: u32,
@@ -1161,6 +1214,17 @@ impl Character {
             .map_err(|e| CharacterCreateError::Database(e))?;
 
         Ok(())
+    }
+}
+
+pub enum DeleteCharacterResult {
+    CharacterNotFound,
+    Database(sqlx::Error),
+}
+
+impl From<sqlx::Error> for DeleteCharacterResult {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Database(e)
     }
 }
 

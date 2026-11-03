@@ -1,11 +1,10 @@
 use std::time::Instant;
 
 use common::guid::{self, LivingGuid};
+use gamedata::{creature_prototype::VendorItem, gossip::GossipMenuTree};
 use gameobjects::{object::ObjectFields, tracked_field::ClientUpdatable, unit::UnitFields};
 
-use crate::{
-    dirty_tracking_map::DirtyTrackable, map_instance::InstanceId, objects::gossip::GossipMenuTree,
-};
+use crate::{dirty_tracking_map::DirtyTrackable, map_instance::InstanceId};
 
 pub struct Creature {
     pub instance_id: InstanceId,
@@ -40,13 +39,4 @@ pub struct MeleeState {
     pub last_main_hand: Option<Instant>,
     pub last_off_hand: Option<Instant>,
     pub last_swing_error: Option<Instant>,
-}
-
-pub struct VendorItem {
-    pub item_id: u32,
-    pub display_id: u32,
-    pub num_available: Option<u32>,
-    pub price: u32,
-    pub durability: u32,
-    pub purchase_amount: u32,
 }

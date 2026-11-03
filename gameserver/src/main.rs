@@ -1,7 +1,6 @@
 mod character_selection_screen;
 mod creature_spawner;
 mod dirty_tracking_map;
-mod game_data;
 mod guid_allocator;
 mod ipc_connection;
 mod map_instance;
@@ -20,6 +19,7 @@ use std::{
 };
 
 use concurrent_queue::ConcurrentQueue;
+use gamedata::accessor::GameDataAccessor;
 use interprocess::local_socket::tokio::SendHalf;
 use ipc_comms::{
     SessionKeyResponse,
@@ -39,7 +39,6 @@ use crate::{
     character_selection_screen::character_screen_connection::{
         CharacterScreenConnection, CharacterScreenResult,
     },
-    game_data::GameDataAccessor,
     ipc_connection::start_ipc_task,
     objects::character::{Character, Loaded},
     server::Server,

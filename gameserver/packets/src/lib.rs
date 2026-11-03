@@ -8,7 +8,6 @@ pub mod chat_message;
 pub mod client;
 pub mod gossip;
 pub mod inventory_change_result;
-pub mod item_info;
 pub mod movement_info;
 pub mod packed;
 pub mod server;

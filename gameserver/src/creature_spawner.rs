@@ -1,4 +1,34 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
+
+use gamedata::accessor::GameDataAccessor;
+
+pub async fn load_creature_spawners(
+    game_data_accessor: &GameDataAccessor,
+) -> Result<HashMap<u32, Vec<CreatureSpawner>>, sqlx::Error> {
+    let static_creature_spawners = game_data_accessor.load_static_creature_spawners().await?;
+
+    Ok(static_creature_spawners
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k,
+                v.into_iter()
+                    .map(|v| {
+                        CreatureSpawner::Static(StaticCreatureSpawner::new(
+                            v.position,
+                            v.orientation,
+                            v.spawn_creature_id,
+                            v.respawn_time,
+                        ))
+                    })
+                    .collect(),
+            )
+        })
+        .collect())
+}
 
 pub enum CreatureSpawner {
     Static(StaticCreatureSpawner),

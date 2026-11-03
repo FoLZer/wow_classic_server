@@ -3,6 +3,7 @@ use std::ffi::CString;
 use bitfield_struct::bitfield;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use common::guid::{self, Guid, GuidType};
+use gamedata::equipment_slot::{VisibleEquipment, VisibleItem};
 
 use crate::{bounded::Bounded, server::OrderedWrite};
 
@@ -33,7 +34,7 @@ pub struct CharacterInfo {
     pub pet_display_id: u32,
     pub pet_level: u32,
     pub pet_family: u32,
-    pub equipment: Equipment,
+    pub equipment: VisibleEquipment,
     pub first_bag_display_id: u32,
     pub first_bag_inventory_type: u8,
 }
@@ -52,35 +53,6 @@ pub struct CharacterFlags {
     pub locked_awaiting_rename: bool,
     #[bits(17)]
     _unkn: u32,
-}
-
-#[derive(Clone)]
-pub struct Equipment {
-    pub head: GearInfo,
-    pub neck: GearInfo,
-    pub shoulders: GearInfo,
-    pub body: GearInfo,
-    pub chest: GearInfo,
-    pub waist: GearInfo,
-    pub legs: GearInfo,
-    pub feet: GearInfo,
-    pub wrists: GearInfo,
-    pub hands: GearInfo,
-    pub finger1: GearInfo,
-    pub finger2: GearInfo,
-    pub trinket1: GearInfo,
-    pub trinket2: GearInfo,
-    pub back: GearInfo,
-    pub mainhand: GearInfo,
-    pub offhand: GearInfo,
-    pub ranged: GearInfo,
-    pub tabard: GearInfo,
-}
-
-#[derive(Clone, Default)]
-pub struct GearInfo {
-    pub display_id: u32,
-    pub inventory_type: u8,
 }
 
 impl<T: ByteOrder> OrderedWrite<T> for CharacterInfo {
@@ -107,7 +79,7 @@ impl<T: ByteOrder> OrderedWrite<T> for CharacterInfo {
         <u32 as OrderedWrite<LittleEndian>>::write(&self.pet_display_id, writer)?;
         <u32 as OrderedWrite<LittleEndian>>::write(&self.pet_level, writer)?;
         <u32 as OrderedWrite<LittleEndian>>::write(&self.pet_family, writer)?;
-        <Equipment as OrderedWrite<LittleEndian>>::write(&self.equipment, writer)?;
+        <VisibleEquipment as OrderedWrite<LittleEndian>>::write(&self.equipment, writer)?;
         <u32 as OrderedWrite<LittleEndian>>::write(&self.first_bag_display_id, writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.first_bag_inventory_type, writer)?;
 
@@ -121,35 +93,45 @@ impl<T: ByteOrder, Type: GuidType> OrderedWrite<T> for Guid<Type> {
     }
 }
 
-impl<T: ByteOrder> OrderedWrite<T> for Equipment {
+impl<T: ByteOrder> OrderedWrite<T> for VisibleEquipment {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.head, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.neck, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.shoulders, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.body, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.chest, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.waist, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.legs, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.feet, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.wrists, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.hands, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.finger1, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.finger2, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.trinket1, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.trinket2, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.back, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.mainhand, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.offhand, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.ranged, writer)?;
-        <GearInfo as OrderedWrite<LittleEndian>>::write(&self.tabard, writer)?;
+        let slots = [
+            &self.head,
+            &self.neck,
+            &self.shoulders,
+            &self.body,
+            &self.chest,
+            &self.waist,
+            &self.legs,
+            &self.feet,
+            &self.wrists,
+            &self.hands,
+            &self.finger1,
+            &self.finger2,
+            &self.trinket1,
+            &self.trinket2,
+            &self.back,
+            &self.mainhand,
+            &self.offhand,
+            &self.ranged,
+            &self.tabard,
+        ];
+        for slot in slots {
+            if let Some(v) = slot {
+                <VisibleItem as OrderedWrite<LittleEndian>>::write(v, writer)?;
+            } else {
+                <u32 as OrderedWrite<LittleEndian>>::write(&0, writer)?;
+                <u8 as OrderedWrite<LittleEndian>>::write(&0, writer)?;
+            }
+        }
 
         Ok(())
     }
 }
 
-impl<T: ByteOrder> OrderedWrite<T> for GearInfo {
+impl<T: ByteOrder> OrderedWrite<T> for VisibleItem {
     fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
-        <u32 as OrderedWrite<LittleEndian>>::write(&self.display_id, writer)?;
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.display_id.get(), writer)?;
         <u8 as OrderedWrite<LittleEndian>>::write(&self.inventory_type, writer)?;
 
         Ok(())

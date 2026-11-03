@@ -1,11 +1,9 @@
 use std::num::NonZeroU32;
 
 use common::guid::{self, Guid};
+use gamedata::equipment_slot::{VisibleEquipment, VisibleItem};
 use log::error;
-use packets::{
-    bounded::Bounded,
-    character_info::{CharacterFlags, Equipment, GearInfo},
-};
+use packets::{bounded::Bounded, character_info::CharacterFlags};
 use sqlx::{Pool, Sqlite};
 
 pub struct CharacterSelection {
@@ -64,289 +62,97 @@ impl CharacterSelection {
                 first_login: model.first_login,
                 equipment: EquipmentVisualItems {
                     head: if let Some(id) = model.equipment_head_id {
-                        // This only works atm because server DB and game data DB are the same, in future this will require to be rewritten
-                        match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     neck: if let Some(id) = model.equipment_neck_id {
-                        // This only works atm because server DB and game data DB are the same, in future this will require to be rewritten
-                        match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     shoulders: if let Some(id) = model.equipment_shoulders_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     body: if let Some(id) = model.equipment_body_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     chest: if let Some(id) = model.equipment_chest_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     waist: if let Some(id) = model.equipment_waist_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     legs: if let Some(id) = model.equipment_legs_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     feet: if let Some(id) = model.equipment_feet_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     wrists: if let Some(id) = model.equipment_wrists_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     hands: if let Some(id) = model.equipment_hands_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     finger1: if let Some(id) = model.equipment_finger1_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     finger2: if let Some(id) = model.equipment_finger2_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     trinket1: if let Some(id) = model.equipment_trinket1_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     trinket2: if let Some(id) = model.equipment_trinket2_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     back: if let Some(id) = model.equipment_back_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     mainhand: if let Some(id) = model.equipment_mainhand_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     offhand: if let Some(id) = model.equipment_offhand_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     ranged: if let Some(id) = model.equipment_ranged_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
                     tabard: if let Some(id) = model.equipment_tabard_id {
-                       match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
-                            Ok(v) => Some(VisualItem {
-                                display_id: v.display_id as u32,
-                                inventory_type: v.inventory_type as u8
-                            }),
-                            Err(sqlx::Error::RowNotFound) => {
-                                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
-                                None
-                            },
-                            Err(e) => return Err(e)
-                        }
+                        VisualItem::load(db, id).await?
                     } else {
                         None
                     },
@@ -376,222 +182,89 @@ impl CharacterSelection {
             position_x: self.position_x,
             position_y: self.position_y,
             position_z: self.position_z,
-            guild_id: self.guild_id.map_or(0, |v| v.get()),
+            guild_id: self.guild_id.map_or(0, |v: std::num::NonZero<u32>| v.get()),
             flags: self.flags,
             first_login: self.first_login,
             pet_display_id: 0, // TODO
             pet_level: 0,
             pet_family: 0,
-            equipment: Equipment {
-                head: if let Some(v) = self.equipment.head {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                neck: if let Some(v) = self.equipment.neck {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                shoulders: if let Some(v) = self.equipment.shoulders {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                body: if let Some(v) = self.equipment.body {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                chest: if let Some(v) = self.equipment.chest {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                waist: if let Some(v) = self.equipment.waist {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                legs: if let Some(v) = self.equipment.legs {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                feet: if let Some(v) = self.equipment.feet {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                wrists: if let Some(v) = self.equipment.wrists {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                hands: if let Some(v) = self.equipment.hands {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                finger1: if let Some(v) = self.equipment.finger1 {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                finger2: if let Some(v) = self.equipment.finger2 {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                trinket1: if let Some(v) = self.equipment.trinket1 {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                trinket2: if let Some(v) = self.equipment.trinket2 {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                back: if let Some(v) = self.equipment.back {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                mainhand: if let Some(v) = self.equipment.mainhand {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                offhand: if let Some(v) = self.equipment.offhand {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                ranged: if let Some(v) = self.equipment.ranged {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
-                tabard: if let Some(v) = self.equipment.tabard {
-                    GearInfo {
-                        display_id: v.display_id,
-                        inventory_type: v.inventory_type,
-                    }
-                } else {
-                    GearInfo {
-                        display_id: 0,
-                        inventory_type: 0,
-                    }
-                },
+            equipment: VisibleEquipment {
+                head: self.equipment.head.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                neck: self.equipment.neck.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                shoulders: self.equipment.shoulders.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                body: self.equipment.body.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                chest: self.equipment.chest.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                waist: self.equipment.waist.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                legs: self.equipment.legs.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                feet: self.equipment.feet.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                wrists: self.equipment.wrists.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                hands: self.equipment.hands.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                finger1: self.equipment.finger1.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                finger2: self.equipment.finger2.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                trinket1: self.equipment.trinket1.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                trinket2: self.equipment.trinket2.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                back: self.equipment.back.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                mainhand: self.equipment.mainhand.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                offhand: self.equipment.offhand.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                ranged: self.equipment.ranged.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
+                tabard: self.equipment.tabard.map(|v| VisibleItem {
+                    display_id: v.display_id,
+                    inventory_type: v.inventory_type,
+                }),
             },
             first_bag_display_id: 0, // TODO
             first_bag_inventory_type: 0,
@@ -622,6 +295,23 @@ pub struct EquipmentVisualItems {
 }
 
 pub struct VisualItem {
-    pub display_id: u32,
+    pub display_id: NonZeroU32,
     pub inventory_type: u8,
+}
+
+impl VisualItem {
+    async fn load(db: &Pool<Sqlite>, id: i64) -> Result<Option<Self>, sqlx::Error> {
+        // This only works atm because server DB and game data DB are the same, in future this will require to be rewritten
+        match sqlx::query!("SELECT display_id, inventory_type FROM item JOIN item_prototype ON item.prototype_id = item_prototype.id WHERE item.id = ?", id).fetch_one(db).await {
+            Ok(v) => Ok(Some(Self {
+                display_id: NonZeroU32::new(v.display_id as u32).unwrap(),
+                inventory_type: v.inventory_type as u8
+            })),
+            Err(sqlx::Error::RowNotFound) => {
+                error!("Tried to load an item without a prototype in the database! (item_id: {})", id);
+                Ok(None)
+            },
+            Err(e) => return Err(e)
+        }
+    }
 }

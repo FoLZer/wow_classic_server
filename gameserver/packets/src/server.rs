@@ -5,6 +5,7 @@ use std::{ffi::CString, io::Write, num::NonZeroU32};
 use byteorder::{BigEndian, ByteOrder, LittleEndian, WriteBytesExt};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid};
+use gamedata::item_prototype::{ItemDamage, ItemFlags, ItemSpell, ItemStat};
 use macros::create_server_packets;
 
 use crate::{
@@ -15,7 +16,6 @@ use crate::{
     chat_message::ServerChatMessage,
     gossip::{GossipMenuItems, GossipQuestMenuItems, NpcTextOption, U32Counted},
     inventory_change_result::InventoryChangeError,
-    item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat},
     movement_info::MovementInfo,
     packed::Packed,
     stabled_pets::StabledPets,
@@ -514,5 +514,54 @@ impl<T: ByteOrder> OrderedWrite<T> for Option<QuestStatus> {
 
     fn serialized_size(&self) -> usize {
         size_of::<u32>()
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for ItemStat {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.ty, writer)?;
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.value, writer)?;
+
+        Ok(())
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for ItemDamage {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.min, writer)?;
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.max, writer)?;
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.ty, writer)?;
+
+        Ok(())
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for Option<ItemSpell> {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        if let Some(v) = self {
+            <u32 as OrderedWrite<LittleEndian>>::write(&v.id, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&v.trigger, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&v.charges, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&v.cooldown, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&v.category, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&v.category_cooldown, writer)?;
+        } else {
+            <u32 as OrderedWrite<LittleEndian>>::write(&0, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&0, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&0, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&u32::MAX, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&0, writer)?;
+            <u32 as OrderedWrite<LittleEndian>>::write(&u32::MAX, writer)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<T: ByteOrder> OrderedWrite<T> for ItemFlags {
+    fn write(&self, writer: &mut Vec<u8>) -> std::io::Result<()> {
+        <u32 as OrderedWrite<LittleEndian>>::write(&self.into_bits(), writer)?;
+
+        Ok(())
     }
 }

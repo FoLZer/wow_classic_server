@@ -1,4 +1,9 @@
 use common::guid::{self, Guid};
+use gamedata::{
+    accessor::GameDataAccessor,
+    equipment_slot::EquipmentSlot,
+    item_prototype::{InventoryType, ItemClass, ItemPrototype},
+};
 use gameobjects::player::VisibleItemFields;
 use ordered_float::NotNan;
 use packets::{
@@ -8,13 +13,8 @@ use packets::{
 use sqlx::{Pool, Sqlite, SqliteExecutor, Transaction};
 
 use crate::{
-    game_data::GameDataAccessor,
-    objects::{
-        character::Character,
-        item::Item,
-        item_prototype::{InventoryType, ItemClass, ItemPrototype},
-    },
-    packet_handler::{EquipmentSlot, Slot},
+    objects::{character::Character, item::Item},
+    packet_handler::Slot,
 };
 
 #[derive(Debug, Clone, Copy)]

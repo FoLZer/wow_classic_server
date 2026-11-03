@@ -1,0 +1,17 @@
+[package]
+name = "gamedata"
+version = "0.1.0"
+authors = ["FoLZer <folzer.se@gmail.com>"]
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+log = "0.4.33"
+sqlx = { version = "0.9.0", features = [
+    "runtime-tokio",
+    "sqlite",
+    "macros",
+    "migrate",
+] }
+common = { path = "../common" }
+bitfield-struct = "0.13.0"

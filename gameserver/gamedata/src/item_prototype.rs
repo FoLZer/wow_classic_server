@@ -1,10 +1,10 @@
 use std::num::NonZeroU32;
 
+use bitfield_struct::bitfield;
 use common::guid::{self, Guid};
-use packets::item_info::{ItemDamage, ItemFlags, ItemSpell, ItemStat};
 use sqlx::{Pool, Sqlite, SqliteExecutor};
 
-use crate::packet_handler::EquipmentSlot;
+use crate::equipment_slot::EquipmentSlot;
 
 #[derive(Debug)]
 pub struct ItemPrototype {
@@ -307,19 +307,34 @@ impl ItemPrototype {
             false, //TODO
             false, //TODO
             false, //TODO
-            0, //TODO: random_properties_id
-            0, //TODO: item_text_id
+            0,     //TODO: random_properties_id
+            0,     //TODO: item_text_id
             self.max_durability,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         )
         .execute(db)
-        .await?.last_insert_rowid();
+        .await?
+        .last_insert_rowid();
 
         Ok(id as u32)
     }
@@ -516,4 +531,52 @@ impl InventoryType {
             Self::NonEquip | Self::Bag | Self::Ammo | Self::Quiver => &[],
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ItemStat {
+    pub ty: u32,
+    pub value: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ItemDamage {
+    pub min: u32,
+    pub max: u32,
+    pub ty: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ItemSpell {
+    pub id: u32,
+    pub trigger: u32,
+    pub charges: u32,
+    pub cooldown: u32,
+    pub category: u32,
+    pub category_cooldown: u32,
+}
+
+#[bitfield(u32)]
+pub struct ItemFlags {
+    _reserved: bool,
+    pub conjured: bool,
+    pub lootable: bool,
+    _unused: bool, //ITEM_FLAG_WRAPPED
+    pub deprecated: bool,
+    pub indestructible: bool,
+    pub usable: bool,
+    pub no_equip_cooldown: bool,
+    _reserved: bool,
+    pub wrapper: bool,
+    pub stackable: bool,
+    pub party_loot: bool,
+    _reserved: bool,
+    pub guild_charter: bool,
+    pub letter: bool,
+    pub pvp_reward: bool,
+    _unknown: bool,
+    _unknown: bool,
+
+    #[bits(14)]
+    _unused: u16,
 }

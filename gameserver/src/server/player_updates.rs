@@ -2,6 +2,7 @@ use std::num::NonZeroU32;
 
 use bit_vec::BitVec;
 use common::guid::{self, AnyGuid, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
+use gamedata::gossip::GossipCursor;
 use gameobjects::{player::TutorialFlags, tracked_field::ClientUpdatable};
 use log::{error, warn};
 use packets::{
@@ -27,7 +28,6 @@ use crate::{
             inventory::{InventoryChanges, InventoryOperation, MoveItemError},
         },
         creature::MeleeState,
-        gossip::GossipCursor,
     },
     packet_handler::{ChatMessage, Command, MovementOpcode, PlayerUpdateData, packet_handler},
     server::Server,

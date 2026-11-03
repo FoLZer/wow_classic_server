@@ -1,6 +1,7 @@
 use std::{collections::HashMap, io::ErrorKind, sync::Arc};
 
 use common::guid::{self, Guid};
+use gamedata::accessor::GameDataAccessor;
 use interprocess::local_socket::tokio::SendHalf;
 use ipc_comms::{AuthServerIpcMessage, SessionKeyResponse};
 use lazy_static::lazy_static;
@@ -22,8 +23,7 @@ use tokio::{
 
 use crate::{
     character_selection_screen::character_selection::CharacterSelection,
-    game_data::GameDataAccessor,
-    objects::character::{Character, CharacterCreateError, Loaded},
+    objects::character::{Character, CharacterCreateError, DeleteCharacterResult, Loaded},
 };
 
 lazy_static! {
@@ -43,6 +43,21 @@ pub struct CharacterScreenConnection {
 }
 
 impl CharacterScreenConnection {
+    async fn send_packet<T: ServerPacket>(&mut self, response: T) {
+        if let Err(e) = self
+            .stream
+            .write_all(&response.to_bytes(Some(self.session_key), &mut self.encrypt_data))
+            .await
+        {
+            error!(
+                "Failed to send {} to client (account_id: {}). Error: {:?}",
+                T::PACKET_NAME,
+                self.account_id,
+                e
+            )
+        };
+    }
+
     pub async fn authenticate(
         mut stream: TcpStream,
         player_session_keys: Arc<Mutex<HashMap<String, SessionKeyResponse>>>,
@@ -191,18 +206,7 @@ impl CharacterScreenConnection {
                         .expect("account has more characters than the client can display"),
                     };
 
-                    if let Err(e) = self
-                        .stream
-                        .write_all(
-                            &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                        )
-                        .await
-                    {
-                        warn!(
-                            "Failed to send SMSG_CHAR_ENUM to client (account_id: {}). Error: {:?}",
-                            self.account_id, e
-                        )
-                    };
+                    self.send_packet(response).await;
                 }
                 ClientPacket::CMSG_CHAR_CREATE(packet) => {
                     match Character::create_new_character(
@@ -215,78 +219,42 @@ impl CharacterScreenConnection {
                     {
                         Ok(_) => (),
                         Err(CharacterCreateError::InvalidRace) => {
-                            let response = packets::server::SMSG_CHAR_CREATE {
-                                result: AccountResult::CHAR_CREATE_ERROR,
-                            };
-
                             warn!(
                                 "Client (account_id: {}) tried to create a character with an invalid race ({})",
                                 self.account_id, packet.race
                             );
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                        Err(CharacterCreateError::InvalidClass) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
 
+                            self.send_packet(response).await;
+                            continue;
+                        }
+                        Err(CharacterCreateError::InvalidClass) => {
                             warn!(
                                 "Client (account_id: {}) tried to create a character with an invalid class ({})",
                                 self.account_id, packet.class
                             );
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                        Err(CharacterCreateError::InvalidGender) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
 
+                            self.send_packet(response).await;
+                            continue;
+                        }
+                        Err(CharacterCreateError::InvalidGender) => {
                             warn!(
                                 "Client (account_id: {}) tried to create a character with an invalid gender ({})",
                                 self.account_id, packet.gender
                             );
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_CREATE_ERROR,
                             };
+
+                            self.send_packet(response).await;
                             continue;
                         }
                         Err(CharacterCreateError::NameTooLong) => {
@@ -294,19 +262,7 @@ impl CharacterScreenConnection {
                                 result: AccountResult::CHAR_NAME_TOO_LONG,
                             };
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
+                            self.send_packet(response).await;
                             continue;
                         }
                         Err(CharacterCreateError::AccountLimit) => {
@@ -314,115 +270,56 @@ impl CharacterScreenConnection {
                                 result: AccountResult::CHAR_CREATE_ACCOUNT_LIMIT,
                             };
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
+                            self.send_packet(response).await;
                             continue;
                         }
                         Err(CharacterCreateError::InvalidRaceClassCombination) => {
-                            let response = packets::server::SMSG_CHAR_CREATE {
-                                result: AccountResult::CHAR_CREATE_ERROR,
-                            };
-
                             warn!(
                                 "Client (account_id: {}) tried to create a character with an invalid race+class pair (race {} + class {})",
                                 self.account_id, packet.race, packet.class
                             );
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                        Err(CharacterCreateError::DisplayIdNotFound) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
 
+                            self.send_packet(response).await;
+                            continue;
+                        }
+                        Err(CharacterCreateError::DisplayIdNotFound) => {
                             warn!(
                                 "Client (account_id: {}) tried to create a character with a race+gender pair without assigned display_id (race {} + gender {})",
                                 self.account_id, packet.race, packet.gender
                             );
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                        Err(CharacterCreateError::FactionNotFound) => {
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_ERROR,
                             };
 
+                            self.send_packet(response).await;
+                            continue;
+                        }
+                        Err(CharacterCreateError::FactionNotFound) => {
                             warn!(
                                 "Client (account_id: {}) tried to create a character with a race without assigned faction (race {})",
                                 self.account_id, packet.race
                             );
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
+                            let response = packets::server::SMSG_CHAR_CREATE {
+                                result: AccountResult::CHAR_CREATE_ERROR,
                             };
+
+                            self.send_packet(response).await;
                             continue;
                         }
                         Err(CharacterCreateError::Database(e)) => {
                             error!("Character creation failed due to a DB error. Error: {}", e);
+
                             let response = packets::server::SMSG_CHAR_CREATE {
                                 result: AccountResult::CHAR_CREATE_FAILED,
                             };
 
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
+                            self.send_packet(response).await;
                             continue;
                         }
                     };
@@ -437,198 +334,71 @@ impl CharacterScreenConnection {
                         result: AccountResult::CHAR_CREATE_SUCCESS,
                     };
 
-                    if let Err(e) = self
-                        .stream
-                        .write_all(
-                            &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                        )
-                        .await
-                    {
-                        warn!(
-                            "Failed to send SMSG_CHAR_CREATE to client (account_id: {}). Error: {:?}",
-                            self.account_id, e
-                        )
-                    };
+                    self.send_packet(response).await;
                 }
                 ClientPacket::CMSG_CHAR_DELETE(packet) => {
                     let Some(guid) = Guid::<guid::Player>::try_from_u64(packet.character_guid)
                     else {
-                        let response = packets::server::SMSG_CHAR_DELETE {
-                            result: AccountResult::CHAR_DELETE_FAILED,
-                        };
-
                         warn!(
                             "Client (account_id: {}) tried to delete a character with an invalid guid ({})",
                             self.account_id, packet.character_guid
                         );
 
-                        if let Err(e) = self
-                            .stream
-                            .write_all(
-                                &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                            )
-                            .await
-                        {
-                            error!(
-                                "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
-                                self.account_id, e
-                            )
+                        let response = packets::server::SMSG_CHAR_DELETE {
+                            result: AccountResult::CHAR_DELETE_FAILED,
                         };
+
+                        self.send_packet(response).await;
                         continue;
                     };
                     let character_id = guid.get_u32();
-                    match sqlx::query_scalar!(
-                        "SELECT EXISTS(SELECT 1 FROM character WHERE id = ? AND account_id = ?)",
+
+                    let result = match Character::delete_character(
+                        self.account_id,
                         character_id,
-                        self.account_id
+                        &self.db,
                     )
-                    .fetch_one(&self.db)
                     .await
                     {
-                        Ok(_) => (),
-                        Err(sqlx::Error::RowNotFound) => {
-                            let response = packets::server::SMSG_CHAR_DELETE {
-                                result: AccountResult::CHAR_DELETE_FAILED,
-                            };
-
-                            warn!(
-                                "Client (account_id: {}) tried to delete a character that doesn't exist or not from their account (guid: {})",
-                                self.account_id,
-                                guid.get_u32()
-                            );
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to get client's character due to a DB error (account_id: {}, character_id: {}). Error: {}",
-                                self.account_id,
-                                guid.get_u32(),
-                                e
-                            );
-                            let response = packets::server::SMSG_CHAR_DELETE {
-                                result: AccountResult::CHAR_DELETE_FAILED,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                error!(
-                                    "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
-                        }
-                    }
-
-                    // Race condition here but it generally doesn't matter, the next statement is going to fail by deleting 0 rows in the race condition case
-
-                    match sqlx::query!(
-                        "DELETE FROM character WHERE id = ? AND account_id = ?",
-                        character_id,
-                        self.account_id
-                    )
-                    .execute(&self.db)
-                    .await
-                    {
-                        Ok(_) => {
+                        Ok(()) => {
                             info!(
                                 "Client (account_id: {}) has deleted a character (character_id: {})",
-                                self.account_id,
-                                guid.get_u32()
+                                self.account_id, character_id
                             );
-
-                            let response = packets::server::SMSG_CHAR_DELETE {
-                                result: AccountResult::CHAR_DELETE_SUCCESS,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
+                            AccountResult::CHAR_DELETE_SUCCESS
                         }
-                        Err(e) => {
+                        Err(DeleteCharacterResult::CharacterNotFound) => {
+                            warn!(
+                                "Client (account_id: {}) tried to delete a character that doesn't exist or not from their account (guid: {})",
+                                self.account_id, character_id
+                            );
+                            AccountResult::CHAR_DELETE_FAILED
+                        }
+                        Err(DeleteCharacterResult::Database(e)) => {
                             error!(
                                 "Failed to delete client's character due to a DB error (account_id: {}, character_id: {}). Error: {}",
-                                self.account_id,
-                                guid.get_u32(),
-                                e
+                                self.account_id, character_id, e
                             );
-
-                            let response = packets::server::SMSG_CHAR_DELETE {
-                                result: AccountResult::CHAR_DELETE_FAILED,
-                            };
-
-                            if let Err(e) = self
-                                .stream
-                                .write_all(
-                                    &response
-                                        .to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                                )
-                                .await
-                            {
-                                warn!(
-                                    "Failed to send SMSG_CHAR_DELETE to client (account_id: {}). Error: {:?}",
-                                    self.account_id, e
-                                )
-                            };
-                            continue;
+                            AccountResult::CHAR_DELETE_FAILED
                         }
                     };
+
+                    let response = packets::server::SMSG_CHAR_DELETE { result };
+                    self.send_packet(response).await;
                 }
                 ClientPacket::CMSG_PLAYER_LOGIN(packet) => {
                     let Some(guid) = Guid::<guid::Player>::try_from_u64(packet.character_guid)
                     else {
-                        let response = packets::server::SMSG_CHAR_LOGIN_FAILED {
-                            result: AccountResult::CHAR_LOGIN_NO_CHARACTER,
-                        };
-
                         warn!(
                             "Client (account_id: {}) tried to log into a character with an invalid guid ({})",
                             self.account_id, packet.character_guid
                         );
 
-                        if let Err(e) = self
-                            .stream
-                            .write_all(
-                                &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                            )
-                            .await
-                        {
-                            error!(
-                                "Failed to send SMSG_CHAR_LOGIN_FAILED to client (account_id: {}). Error: {:?}",
-                                self.account_id, e
-                            )
+                        let response = packets::server::SMSG_CHAR_LOGIN_FAILED {
+                            result: AccountResult::CHAR_LOGIN_NO_CHARACTER,
                         };
+
+                        self.send_packet(response).await;
                         continue;
                     };
 
@@ -639,18 +409,7 @@ impl CharacterScreenConnection {
                         sequence_id: packet.sequence_id,
                     };
 
-                    if let Err(e) = self
-                        .stream
-                        .write_all(
-                            &response.to_bytes(Some(self.session_key), &mut self.encrypt_data),
-                        )
-                        .await
-                    {
-                        warn!(
-                            "Failed to send SMSG_PONG to client (account_id: {}). Error: {:?}",
-                            self.account_id, e
-                        )
-                    };
+                    self.send_packet(response).await;
                 }
                 // The client sends 2 CMSG_CANCEL_TRADE after SMSG_LOGOUT_COMPLETE
                 // this handler must ignore this packet as we'll handle cancelling trades serverside

@@ -1,4 +1,5 @@
 use common::guid::{self, Guid};
+use gamedata::{accessor::GameDataAccessor, creature_prototype::CreaturePrototype};
 use gameobjects::{
     object::{ObjectFields, TypeBitField},
     unit::{
@@ -14,10 +15,9 @@ use rand::{RngExt, rng};
 use crate::{
     creature_spawner::{CreatureSpawnInfo, CreatureSpawner},
     dirty_tracking_map::DirtyTrackingMap,
-    game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
     map_instance::InstanceId,
-    objects::{creature::Creature, creature_prototype::CreaturePrototype},
+    objects::creature::Creature,
     server::Server,
     sparse_set::SparseSet,
 };

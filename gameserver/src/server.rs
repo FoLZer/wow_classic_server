@@ -13,14 +13,15 @@ use std::{
 use chrono::{DateTime, Local, TimeDelta};
 use common::guid::{self, Guid};
 use concurrent_queue::ConcurrentQueue;
+use gamedata::accessor::GameDataAccessor;
 use log::{info, warn};
 use packets::server::ServerPacket;
 use sqlx::{Pool, Sqlite};
 use tokio::{io::AsyncWriteExt, net::tcp::OwnedReadHalf, sync::mpsc};
 
 use crate::{
+    creature_spawner,
     dirty_tracking_map::DirtyTrackingMap,
-    game_data::GameDataAccessor,
     guid_allocator::GuidAllocator,
     map_instance::{InstanceId, MapInstance},
     objects::{
@@ -82,7 +83,8 @@ impl Server {
         info!("Started server world loading.");
 
         let always_loaded_maps = game_data_accessor.load_always_loaded_maps().await?;
-        let mut creature_spawners = game_data_accessor.load_creature_spawners().await?;
+        let mut creature_spawners =
+            creature_spawner::load_creature_spawners(&game_data_accessor).await?;
 
         info!(
             "Creature spawners loaded in {} ms. Spawners loaded: {}",

@@ -2,10 +2,7 @@ use std::num::NonZeroU32;
 
 use sqlx::{Pool, Sqlite};
 
-use crate::{
-    game_data::GameDataAccessor,
-    objects::{creature::VendorItem, gossip::GossipMenuTree, item_prototype::ItemPrototype},
-};
+use crate::{accessor::GameDataAccessor, gossip::GossipMenuTree, item_prototype::ItemPrototype};
 
 pub struct CreaturePrototype {
     pub health: Option<u32>,
@@ -143,4 +140,13 @@ impl CreaturePrototype {
             gossip_menu,
         })
     }
+}
+
+pub struct VendorItem {
+    pub item_id: u32,
+    pub display_id: u32,
+    pub num_available: Option<u32>,
+    pub price: u32,
+    pub durability: u32,
+    pub purchase_amount: u32,
 }

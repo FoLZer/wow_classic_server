@@ -4212,6 +4212,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gamedata"
+version = "0.1.0"
+dependencies = [
+ "bitfield-struct",
+ "common",
+ "log",
+ "sqlx",
+]
+
+[[package]]
 name = "gameobjects"
 version = "0.1.0"
 dependencies = [
@@ -4232,6 +4242,7 @@ dependencies = [
  "common",
  "concurrent-queue",
  "confy",
+ "gamedata",
  "gameobjects",
  "hex",
  "interprocess",
@@ -6702,6 +6713,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "common",
+ "gamedata",
  "lazy_static",
  "macros",
  "tokio",

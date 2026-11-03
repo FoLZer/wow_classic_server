@@ -3,6 +3,10 @@ use std::{ffi::CString, io::ErrorKind, sync::Arc};
 use chrono::Local;
 use common::guid::{self, GossipSourceGuid, Guid, LivingGuid, SelectableGuid};
 use concurrent_queue::ConcurrentQueue;
+use gamedata::{
+    accessor::{GameDataAccessor, ValidLanguage},
+    equipment_slot::EquipmentSlot,
+};
 use gameobjects::{
     player::TutorialFlags,
     unit::{SheathState, StandStateType},
@@ -26,10 +30,7 @@ use tokio::{
     sync::Mutex,
 };
 
-use crate::{
-    game_data::{GameDataAccessor, ValidLanguage},
-    objects::character::inventory::InventoryOperation,
-};
+use crate::objects::character::inventory::InventoryOperation;
 
 pub async fn packet_handler(
     mut rx: OwnedReadHalf,
@@ -1558,54 +1559,6 @@ async fn send_inventory_change_failure(
             e
         )
     };
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum EquipmentSlot {
-    Head = 0,
-    Neck = 1,
-    Shoulders = 2,
-    Body = 3,
-    Chest = 4,
-    Waist = 5,
-    Legs = 6,
-    Feet = 7,
-    Wrists = 8,
-    Hands = 9,
-    Finger1 = 10,
-    Finger2 = 11,
-    Trinket1 = 12,
-    Trinket2 = 13,
-    Back = 14,
-    MainHand = 15,
-    OffHand = 16,
-    Ranged = 17,
-    Tabard = 18,
-}
-
-impl EquipmentSlot {
-    pub const ALL: [EquipmentSlot; 19] = [
-        Self::Head,
-        Self::Neck,
-        Self::Shoulders,
-        Self::Body,
-        Self::Chest,
-        Self::Waist,
-        Self::Legs,
-        Self::Feet,
-        Self::Wrists,
-        Self::Hands,
-        Self::Finger1,
-        Self::Finger2,
-        Self::Trinket1,
-        Self::Trinket2,
-        Self::Back,
-        Self::MainHand,
-        Self::OffHand,
-        Self::Ranged,
-        Self::Tabard,
-    ];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

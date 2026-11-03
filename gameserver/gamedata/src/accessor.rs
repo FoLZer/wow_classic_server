@@ -1,14 +1,11 @@
 use std::{collections::HashMap, fmt::Display, time::Duration};
 
 use log::error;
-use packets::character_info::GearInfo;
 use sqlx::{Pool, Sqlite};
 
 use crate::{
-    creature_spawner::{CreatureSpawner, StaticCreatureSpawner},
-    objects::{
-        creature_prototype::CreaturePrototype, gossip::NpcText, item_prototype::ItemPrototype,
-    },
+    creature_prototype::CreaturePrototype, equipment_slot::VisibleItem, gossip::NpcText,
+    item_prototype::ItemPrototype,
 };
 
 // This exists to provide an ability to switch data backend later if needed
@@ -493,10 +490,10 @@ impl GameDataAccessor {
         Ok(maps)
     }
 
-    pub async fn load_creature_spawners(
+    pub async fn load_static_creature_spawners(
         &self,
-    ) -> Result<HashMap<u32, Vec<CreatureSpawner>>, sqlx::Error> {
-        let mut spawners: HashMap<u32, Vec<CreatureSpawner>> = HashMap::new();
+    ) -> Result<HashMap<u32, Vec<StaticCreatureSpawner>>, sqlx::Error> {
+        let mut spawners: HashMap<u32, Vec<StaticCreatureSpawner>> = HashMap::new();
 
         for v in sqlx::query!("SELECT * FROM creature_spawner_static",)
             .fetch_all(&self.db)
@@ -505,20 +502,29 @@ impl GameDataAccessor {
             spawners
                 .entry(v.map as u32)
                 .or_default()
-                .push(CreatureSpawner::Static(StaticCreatureSpawner::new(
-                    (
+                .push(StaticCreatureSpawner {
+                    position: (
                         v.position_x as f32,
                         v.position_y as f32,
                         v.position_z as f32,
                     ),
-                    v.orientation as f32,
-                    v.spawn_creature_id as u32,
-                    Duration::from_millis(v.respawn_time as u64),
-                )));
+                    orientation: v.orientation as f32,
+                    spawn_creature_id: v.spawn_creature_id as u32,
+                    respawn_time: Duration::from_millis(v.respawn_time as u64),
+                });
         }
 
         Ok(spawners)
     }
+}
+
+pub struct StaticCreatureSpawner {
+    pub position: (f32, f32, f32),
+    pub orientation: f32,
+
+    pub spawn_creature_id: u32,
+
+    pub respawn_time: Duration,
 }
 
 pub struct CharacterStartData {
@@ -530,7 +536,7 @@ pub struct CharacterStartData {
     pub start_equipment: StartEquipment,
 
     //Any other equipment that should be put in player's bag
-    pub other_equipment: Vec<GearInfo>,
+    pub other_equipment: Vec<VisibleItem>,
 }
 
 #[derive(Debug)]
